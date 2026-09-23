@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CARE-MATCH"
+description = "A warm, trustworthy web platform that connects older adults and their families with suitable at-home caregivers through personalized care profiles, smart matching, CARE SCORE trust signals, scheduling, messaging, and social-work support."
+version = "1.0.0"
+id = "artifacts/care-match"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19886
+
+[services.development]
+run = "pnpm --filter @workspace/care-match run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/care-match", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/care-match/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19886"
+BASE_PATH = "/"
