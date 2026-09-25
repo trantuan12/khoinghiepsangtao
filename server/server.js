@@ -51,6 +51,13 @@ async function initMySql() {
     console.log('✅ [MySQL] Đã kết nối thành công đến cơ sở dữ liệu: care_match_db');
     await initTransactionsTable();
     await initCaregiverProfiles();
+    await initFamilyProfilesTable();
+    await initFamilySubscriptionsTable();
+    await initCaregiverBankAccountsTable();
+    await initBookingEscrowPaymentsTable();
+    await initCommunitiesTable();
+    await initCaregiverReviewsTable();
+    await initSchedulesTableMigrations();
   } catch (err) {
     isMySqlConnected = false;
     console.error('⚠️ [MySQL] Lỗi kết nối MySQL:', err.message);
@@ -176,40 +183,82 @@ async function initTransactionsTable() {
 async function initCaregiverProfiles() {
   if (!pool || !isMySqlConnected) return;
   try {
+    // 1. Đảm bảo các cột ca làm việc và lịch sử công tác tồn tại
+    try {
+      const [cols] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'shift_rate'");
+      if (cols.length === 0) {
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN shift_rate INT DEFAULT 400000");
+      }
+      const [colsNight] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'night_shift_rate'");
+      if (colsNight.length === 0) {
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN night_shift_rate INT DEFAULT 600000");
+      }
+      const [colsWork] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'work_history'");
+      if (colsWork.length === 0) {
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN work_history LONGTEXT");
+      }
+      const [colsAddr] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'contact_address'");
+      if (colsAddr.length === 0) {
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN contact_address VARCHAR(255) DEFAULT ''");
+      }
+      const [colsInter] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'interview_status'");
+      if (colsInter.length === 0) {
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_status VARCHAR(32) DEFAULT 'not_scheduled'");
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_date VARCHAR(64) NULL");
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_time VARCHAR(64) NULL");
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_meeting_link VARCHAR(255) NULL");
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_notes TEXT NULL");
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_scheduled_at TIMESTAMP NULL");
+        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_passed_at TIMESTAMP NULL");
+      }
+      // Đổi mặc định title sang 'Chuyên viên chăm sóc' theo yêu cầu
+      await pool.execute("UPDATE caregiver_profiles SET title = 'Chuyên viên chăm sóc' WHERE title = 'Người chăm sóc người cao tuổi' OR title = '' OR title IS NULL");
+      // Đảm bảo các caregiver đã approved thì interview_status là passed
+      await pool.execute("UPDATE caregiver_profiles SET interview_status = 'passed' WHERE verification_status = 'approved' AND (interview_status = 'not_scheduled' OR interview_status IS NULL)");
+    } catch (migErr) {
+      console.warn('Lưu ý kiểm tra cột caregiver_profiles:', migErr.message);
+    }
+
     const [caregivers] = await pool.execute("SELECT id, username, full_name, email FROM users WHERE role = 'caregiver'");
     for (const cg of caregivers) {
       const [existing] = await pool.execute('SELECT id FROM caregiver_profiles WHERE user_id = ? LIMIT 1', [cg.id]);
       if (existing.length === 0) {
-        let title = 'Người chăm sóc người cao tuổi';
-        let exp = 0;
+        let title = 'Chuyên viên chăm sóc';
+        let exp = 1;
         let score = 0;
         let skills = '[]';
         let bio = '';
         let district = '';
         let vStatus = 'not_submitted';
+        let shiftRate = 400000;
+        let nightShiftRate = 600000;
 
         if (cg.username === 'thuha') {
-          title = 'Điều dưỡng chăm sóc tại nhà';
+          title = 'Chuyên viên chăm sóc';
           exp = 6;
           score = 95;
           skills = '["Điều dưỡng", "Vật lý trị liệu", "Đo huyết áp", "Theo dõi phục hồi"]';
-          bio = 'Chị Thu Hà là điều dưỡng, có thế mạnh về theo dõi phục hồi và hướng dẫn vận động nhẹ nhàng tại nhà.';
+          bio = 'Chị Thu Hà là chuyên viên chăm sóc, có thế mạnh về theo dõi phục hồi và hướng dẫn vận động nhẹ nhàng tại nhà.';
           district = 'Đống Đa';
           vStatus = 'approved';
+          shiftRate = 600000;
+          nightShiftRate = 900000;
         } else if (cg.username === 'maichi') {
-          title = 'Bạn đồng hành người cao tuổi';
+          title = 'Chuyên viên chăm sóc';
           exp = 5;
           score = 93;
           skills = '["Trò chuyện & đồng hành tâm lý", "Đi chợ & nấu ăn", "Đồng hành khám bệnh"]';
           bio = 'Cô Mai Chi mang đến năng lượng ấm áp, phù hợp với những gia đình cần một người bạn đồng hành đều đặn và đáng tin.';
           district = 'Ba Đình';
           vStatus = 'approved';
+          shiftRate = 500000;
+          nightShiftRate = 750000;
         }
 
         await pool.execute(
-          `INSERT INTO caregiver_profiles (user_id, title, verification_status, care_score, experience_years, hourly_rate, district, skills, bio)
-           VALUES (?, ?, ?, ?, ?, 120000, ?, ?, ?)`,
-          [cg.id, title, vStatus, score, exp, district, skills, bio]
+          `INSERT INTO caregiver_profiles (user_id, title, verification_status, care_score, experience_years, shift_rate, night_shift_rate, hourly_rate, district, skills, bio)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 120000, ?, ?, ?)`,
+          [cg.id, title, vStatus, score, exp, shiftRate, nightShiftRate, district, skills, bio]
         );
         console.log(`✅ [MySQL] Đã tự động tạo hồ sơ caregiver_profiles cho user: ${cg.full_name} (#${cg.id})`);
       }
@@ -219,6 +268,475 @@ async function initCaregiverProfiles() {
   }
 }
 
+// Khởi tạo bảng hồ sơ gia đình & xác thực eKYC (CCCD)
+async function initFamilyProfilesTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS family_profiles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL UNIQUE,
+        representative_name VARCHAR(128) NOT NULL,
+        phone VARCHAR(20),
+        email VARCHAR(128),
+        id_number VARCHAR(32),
+        address VARCHAR(255),
+        district VARCHAR(128),
+        id_card_front LONGTEXT,
+        id_card_back LONGTEXT,
+        verification_status ENUM('unverified', 'pending', 'approved', 'rejected') DEFAULT 'unverified',
+        rejection_reason TEXT,
+        verified_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Kiểm tra và khởi tạo bản ghi cho các tài khoản gia đình hiện có
+    const [families] = await pool.execute("SELECT id, username, full_name, email, phone FROM users WHERE role = 'family'");
+    for (const f of families) {
+      const [existing] = await pool.execute('SELECT id FROM family_profiles WHERE user_id = ? LIMIT 1', [f.id]);
+      if (existing.length === 0) {
+        await pool.execute(
+          `INSERT INTO family_profiles 
+           (user_id, representative_name, phone, email, id_number, address, district, verification_status)
+           VALUES (?, ?, ?, ?, '', 'Số 24 phố Huế, Hàng Bài', 'Hai Bà Trưng', 'unverified')`,
+          [f.id, f.full_name, f.phone || '0934 567 890', f.email]
+        );
+        console.log(`✅ [MySQL] Đã khởi tạo hồ sơ family_profiles cho user: ${f.full_name} (#${f.id})`);
+      }
+    }
+  } catch (err) {
+    console.error('⚠️ [MySQL] Lỗi khởi tạo family_profiles table:', err.message);
+  }
+}
+
+// Khởi tạo bảng gói đăng ký Premium cho Gia Đình (50.000đ/tháng)
+async function initFamilySubscriptionsTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS family_subscriptions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        plan_name VARCHAR(64) DEFAULT 'Gói Gia Đình Premium',
+        price INT DEFAULT 50000,
+        billing_cycle VARCHAR(32) DEFAULT 'monthly',
+        status VARCHAR(32) DEFAULT 'active',
+        start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        end_date TIMESTAMP NULL,
+        payment_method VARCHAR(64) DEFAULT 'Chuyển khoản QR (VietQR)',
+        transaction_code VARCHAR(64) NULL,
+        priority_matching BOOLEAN DEFAULT TRUE,
+        priority_booking BOOLEAN DEFAULT TRUE,
+        priority_support BOOLEAN DEFAULT TRUE,
+        dedicated_support_247 BOOLEAN DEFAULT TRUE,
+        notes TEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Thêm các cột is_premium, premium_until vào family_profiles nếu chưa có
+    try {
+      const [colPrem] = await pool.execute("SHOW COLUMNS FROM family_profiles LIKE 'is_premium'");
+      if (colPrem.length === 0) {
+        await pool.execute("ALTER TABLE family_profiles ADD COLUMN is_premium BOOLEAN DEFAULT FALSE");
+        await pool.execute("ALTER TABLE family_profiles ADD COLUMN premium_until TIMESTAMP NULL");
+      }
+    } catch (e) {
+      console.warn('Lưu ý kiểm tra cột is_premium bảng family_profiles:', e.message);
+    }
+
+    // Seed mẫu nếu bảng chưa có bản ghi nào
+    const [subCount] = await pool.execute('SELECT COUNT(*) as count FROM family_subscriptions');
+    if (subCount[0].count === 0) {
+      const [families] = await pool.execute("SELECT id, full_name, email FROM users WHERE role = 'family' LIMIT 2");
+      if (families.length > 0) {
+        const f = families[0];
+        const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        await pool.execute(
+          `INSERT INTO family_subscriptions 
+           (user_id, plan_name, price, billing_cycle, status, start_date, end_date, payment_method, transaction_code, notes)
+           VALUES (?, 'Gói Gia Đình Premium', 50000, 'monthly', 'active', NOW(), ?, 'Chuyển khoản QR (VietQR)', 'PREM-VIP-9001', 'Gói Premium trải nghiệm VIP')`,
+          [f.id, endDate]
+        );
+        await pool.execute(
+          `UPDATE family_profiles SET is_premium = TRUE, premium_until = ? WHERE user_id = ?`,
+          [endDate, f.id]
+        );
+        console.log(`⭐ [MySQL] Đã khởi tạo gói Premium mẫu cho gia đình: ${f.full_name} (#${f.id})`);
+      }
+    }
+  } catch (err) {
+    console.error('⚠️ [MySQL] Lỗi khởi tạo family_subscriptions table:', err.message);
+  }
+}
+
+// Khởi tạo bảng tài khoản ngân hàng thụ hưởng của Người chăm sóc
+async function initCaregiverBankAccountsTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS caregiver_bank_accounts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        caregiver_user_id INT NOT NULL,
+        bank_name VARCHAR(100) NOT NULL,
+        account_number VARCHAR(64) NOT NULL,
+        account_holder VARCHAR(128) NOT NULL,
+        branch VARCHAR(128) DEFAULT '',
+        is_default BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Seed tài khoản mẫu cho các caregiver nếu chưa có
+    const [count] = await pool.execute('SELECT COUNT(*) as cnt FROM caregiver_bank_accounts');
+    if (count[0].cnt === 0) {
+      const [caregivers] = await pool.execute("SELECT id, full_name FROM users WHERE role = 'caregiver'");
+      const defaultBanks = [
+        { bank: 'Ngân hàng Ngoại Thương Việt Nam (Vietcombank)', num: '1023948572' },
+        { bank: 'Ngân hàng Quân Đội (MB Bank)', num: '0988776655' },
+        { bank: 'Ngân hàng Đầu tư & Phát triển Việt Nam (BIDV)', num: '21510001234567' },
+        { bank: 'Ngân hàng Kỹ Thương Việt Nam (Techcombank)', num: '19036789123456' }
+      ];
+      for (let i = 0; i < caregivers.length; i++) {
+        const cg = caregivers[i];
+        const b = defaultBanks[i % defaultBanks.length];
+        await pool.execute(
+          `INSERT INTO caregiver_bank_accounts (caregiver_user_id, bank_name, account_number, account_holder, branch)
+           VALUES (?, ?, ?, ?, 'Hội sở chính')`,
+          [cg.id, b.bank, b.num, (cg.full_name || 'NGUYEN VAN A').toUpperCase()]
+        );
+      }
+      console.log('✅ [MySQL] Đã khởi tạo tài khoản ngân hàng thụ hưởng cho các Người chăm sóc');
+    }
+  } catch (err) {
+    console.error('⚠️ [MySQL] Lỗi khởi tạo caregiver_bank_accounts:', err.message);
+  }
+}
+
+// Khởi tạo bảng thanh toán ký quỹ giữ tiền an toàn cho từng ca làm việc (Escrow Safe-Pay)
+async function initBookingEscrowPaymentsTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS booking_escrow_payments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        transaction_code VARCHAR(64) UNIQUE NOT NULL,
+        schedule_id INT NULL,
+        family_user_id INT NOT NULL,
+        caregiver_user_id INT NOT NULL,
+        patient_name VARCHAR(128) NOT NULL,
+        shift_date VARCHAR(64) NOT NULL,
+        shift_time VARCHAR(64) NOT NULL,
+        total_amount INT NOT NULL COMMENT 'Tổng số tiền ca làm (100%)',
+        platform_fee INT NOT NULL COMMENT 'Chiết khấu sàn nền tảng 15%',
+        caregiver_earnings INT NOT NULL COMMENT 'Thực nhận của Người chăm sóc 85%',
+        escrow_status ENUM('pending_payment', 'in_escrow', 'paid_out', 'refunded') DEFAULT 'pending_payment' COMMENT 'Trạng thái ký quỹ',
+        payment_method VARCHAR(64) DEFAULT 'VietQR Napas 247',
+        family_paid_at TIMESTAMP NULL,
+        released_at TIMESTAMP NULL COMMENT 'Thời gian tự động giải ngân về TK Người chăm sóc',
+        bank_reference VARCHAR(128) NULL,
+        caregiver_bank_name VARCHAR(100) NULL,
+        caregiver_account_number VARCHAR(64) NULL,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (family_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Đồng bộ các ca trong schedules chưa có trong booking_escrow_payments
+    const [schedules] = await pool.execute(`
+      SELECT s.*, 
+             u_fam.full_name as fam_name, 
+             u_cg.full_name as cg_name,
+             ba.bank_name as cg_bank,
+             ba.account_number as cg_acc
+      FROM schedules s
+      LEFT JOIN users u_fam ON s.family_user_id = u_fam.id
+      LEFT JOIN users u_cg ON s.caregiver_user_id = u_cg.id
+      LEFT JOIN caregiver_bank_accounts ba ON s.caregiver_user_id = ba.caregiver_user_id AND ba.is_default = TRUE
+    `);
+
+    for (const sched of schedules) {
+      const [existing] = await pool.execute('SELECT id FROM booking_escrow_payments WHERE schedule_id = ? LIMIT 1', [sched.id]);
+      if (existing.length === 0) {
+        const total = Number(sched.price) || 400000;
+        const fee = Math.round(total * 0.15); // 15% phí nền tảng
+        const earnings = total - fee;        // 85% thực nhận
+        const txCode = 'ESC-2026-' + String(sched.id).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
+        
+        let escrowStatus = 'pending_payment';
+        let familyPaidAt = null;
+        let releasedAt = null;
+
+        if (sched.status === 'completed') {
+          escrowStatus = 'paid_out';
+          familyPaidAt = sched.created_at || new Date();
+          releasedAt = new Date(new Date(familyPaidAt).getTime() + 4 * 3600 * 1000);
+        } else if (sched.status === 'confirmed' || sched.status === 'in_progress') {
+          escrowStatus = 'in_escrow';
+          familyPaidAt = sched.created_at || new Date();
+        }
+
+        await pool.execute(
+          `INSERT INTO booking_escrow_payments 
+           (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, platform_fee, caregiver_earnings, escrow_status, payment_method, family_paid_at, released_at, bank_reference, caregiver_bank_name, caregiver_account_number, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VietQR Napas 247', ?, ?, ?, ?, ?, ?)`,
+          [
+            txCode,
+            sched.id,
+            sched.family_user_id,
+            sched.caregiver_user_id || 2,
+            sched.elderly_name || 'Người thân',
+            sched.schedule_date || 'Hôm nay',
+            sched.time_slot || '08:00 - 12:00',
+            total,
+            fee,
+            earnings,
+            escrowStatus,
+            familyPaidAt,
+            releasedAt,
+            'NPS' + Math.floor(100000000 + Math.random() * 900000000),
+            sched.cg_bank || 'Vietcombank',
+            sched.cg_acc || '1023948572',
+            sched.status === 'completed' ? 'Ca hoàn thành, đã tất toán chuyển khoản 85% về tài khoản Người chăm sóc' : 'Tiền được bảo lãnh an toàn tại CARE-MATCH'
+          ]
+        );
+      }
+    }
+    console.log('✅ [MySQL] Đã đồng bộ bảng booking_escrow_payments với các ca làm việc');
+  } catch (err) {
+    console.error('⚠️ [MySQL] Lỗi khởi tạo booking_escrow_payments:', err.message);
+  }
+}
+
+// Khởi tạo bảng cộng đồng người cao tuổi & gia đình (Communities)
+async function initCommunitiesTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS communities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(100) DEFAULT 'Sức khỏe & Vận động',
+        description TEXT,
+        meeting_schedule VARCHAR(255) DEFAULT '05:30 - 06:45 Hàng ngày',
+        location VARCHAR(255) DEFAULT 'Công viên Cầu Giấy, Hà Nội',
+        member_count INT DEFAULT 120,
+        zalo_link VARCHAR(255) DEFAULT 'https://zalo.me/g/carematch_community',
+        qr_code_url TEXT,
+        tags TEXT,
+        leader_name VARCHAR(128) DEFAULT 'Chị Thu Hà (NV CTXH)',
+        status ENUM('active', 'inactive') DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM communities');
+    if (rows[0].cnt === 0) {
+      const defaultCommunities = [
+        {
+          name: 'CLB Đi Bộ Dưỡng Sinh Buổi Sáng',
+          category: 'Vận động ngoài trời',
+          description: 'Cùng nhau đi bộ quanh hồ công viên, hít thở không khí trong lành, chia sẻ câu chuyện đầu ngày và khởi động xương khớp nhẹ nhàng.',
+          schedule: '05:30 - 06:30 Hàng ngày',
+          location: 'Công viên Cầu Giấy, Phố Duy Tân, Cầu Giấy, Hà Nội',
+          members: 148,
+          leader: 'Bác Nguyễn Văn Hùng & NV CTXH Thu Hà',
+          tags: JSON.stringify(['Đi bộ dưỡng sinh', 'Không khí trong lành', 'Xương khớp dẻo dai', 'Giao lưu buổi sáng']),
+          zalo: 'https://zalo.me/g/carematch_dibo',
+          qr: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://zalo.me/g/carematch_dibo'
+        },
+        {
+          name: 'CLB Thể Dục Nhịp Điệu & Aerobic Dưỡng Sinh',
+          category: 'Thể dục nhịp điệu',
+          description: 'Các bài tập aerobic dưỡng sinh trên nền nhạc truyền thống vui tươi, nhịp điệu vừa sức giúp lưu thông khí huyết và cải thiện tuần hoàn tim mạch.',
+          schedule: '06:00 - 07:00 Thứ 2, 4, 6',
+          location: 'Sân Nhà Văn Hóa Phường Dịch Vọng Hậu, Cầu Giấy',
+          members: 95,
+          leader: 'Cô Mai Chi & HLV Thể Dục Dưỡng Sinh',
+          tags: JSON.stringify(['Aerobic dưỡng sinh', 'Tim mạch khỏe mạnh', 'Nhịp điệu vui tươi', 'Thư giãn gân cốt']),
+          zalo: 'https://zalo.me/g/carematch_aerobic',
+          qr: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://zalo.me/g/carematch_aerobic'
+        },
+        {
+          name: 'CLB Yoga & Thiền Khí Công Người Cao Tuổi',
+          category: 'Yoga & Khí công',
+          description: 'Điều hòa hơi thở, kéo giãn nhẹ nhàng các khớp, hỗ trợ giảm đau lưng mỏi gối và cải thiện chứng mất ngủ kinh niên ở người lớn tuổi.',
+          schedule: '17:00 - 18:15 Thứ 3, 5, 7 & Chủ Nhật',
+          location: 'Nhà thi đấu Thể thao Nghĩa Tân & Sinh hoạt Zoom Online',
+          members: 120,
+          leader: 'Chuyên gia Yoga Phục hồi Lan Anh',
+          tags: JSON.stringify(['Yoga dưỡng sinh', 'Thiền khí công', 'Giấc ngủ sâu', 'Phục hồi chức năng']),
+          zalo: 'https://zalo.me/g/carematch_yoga',
+          qr: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://zalo.me/g/carematch_yoga'
+        },
+        {
+          name: 'CLB Trà Đạo & Đàm Đạo Tri Thức Tuổi Vàng',
+          category: 'Giao lưu & Tâm lý',
+          description: 'Không gian thưởng trà ấm cúng, cờ tướng, ngâm thơ và đàm đạo văn hóa, chia sẻ kinh nghiệm sống cùng những người bạn già đồng niên.',
+          schedule: '08:30 - 10:30 Thứ 7 & Chủ Nhật',
+          location: 'Vườn Trà Trúc Bạch, Quận Ba Đình, Hà Nội',
+          members: 82,
+          leader: 'Bác Trần Quốc Tuấn',
+          tags: JSON.stringify(['Trà đạo', 'Cờ tướng', 'Thơ ca', 'Đàm đạo tâm tình']),
+          zalo: 'https://zalo.me/g/carematch_tradao',
+          qr: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://zalo.me/g/carematch_tradao'
+        },
+        {
+          name: 'Cộng Đồng Bác Sĩ & Chuyên Gia Y Tế Đồng Hành',
+          category: 'Tư vấn y tế',
+          description: 'Kênh hỏi đáp trực tuyến 24/7 cùng các bác sĩ, điều dưỡng Lão khoa. Hướng dẫn chế độ ăn tiểu đường, huyết áp và sơ cứu khẩn cấp.',
+          schedule: 'Hoạt động liên tục 24/7 (Hỏi đáp trực tuyến)',
+          location: 'Nhóm Zalo Y Tế CARE-MATCH Toàn Quốc',
+          members: 320,
+          leader: 'Bác sĩ CK1 Lão khoa Nguyễn Tuấn',
+          tags: JSON.stringify(['Hỏi đáp bác sĩ', 'Huyết áp & Tiểu đường', 'Dinh dưỡng người già', 'Cấp cứu 24/7']),
+          zalo: 'https://zalo.me/g/carematch_yte',
+          qr: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://zalo.me/g/carematch_yte'
+        },
+        {
+          name: 'CLB Cờ Tướng & Rèn Luyện Trí Não Tuổi Vàng',
+          category: 'Rèn luyện trí nhớ',
+          description: 'Trò chơi cờ tướng, câu đố trí tuệ và bài tập kích thích bán cầu não, phòng ngừa sa sút trí tuệ và bệnh Alzheimer tuổi già.',
+          schedule: '15:00 - 17:00 Thứ 4 & Thứ 7',
+          location: 'Trung Tâm Sinh Hoạt Cộng Đồng Phường Láng Hạ, Đống Đa',
+          members: 74,
+          leader: 'ThS. Tâm lý Lâm sàng Hoàng Yến',
+          tags: JSON.stringify(['Cờ tướng', 'Phòng ngừa sa sút trí tuệ', 'Trò chơi trí tuệ', 'Niềm vui tuổi già']),
+          zalo: 'https://zalo.me/g/carematch_trinao',
+          qr: 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://zalo.me/g/carematch_trinao'
+        }
+      ];
+
+      for (const c of defaultCommunities) {
+        await pool.execute(
+          `INSERT INTO communities 
+           (name, category, description, meeting_schedule, location, member_count, leader_name, tags, zalo_link, qr_code_url, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+          [c.name, c.category, c.description, c.schedule, c.location, c.members, c.leader, c.tags, c.zalo, c.qr]
+        );
+      }
+      console.log('✅ [MySQL] Đã khởi tạo danh sách cộng đồng mẫu cho bảng communities');
+    }
+  } catch (err) {
+    console.error('⚠️ [MySQL] Lỗi khởi tạo bảng communities:', err.message);
+  }
+}
+
+// Khởi tạo bảng đánh giá sao người chăm sóc (Caregiver Reviews)
+async function initCaregiverReviewsTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS caregiver_reviews (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        schedule_id INT NULL,
+        caregiver_user_id INT NOT NULL,
+        family_user_id INT NOT NULL,
+        family_name VARCHAR(128) DEFAULT 'Gia đình',
+        patient_name VARCHAR(128) DEFAULT 'Người thân',
+        service_title VARCHAR(255) DEFAULT 'Ca chăm sóc',
+        rating INT NOT NULL DEFAULT 5,
+        tags TEXT,
+        review_text TEXT,
+        status ENUM('approved', 'pending', 'hidden') DEFAULT 'approved',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (family_user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM caregiver_reviews');
+    if (rows[0].cnt === 0) {
+      const defaultReviews = [
+        {
+          caregiver_id: 2,
+          family_id: 5,
+          family_name: 'Nguyễn Minh Mai',
+          patient: 'Bà Lan',
+          service: 'Ca chăm sóc buổi sáng (4 tiếng)',
+          rating: 5,
+          tags: JSON.stringify(['Đúng giờ', 'Tận tâm', 'Kỹ năng tốt', 'Ân cần']),
+          text: 'Chị Thu Hà chăm sóc mẹ tôi rất chu đáo và đúng giờ. Mẹ tôi rất vui và khen chị mát tay đo huyết áp, nói chuyện dễ chịu. Cảm ơn chị rất nhiều!',
+          date: '2026-09-23 12:30:00'
+        },
+        {
+          caregiver_id: 2,
+          family_id: 31,
+          family_name: 'tuantest15',
+          patient: 'Cụ Tuấn',
+          service: 'Ca chăm sóc test 2 (9 tiếng - Ca đêm)',
+          rating: 5,
+          tags: JSON.stringify(['Chuyên môn cao', 'Kiên nhẫn', 'Nấu ăn ngon']),
+          text: 'Điều dưỡng viên nhiệt tình, biết cách dỗ cụ ăn hết phần cháo và hướng dẫn bài tập chân tại giường rất hiệu quả. Gia đình rất an tâm.',
+          date: '2026-09-24 07:15:00'
+        },
+        {
+          caregiver_id: 3,
+          family_id: 5,
+          family_name: 'Vũ Hoàng Long',
+          patient: 'Bác Hòa',
+          service: 'Ca chăm sóc đồng hành (4 tiếng)',
+          rating: 5,
+          tags: JSON.stringify(['Ấm áp', 'Tâm lý', 'Đúng giờ']),
+          text: 'Cô Mai Chi nói chuyện duyên dáng, cụ nhà tôi rất thích nghe cô kể chuyện xưa. Nấu ăn cũng rất hợp khẩu vị người già bị tiểu đường.',
+          date: '2026-09-22 17:00:00'
+        },
+        {
+          caregiver_id: 3,
+          family_id: 31,
+          family_name: 'Trần Bích Thủy',
+          patient: 'Cụ An',
+          service: 'Ca chăm sóc phục hồi vận động',
+          rating: 5,
+          tags: JSON.stringify(['Lễ phép', 'Cẩn thận', 'Trách nhiệm']),
+          text: 'Chuyên viên chu đáo, lễ phép, hỗ trợ cụ đi dạo trong công viên an toàn. Chắc chắn sẽ tiếp tục đặt ca với cô Chi!',
+          date: '2026-09-23 18:00:00'
+        }
+      ];
+
+      for (const r of defaultReviews) {
+        await pool.execute(
+          `INSERT INTO caregiver_reviews 
+           (schedule_id, caregiver_user_id, family_user_id, family_name, patient_name, service_title, rating, tags, review_text, status, created_at)
+           VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?)`,
+          [r.caregiver_id, r.family_id, r.family_name, r.patient, r.service, r.rating, r.tags, r.text, r.date]
+        );
+      }
+      console.log('✅ [MySQL] Đã khởi tạo các đánh giá sao mẫu cho bảng caregiver_reviews');
+    }
+  } catch (err) {
+    console.error('⚠️ [MySQL] Lỗi khởi tạo bảng caregiver_reviews:', err.message);
+  }
+}
+
+// Khởi tạo các cột hỗ trợ xác nhận hoàn thành ca 2 chiều (Caregiver & Family)
+async function initSchedulesTableMigrations() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    const [colsCg] = await pool.execute("SHOW COLUMNS FROM schedules LIKE 'caregiver_confirmed_completed'");
+    if (colsCg.length === 0) {
+      await pool.execute("ALTER TABLE schedules ADD COLUMN caregiver_confirmed_completed BOOLEAN DEFAULT FALSE");
+      await pool.execute("ALTER TABLE schedules ADD COLUMN family_confirmed_completed BOOLEAN DEFAULT FALSE");
+      await pool.execute("ALTER TABLE schedules ADD COLUMN caregiver_completed_at TIMESTAMP NULL");
+      await pool.execute("ALTER TABLE schedules ADD COLUMN family_completed_at TIMESTAMP NULL");
+      console.log('✅ [MySQL] Đã cập nhật các cột xác nhận 2 chiều cho bảng schedules');
+    }
+  } catch (e) {
+    console.warn('Lưu ý kiểm tra cột bảng schedules:', e.message);
+  }
+}
 
 // Helper hàm an toàn parse JSON
 function parseJson(str, defaultValue = []) {
@@ -333,14 +851,30 @@ app.post('/api/auth/register', async (req, res) => {
       // Nếu đăng ký vai trò Người chăm sóc -> tự động tạo hồ sơ trong caregiver_profiles với trạng thái chưa nộp (not_submitted)
       if (userRole === 'caregiver') {
         try {
+          const exp = Math.max(1, Number(req.body.experience_years ?? req.body.experienceYears) || 1);
+          const shiftRate = Math.min(1000000, Math.max(400000, Number(req.body.shift_rate ?? req.body.shiftRate) || 400000));
+          const nightShiftRate = Math.round(shiftRate * 1.5);
+          const workHistory = JSON.stringify(req.body.work_history || []);
+          const contactAddress = (req.body.contact_address || req.body.contactAddress || '').trim();
           await pool.execute(
             `INSERT INTO caregiver_profiles 
-             (user_id, title, verification_status, care_score, experience_years, hourly_rate, district, skills, bio) 
-             VALUES (?, 'Người chăm sóc người cao tuổi', 'not_submitted', 0, 0, 100000, '', '[]', '')`,
-            [result.insertId]
+             (user_id, title, verification_status, care_score, experience_years, shift_rate, night_shift_rate, hourly_rate, district, contact_address, interview_status, skills, bio, work_history) 
+             VALUES (?, 'Chuyên viên chăm sóc', 'not_submitted', 0, ?, ?, ?, 100000, '', ?, 'not_scheduled', '[]', '', ?)`,
+            [result.insertId, exp, shiftRate, nightShiftRate, contactAddress, workHistory]
           );
         } catch (cpErr) {
           console.error('Lỗi tạo caregiver_profiles khi đăng ký:', cpErr.message);
+        }
+      } else if (userRole === 'family') {
+        try {
+          await pool.execute(
+            `INSERT INTO family_profiles 
+             (user_id, representative_name, phone, email, verification_status) 
+             VALUES (?, ?, ?, ?, 'unverified')`,
+            [result.insertId, full_name, phone || '', email]
+          );
+        } catch (fpErr) {
+          console.error('Lỗi tạo family_profiles khi đăng ký:', fpErr.message);
         }
       }
 
@@ -555,6 +1089,209 @@ app.delete('/api/elderly-profiles/:id', async (req, res) => {
 });
 
 // ========================================================
+// 7A. HỒ SƠ ĐẠI DIỆN GIA ĐÌNH & XÁC THỰC eKYC (FAMILY PROFILES)
+// ========================================================
+
+// Lấy thông tin hồ sơ đại diện gia đình
+app.get('/api/family-profile', async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: 'Thiếu tham số userId' });
+
+  const uid = Number(userId);
+
+  if (isMySqlConnected) {
+    try {
+      let [rows] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
+      if (rows.length === 0) {
+        const [uRows] = await pool.execute('SELECT id, full_name, email, phone FROM users WHERE id = ? LIMIT 1', [uid]);
+        if (uRows.length > 0) {
+          const u = uRows[0];
+          await pool.execute(
+            `INSERT INTO family_profiles (user_id, representative_name, phone, email, verification_status)
+             VALUES (?, ?, ?, ?, 'unverified')`,
+            [u.id, u.full_name, u.phone || '', u.email]
+          );
+          [rows] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
+        }
+      }
+      return res.json(rows[0] || null);
+    } catch (e) {
+      console.error('Lỗi fetch family_profile:', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  res.json({
+    user_id: uid,
+    representative_name: 'Nguyễn Minh Mai',
+    phone: '0934 567 890',
+    email: 'mai.nguyen@example.com',
+    id_number: '',
+    address: 'Số 24 phố Huế, Hai Bà Trưng, Hà Nội',
+    district: 'Hai Bà Trưng',
+    verification_status: 'unverified'
+  });
+});
+
+// Cập nhật thông tin đại diện gia đình & eKYC CCCD
+app.post('/api/family-profile', async (req, res) => {
+  const {
+    user_id,
+    representative_name,
+    phone,
+    email,
+    id_number,
+    address,
+    district,
+    id_card_front,
+    id_card_back,
+    submit_for_review
+  } = req.body;
+
+  if (!user_id || !representative_name) {
+    return res.status(400).json({ error: 'Vui lòng cung cấp ít nhất họ tên người đại diện.' });
+  }
+
+  const uid = Number(user_id);
+
+  if (isMySqlConnected) {
+    try {
+      const [existing] = await pool.execute('SELECT id, verification_status FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
+
+      if (existing.length > 0) {
+        const curStatus = existing[0].verification_status;
+        const newStatus = submit_for_review ? 'pending' : (curStatus === 'approved' ? 'approved' : 'unverified');
+
+        await pool.execute(
+          `UPDATE family_profiles SET
+            representative_name = ?,
+            phone = ?,
+            email = ?,
+            id_number = ?,
+            address = ?,
+            district = ?,
+            id_card_front = COALESCE(?, id_card_front),
+            id_card_back = COALESCE(?, id_card_back),
+            verification_status = ?
+          WHERE user_id = ?`,
+          [
+            representative_name.trim(),
+            phone || '',
+            email || '',
+            id_number !== undefined ? id_number : '',
+            address || '',
+            district || '',
+            id_card_front || null,
+            id_card_back || null,
+            newStatus,
+            uid
+          ]
+        );
+      } else {
+        await pool.execute(
+          `INSERT INTO family_profiles 
+            (user_id, representative_name, phone, email, id_number, address, district, id_card_front, id_card_back, verification_status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            uid,
+            representative_name.trim(),
+            phone || '',
+            email || '',
+            id_number || '',
+            address || '',
+            district || '',
+            id_card_front || null,
+            id_card_back || null,
+            submit_for_review ? 'pending' : 'unverified'
+          ]
+        );
+      }
+
+      if (representative_name) {
+        await pool.execute('UPDATE users SET full_name = ? WHERE id = ?', [representative_name.trim(), uid]);
+      }
+
+      if (submit_for_review) {
+        await createNotification(
+          1,
+          'ekyc',
+          'Yêu cầu xét duyệt eKYC Gia Đình',
+          `Gia đình ${representative_name} đã gửi CCCD (${id_number || 'đã tải ảnh'}) để xác thực.`,
+          '/admin'
+        );
+      }
+
+      const [updated] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
+      console.log(`✅ [MySQL] Đã cập nhật family_profiles cho user #${uid} (${representative_name})`);
+      return res.json({ success: true, profile: updated[0] });
+    } catch (e) {
+      console.error('MySQL family profile update error:', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  return res.json({
+    success: true,
+    profile: {
+      user_id: uid,
+      representative_name,
+      phone,
+      email,
+      id_number,
+      address,
+      district,
+      verification_status: submit_for_review ? 'pending' : 'unverified'
+    }
+  });
+});
+
+// Admin duyệt / yêu cầu bổ sung eKYC gia đình
+app.patch('/api/admin/families/:userId/verify', async (req, res) => {
+  const uid = Number(req.params.userId);
+  const { status, rejection_reason } = req.body;
+
+  if (!['approved', 'rejected', 'pending', 'unverified'].includes(status)) {
+    return res.status(400).json({ error: 'Trạng thái xác thực không hợp lệ.' });
+  }
+
+  if (isMySqlConnected) {
+    try {
+      await pool.execute(
+        `UPDATE family_profiles SET 
+          verification_status = ?,
+          rejection_reason = ?,
+          verified_at = ?
+         WHERE user_id = ?`,
+        [
+          status,
+          rejection_reason || null,
+          status === 'approved' ? new Date() : null,
+          uid
+        ]
+      );
+
+      await createNotification(
+        uid,
+        'ekyc',
+        status === 'approved' ? 'Xác thực eKYC thành công ✓' : 'Yêu cầu cập nhật hồ sơ eKYC',
+        status === 'approved' 
+          ? 'Hồ sơ CCCD của quý khách đã được Ban Quản Trị phê duyệt. Quý khách có thể tự do đặt ca chăm sóc.' 
+          : `Ban Quản Trị yêu cầu bổ sung thông tin eKYC: ${rejection_reason || 'Vui lòng kiểm tra lại ảnh CCCD và thông tin cá nhân.'}`,
+        '/dashboard'
+      );
+
+      console.log(`✅ [MySQL] Admin đã cập nhật trạng thái eKYC gia đình user #${uid} thành: ${status}`);
+      return res.json({ success: true, message: `Đã cập nhật trạng thái xác thực eKYC: ${status}` });
+    } catch (e) {
+      console.error('Admin verify family error:', e.message);
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  return res.json({ success: true, message: 'Đã cập nhật trạng thái (demo mode)' });
+});
+
+// ========================================================
 // 7B. TẢI LÊN TÀI LIỆU / ẢNH (FILE UPLOAD API - BASE64 & DISK)
 // ========================================================
 app.post('/api/upload', async (req, res) => {
@@ -639,11 +1376,23 @@ app.get('/api/caregiver-profile', async (req, res) => {
           full_name: p.full_name,
           phone: p.phone,
           email: p.email,
-          title: p.title || 'Người chăm sóc người cao tuổi',
+          title: 'Chuyên viên chăm sóc',
+          role: 'Chuyên viên chăm sóc',
           id_number: p.id_number || '',
-          experience_years: p.experience_years || 0,
+          experience_years: Math.max(1, p.experience_years || 1),
+          shift_rate: p.shift_rate || 400000,
+          night_shift_rate: p.night_shift_rate || Math.round((p.shift_rate || 400000) * 1.5),
+          work_history: parseJson(p.work_history, []),
           hourly_rate: p.hourly_rate || 100000,
           district: p.district || '',
+          contact_address: p.contact_address || '',
+          interview_status: p.interview_status || 'not_scheduled',
+          interview_date: p.interview_date || '',
+          interview_time: p.interview_time || '',
+          interview_meeting_link: p.interview_meeting_link || '',
+          interview_notes: p.interview_notes || '',
+          interview_scheduled_at: p.interview_scheduled_at || null,
+          interview_passed_at: p.interview_passed_at || null,
           bio: p.bio || '',
           skills: parseJson(p.skills, []),
           care_score: p.care_score || 0,
@@ -663,9 +1412,13 @@ app.get('/api/caregiver-profile', async (req, res) => {
           full_name: u.full_name,
           phone: u.phone || '',
           email: u.email,
-          title: 'Người chăm sóc người cao tuổi',
+          title: 'Chuyên viên chăm sóc',
+          role: 'Chuyên viên chăm sóc',
           id_number: '',
-          experience_years: 0,
+          experience_years: 1,
+          shift_rate: 400000,
+          night_shift_rate: 600000,
+          work_history: [],
           hourly_rate: 100000,
           district: '',
           bio: '',
@@ -692,10 +1445,14 @@ app.post('/api/caregiver-profile', async (req, res) => {
   const full_name = req.body.full_name || req.body.fullName;
   const phone = req.body.phone;
   const id_number = req.body.id_number || req.body.idNumber;
-  const title = req.body.title;
+  const title = req.body.title || 'Chuyên viên chăm sóc';
   const experience_years = req.body.experience_years ?? req.body.experienceYears;
   const hourly_rate = req.body.hourly_rate ?? req.body.hourlyRate;
+  const shift_rate = req.body.shift_rate ?? req.body.shiftRate;
+  const night_shift_rate = req.body.night_shift_rate ?? req.body.nightShiftRate;
+  const work_history = req.body.work_history ?? req.body.workHistory;
   const district = req.body.district;
+  const contact_address = req.body.contact_address ?? req.body.contactAddress;
   const bio = req.body.bio;
   const skills = req.body.skills;
   const documents = req.body.documents;
@@ -708,6 +1465,10 @@ app.post('/api/caregiver-profile', async (req, res) => {
   const uid = Number(user_id);
   const skillsJson = JSON.stringify(skills || []);
   const docsJson = JSON.stringify(documents || []);
+  const workHistoryJson = JSON.stringify(work_history || []);
+  const parsedExp = Math.max(1, Number(experience_years) || 1);
+  const parsedShiftRate = Math.min(1000000, Math.max(400000, Number(shift_rate) || 400000));
+  const parsedNightShiftRate = Number(night_shift_rate) || Math.round(parsedShiftRate * 1.5);
   const newStatus = submit_for_review ? 'pending' : 'not_submitted';
 
   if (isMySqlConnected) {
@@ -728,22 +1489,29 @@ app.post('/api/caregiver-profile', async (req, res) => {
         profileId = existing[0].id;
         await pool.execute(
           `UPDATE caregiver_profiles SET
-            title = ?,
+            title = 'Chuyên viên chăm sóc',
             id_number = ?,
             experience_years = ?,
+            shift_rate = ?,
+            night_shift_rate = ?,
+            work_history = ?,
             hourly_rate = ?,
             district = ?,
+            contact_address = COALESCE(?, contact_address),
             bio = ?,
             skills = ?,
             documents = ?,
             verification_status = CASE WHEN ? = 'pending' THEN 'pending' ELSE verification_status END
           WHERE id = ?`,
           [
-            title || 'Người chăm sóc người cao tuổi',
             id_number || '',
-            Number(experience_years) || 0,
+            parsedExp,
+            parsedShiftRate,
+            parsedNightShiftRate,
+            workHistoryJson,
             Number(hourly_rate) || 100000,
             district || '',
+            contact_address !== undefined ? contact_address : null,
             bio || '',
             skillsJson,
             docsJson,
@@ -755,15 +1523,18 @@ app.post('/api/caregiver-profile', async (req, res) => {
       } else {
         const [result] = await pool.execute(
           `INSERT INTO caregiver_profiles
-            (user_id, title, id_number, experience_years, hourly_rate, district, bio, skills, documents, verification_status, care_score)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+            (user_id, title, id_number, experience_years, shift_rate, night_shift_rate, work_history, hourly_rate, district, contact_address, bio, skills, documents, verification_status, interview_status, care_score)
+           VALUES (?, 'Chuyên viên chăm sóc', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_scheduled', 0)`,
           [
             uid,
-            title || 'Người chăm sóc người cao tuổi',
             id_number || '',
-            Number(experience_years) || 0,
+            parsedExp,
+            parsedShiftRate,
+            parsedNightShiftRate,
+            workHistoryJson,
             Number(hourly_rate) || 100000,
             district || '',
+            contact_address || '',
             bio || '',
             skillsJson,
             docsJson,
@@ -776,6 +1547,10 @@ app.post('/api/caregiver-profile', async (req, res) => {
 
       // 3. Đồng bộ vào bảng caregiver_documents
       if (Array.isArray(documents) && documents.length > 0) {
+        await pool.execute(
+          'DELETE FROM caregiver_documents WHERE caregiver_id = ?',
+          [profileId]
+        );
         for (const doc of documents) {
           const docType = doc.category || doc.type || 'cccd';
           const docUrl = doc.fileUrl || doc.url;
@@ -790,16 +1565,13 @@ app.post('/api/caregiver-profile', async (req, res) => {
               'certificate': 'medical_certificate',
               'medical_cert': 'medical_certificate',
               'medical_certificate': 'medical_certificate',
+              'additional_certificate': 'medical_certificate',
               'healthCheck': 'health_check',
               'health_cert': 'health_check',
               'health_check': 'health_check'
             };
             const mappedType = docTypeMap[docType] || 'cccd';
 
-            await pool.execute(
-              'DELETE FROM caregiver_documents WHERE caregiver_id = ? AND document_type = ?',
-              [profileId, mappedType]
-            );
             await pool.execute(
               `INSERT INTO caregiver_documents (caregiver_id, document_type, document_name, file_url, status)
                VALUES (?, ?, ?, ?, 'pending')`,
@@ -836,6 +1608,238 @@ app.post('/api/caregiver-profile', async (req, res) => {
 });
 
 // ========================================================
+// API QUẢN LÝ PHỎNG VẤN TRỰC TUYẾN CAREGIVER & ADMIN
+// ========================================================
+// HÀM SINH MÃ PHÒNG GOOGLE MEET NGẪU NHIÊN CHUẨN 3-4-3 CHỮ CÁI (xxx-yyyy-zzz)
+// ========================================================
+function generateGoogleMeetCode() {
+  const letters = 'abcdefghijklmnopqrstuvwxyz';
+  const randPart = (n) => Array.from({ length: n }, () => letters[Math.floor(Math.random() * letters.length)]).join('');
+  return `${randPart(3)}-${randPart(4)}-${randPart(3)}`;
+}
+
+function generateGoogleMeetLink() {
+  return `https://meet.google.com/${generateGoogleMeetCode()}`;
+}
+
+// 1. Người chăm sóc đặt lịch phỏng vấn online với Admin
+app.post('/api/caregiver/schedule-interview', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  try {
+    const { userId, date, timeSlot, notes } = req.body;
+    if (!userId || !date || !timeSlot) {
+      return res.status(400).json({ error: 'Vui lòng chọn ngày và khung giờ phỏng vấn' });
+    }
+
+    // Ban đầu đặt lịch chưa có Meet link, trạng thái là 'scheduled' (chờ admin xác nhận)
+    await pool.execute(
+      `UPDATE caregiver_profiles 
+       SET interview_status = 'scheduled',
+           interview_date = ?,
+           interview_time = ?,
+           interview_meeting_link = NULL,
+           interview_notes = COALESCE(?, interview_notes),
+           interview_scheduled_at = NOW()
+       WHERE user_id = ?`,
+      [date, timeSlot, notes || null, Number(userId)]
+    );
+
+    // Lấy họ tên người chăm sóc
+    const [uRows] = await pool.execute('SELECT full_name FROM users WHERE id = ?', [Number(userId)]);
+    const caregiverName = uRows[0]?.full_name || 'Người chăm sóc';
+
+    // TỰ ĐỘNG GỬI TIN NHẮN TỪ ADMIN (user_id = 1) ĐẾN CHÍNH NGƯỜI CHĂM SÓC ĐÓ
+    const convId = `conv_1_${Number(userId)}`;
+    const confirmMsg = `Admin đã nhận được thông tin đặt lịch phỏng vấn của bạn vào lúc ${timeSlot} ngày ${date}. Vui lòng chờ Admin xác nhận và gửi đường link cuộc họp Google Meet.`;
+
+    await pool.execute(
+      `INSERT INTO messages (conversation_id, sender_user_id, sender_name, sender_role, recipient_user_id, recipient_name, content, is_read)
+       VALUES (?, 1, 'Ban Quản Trị CARE-MATCH', 'admin', ?, ?, ?, FALSE)`,
+      [convId, Number(userId), caregiverName, confirmMsg]
+    );
+
+    // Thông báo cho Admin (user_id = 1)
+    await createNotification(
+      1,
+      'interview',
+      'Lịch phỏng vấn online mới từ Caregiver',
+      `${caregiverName} đã đặt lịch phỏng vấn trực tuyến vào lúc ${timeSlot} ngày ${date}. Vui lòng xác nhận lịch.`,
+      '/admin'
+    );
+
+    console.log(`✅ [Lịch phỏng vấn] #${userId} (${caregiverName}) đã đặt lịch. Đã gửi tin nhắn chờ xác nhận từ Admin.`);
+
+    return res.json({
+      success: true,
+      message: 'Đặt lịch phỏng vấn online thành công! Vui lòng chờ Admin xác nhận.',
+      interview: {
+        status: 'scheduled',
+        date,
+        time: timeSlot,
+        meetingLink: null
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi đặt lịch phỏng vấn:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 1.1. Admin xác nhận lịch phỏng vấn, tạo link Google Meet và tự động gửi vào tin nhắn cho ứng viên
+app.post('/api/admin/interviews/confirm', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  try {
+    const caregiverUserId = Number(req.body.caregiverUserId || req.body.userId);
+    if (!caregiverUserId) {
+      return res.status(400).json({ error: 'Thiếu ID người chăm sóc' });
+    }
+
+    const [uRows] = await pool.execute('SELECT id, full_name, email, phone FROM users WHERE id = ?', [caregiverUserId]);
+    if (uRows.length === 0) {
+      return res.status(404).json({ error: 'Không tìm thấy người chăm sóc' });
+    }
+    const caregiver = uRows[0];
+
+    const [cpRows] = await pool.execute('SELECT id, interview_date, interview_time, interview_status FROM caregiver_profiles WHERE user_id = ?', [caregiverUserId]);
+    const cp = cpRows[0] || {};
+
+    const meetingLink = generateGoogleMeetLink();
+
+    await pool.execute(
+      `UPDATE caregiver_profiles 
+       SET interview_meeting_link = ?,
+           interview_status = 'confirmed'
+       WHERE user_id = ?`,
+      [meetingLink, caregiverUserId]
+    );
+
+    // TỰ ĐỘNG GỬI TIN NHẮN TỪ ADMIN KÈM LINK GOOGLE MEET VÀO HỘI THOẠI
+    const convId = `conv_1_${caregiverUserId}`;
+    const timeDetail = cp.interview_date ? ` vào lúc ${cp.interview_time || '09:30 - 10:00'} ngày ${cp.interview_date}` : '';
+    const adminMeetMsg = `Chào bạn ${caregiver.full_name}, Ban Quản Trị CARE-MATCH đã xác nhận lịch hẹn phỏng vấn trực tuyến của bạn${timeDetail}.\n👉 Link phòng họp Google Meet chính thức: ${meetingLink}\n\nBạn vui lòng chuẩn bị CCCD gắn chip gốc, trang phục lịch sự và bấm nút "Vào Google Meet" đúng giờ nhé! Chúc bạn có buổi phỏng vấn tốt đẹp.`;
+
+    await pool.execute(
+      `INSERT INTO messages (conversation_id, sender_user_id, sender_name, sender_role, recipient_user_id, recipient_name, content, is_read)
+       VALUES (?, 1, 'Ban Quản Trị CARE-MATCH', 'admin', ?, ?, ?, FALSE)`,
+      [convId, caregiverUserId, caregiver.full_name, adminMeetMsg]
+    );
+
+    await createNotification(
+      caregiverUserId,
+      'interview',
+      '✅ Ban Quản Trị đã xác nhận lịch Google Meet!',
+      `Lịch phỏng vấn${timeDetail} đã được Admin xác nhận. Link Google Meet: ${meetingLink}`,
+      '/caregiver'
+    );
+
+    console.log(`✅ [Google Meet] Admin đã xác nhận lịch phỏng vấn và gửi link ${meetingLink} cho Caregiver #${caregiverUserId}`);
+
+    return res.json({
+      success: true,
+      meetingLink,
+      caregiverUserId,
+      caregiverName: caregiver.full_name,
+      message: `Đã xác nhận lịch phỏng vấn và gửi link Google Meet tới ${caregiver.full_name}!`
+    });
+  } catch (err) {
+    console.error('Lỗi xác nhận phỏng vấn:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Alias tương thích ngược cho endpoint generate-meet
+app.post('/api/admin/interviews/generate-meet', async (req, res) => {
+  return app._router.handle({ ...req, url: '/api/admin/interviews/confirm' }, res);
+});
+
+// 2. Admin lấy danh sách các ca phỏng vấn online
+app.get('/api/admin/interviews', async (req, res) => {
+  if (!isMySqlConnected) return res.json([]);
+  try {
+    const [rows] = await pool.execute(`
+      SELECT cp.id AS profile_id, cp.user_id, cp.interview_status, cp.interview_date,
+             cp.interview_time, cp.interview_meeting_link, cp.interview_notes,
+             cp.interview_scheduled_at, cp.interview_passed_at,
+             cp.verification_status, cp.care_score, cp.experience_years,
+             cp.contact_address, cp.district,
+             u.full_name, u.email, u.phone, u.created_at AS user_created_at
+      FROM caregiver_profiles cp
+      JOIN users u ON cp.user_id = u.id
+      ORDER BY 
+        CASE 
+          WHEN cp.interview_status = 'scheduled' THEN 1 
+          WHEN cp.interview_status = 'not_scheduled' THEN 2 
+          ELSE 3 
+        END,
+        cp.interview_date ASC,
+        cp.id DESC
+    `);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Admin đánh giá & xác nhận kết quả phỏng vấn
+app.post('/api/admin/interviews/evaluate', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  try {
+    const { userId, profileId, status, notes, careScoreBonus } = req.body;
+    // status: 'passed' | 'failed' | 'scheduled'
+    const targetUserId = Number(userId);
+    const targetProfileId = Number(profileId);
+    const bonus = Number(careScoreBonus) || 0;
+
+    let updateQuery = `
+      UPDATE caregiver_profiles SET
+        interview_status = ?,
+        interview_notes = COALESCE(?, interview_notes),
+        interview_passed_at = CASE WHEN ? = 'passed' THEN NOW() ELSE interview_passed_at END,
+        verification_status = CASE WHEN ? = 'passed' AND verification_status = 'pending' THEN 'approved' ELSE verification_status END,
+        care_score = CASE WHEN ? = 'passed' THEN GREATEST(COALESCE(care_score, 85), 90) + ? ELSE care_score END
+      WHERE user_id = ? OR id = ?
+    `;
+
+    await pool.execute(updateQuery, [
+      status,
+      notes || null,
+      status,
+      status,
+      status,
+      bonus,
+      targetUserId || 0,
+      targetProfileId || 0
+    ]);
+
+    // Tạo thông báo cho Caregiver
+    if (targetUserId) {
+      if (status === 'passed') {
+        await createNotification(
+          targetUserId,
+          'interview',
+          'Chúc mừng! Bạn đã hoàn thành phỏng vấn đạt chuẩn',
+          'Bạn đã hoàn thành xuất sắc vòng phỏng vấn năng lực với Ban Quản Trị. Bạn đã đủ điều kiện nhận ca làm việc và hồ sơ đã xuất hiện trên hệ thống đề xuất.',
+          '/caregiver'
+        );
+      } else if (status === 'failed') {
+        await createNotification(
+          targetUserId,
+          'interview',
+          'Kết quả phỏng vấn trực tuyến',
+          'Ban Quản Trị đã đánh giá buổi phỏng vấn trực tuyến. Vui lòng xem nhận xét và đặt lại lịch phỏng vấn bổ sung.',
+          '/caregiver'
+        );
+      }
+    }
+
+    return res.json({ success: true, message: 'Cập nhật đánh giá phỏng vấn thành công!' });
+  } catch (err) {
+    console.error('Lỗi đánh giá phỏng vấn:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================================
 // API LẤY DANH SÁCH NGƯỜI CHĂM SÓC DÀNH CHO GIA ĐÌNH (/matches)
 // ========================================================
 app.get('/api/caregivers', async (req, res) => {
@@ -845,7 +1849,8 @@ app.get('/api/caregivers', async (req, res) => {
     let query = `
       SELECT u.id AS user_id, u.username, u.full_name, u.email, u.phone, u.role,
              cp.id AS profile_id, cp.title, cp.experience_years, cp.care_score,
-             cp.verification_status, cp.hourly_rate, cp.district, cp.rating,
+             cp.verification_status, cp.shift_rate, cp.night_shift_rate, cp.work_history,
+             cp.hourly_rate, cp.district, cp.contact_address, cp.interview_status, cp.interview_date, cp.interview_time, cp.rating,
              cp.skills, cp.bio, cp.documents, cp.created_at
       FROM users u
       LEFT JOIN caregiver_profiles cp ON u.id = cp.user_id
@@ -860,7 +1865,7 @@ app.get('/api/caregivers', async (req, res) => {
 
     query += `
       ORDER BY 
-        CASE WHEN cp.verification_status = 'approved' THEN 1 ELSE 2 END,
+        CASE WHEN cp.interview_status = 'passed' AND cp.verification_status = 'approved' THEN 1 ELSE 2 END,
         COALESCE(cp.care_score, 0) DESC,
         u.id ASC
     `;
@@ -886,7 +1891,11 @@ app.get('/api/caregivers', async (req, res) => {
       const tags = skills.length > 0 ? skills.slice(0, 4) : ['Chăm sóc tại nhà', 'Theo dõi sức khỏe', 'Tâm lý'];
 
       const score = Number(r.care_score) || 95;
-      const exp = Number(r.experience_years) || 5;
+      const exp = Math.max(1, Number(r.experience_years) || 1);
+      const shiftRate = Number(r.shift_rate) || 400000;
+      const nightShiftRate = Number(r.night_shift_rate) || Math.round(shiftRate * 1.5);
+      const workHistory = parseJson(r.work_history, []);
+      const docs = parseJson(r.documents, []);
 
       return {
         id: String(r.user_id),
@@ -896,14 +1905,21 @@ app.get('/api/caregivers', async (req, res) => {
         username: r.username,
         email: r.email,
         phone: r.phone,
-        role: r.title || 'Chăm sóc người cao tuổi',
+        role: 'Chuyên viên chăm sóc',
         initials,
         rating: r.rating ? String(r.rating).replace('.', ',') : '4,9',
         reviews: 20 + ((r.user_id * 7) % 30),
         experience: `${exp} năm kinh nghiệm`,
         experience_years: exp,
+        shift_rate: shiftRate,
+        night_shift_rate: nightShiftRate,
+        work_history: workHistory,
+        documents: docs,
         distance: r.district ? `Khu vực: ${r.district}` : '2,4 km',
         district: r.district || 'Hà Nội',
+        contact_address: r.contact_address || '',
+        interview_status: r.interview_status || 'passed',
+        interview_passed: r.interview_status === 'passed',
         match: score,
         care_score: score,
         tags,
@@ -929,7 +1945,8 @@ app.get('/api/caregivers/:id', async (req, res) => {
     let query = `
       SELECT u.id AS user_id, u.username, u.full_name, u.email, u.phone, u.role,
              cp.id AS profile_id, cp.title, cp.experience_years, cp.care_score,
-             cp.verification_status, cp.hourly_rate, cp.district, cp.rating,
+             cp.verification_status, cp.shift_rate, cp.night_shift_rate, cp.work_history,
+             cp.hourly_rate, cp.district, cp.rating,
              cp.skills, cp.bio, cp.documents, cp.created_at
       FROM users u
       LEFT JOIN caregiver_profiles cp ON u.id = cp.user_id
@@ -953,7 +1970,11 @@ app.get('/api/caregivers/:id', async (req, res) => {
     const skills = parseJson(r.skills, []);
     const tags = skills.length > 0 ? skills : ['Chăm sóc tại nhà', 'Theo dõi sức khỏe', 'Tâm lý'];
     const score = Number(r.care_score) || 95;
-    const exp = Number(r.experience_years) || 5;
+    const exp = Math.max(1, Number(r.experience_years) || 1);
+    const shiftRate = Number(r.shift_rate) || 400000;
+    const nightShiftRate = Number(r.night_shift_rate) || Math.round(shiftRate * 1.5);
+    const workHistory = parseJson(r.work_history, []);
+    const docs = parseJson(r.documents, []);
 
     return res.json({
       id: String(r.user_id),
@@ -963,12 +1984,16 @@ app.get('/api/caregivers/:id', async (req, res) => {
       username: r.username,
       email: r.email,
       phone: r.phone,
-      role: r.title || 'Chăm sóc người cao tuổi',
+      role: 'Chuyên viên chăm sóc',
       initials,
       rating: r.rating ? String(r.rating).replace('.', ',') : '4,9',
       reviews: 25 + ((r.user_id * 5) % 25),
       experience: `${exp} năm kinh nghiệm`,
       experience_years: exp,
+      shift_rate: shiftRate,
+      night_shift_rate: nightShiftRate,
+      work_history: workHistory,
+      documents: docs,
       distance: r.district ? `Khu vực: ${r.district}` : '2,4 km',
       district: r.district || 'Hà Nội',
       match: score,
@@ -1153,6 +2178,7 @@ app.post('/api/schedules', async (req, res) => {
 
   if (isMySqlConnected) {
     try {
+      const initialStatus = status || 'pending_payment';
       const [result] = await pool.execute(
         `INSERT INTO schedules 
           (family_user_id, caregiver_user_id, elderly_profile_id, elderly_name, caregiver_name, schedule_date, time_slot, title, tasks, status, price)
@@ -1167,7 +2193,7 @@ app.post('/api/schedules', async (req, res) => {
           time_slot || '08:30 - 12:30',
           title || `Ca chăm sóc (${caregiver_name || 'Nguyễn Lan Anh'})`,
           tasks || 'Chăm sóc sinh hoạt và theo dõi sức khỏe',
-          status || 'confirmed',
+          initialStatus,
           price || 400000
         ]
       );
@@ -1183,62 +2209,191 @@ app.post('/api/schedules', async (req, res) => {
         time_slot: time_slot || '08:30 - 12:30',
         title: title || `Ca chăm sóc (${caregiver_name || 'Nguyễn Lan Anh'})`,
         tasks: tasks || 'Chăm sóc sinh hoạt và theo dõi sức khỏe',
-        status: status || 'confirmed',
+        status: initialStatus,
         price: price || 400000,
+        caregiver_confirmed_completed: false,
+        family_confirmed_completed: false,
         created_at: new Date().toISOString()
       };
 
-      console.log(`✅ [MySQL] Đã lưu ca chăm sóc ID #${result.insertId} vào MySQL.`);
+      console.log(`✅ [MySQL] Đã lưu ca chăm sóc ID #${result.insertId} vào CSDL.`);
 
-      // Tạo thông báo vào MySQL
+      // Tự động tạo bản ghi ký quỹ escrow an toàn cho ca làm việc mới
+      let bookingPaymentId = null;
+      const txCode = 'ESC-2026-' + String(result.insertId).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
+      try {
+        const schedPrice = Number(price) || 400000;
+        const fee = Math.round(schedPrice * 0.15); // 15% phí sàn
+        const earnings = schedPrice - fee;        // 85% thực nhận
+        const [escResult] = await pool.execute(
+          `INSERT INTO booking_escrow_payments 
+           (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, platform_fee, caregiver_earnings, escrow_status, payment_method, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', 'Đặt ca mới - Vui lòng thanh toán giữ chỗ để xác nhận ca')`,
+          [
+            txCode,
+            result.insertId,
+            Number(family_user_id),
+            Number(caregiver_user_id || 2),
+            elderly_name || 'Người thân',
+            schedule_date || 'Hôm nay',
+            time_slot || '08:30 - 12:30',
+            schedPrice,
+            fee,
+            earnings
+          ]
+        );
+        bookingPaymentId = escResult.insertId;
+      } catch (escErr) {
+        console.warn('Lỗi ghi nhận booking_escrow_payments khi đặt ca:', escErr.message);
+      }
+
+      // Tạo thông báo
       await createNotification(
         Number(family_user_id),
         'schedule',
         'Ca chăm sóc mới đã được tạo',
-        `${schedule_date || 'Hôm nay'} · ${time_slot || '08:30 - 12:30'} với ${caregiver_name || 'Người chăm sóc'}`,
+        `${schedule_date || 'Hôm nay'} · ${time_slot || '08:30 - 12:30'} với ${caregiver_name || 'Người chăm sóc'}. Vui lòng thanh toán giữ chỗ để xác nhận ca!`,
         '/schedule'
       );
 
-      return res.status(201).json(newSchedule);
+      return res.status(201).json({
+        ...newSchedule,
+        paymentId: bookingPaymentId,
+        payment_id: bookingPaymentId,
+        transaction_code: txCode
+      });
     } catch (e) {
       console.error('MySQL insert schedule error:', e.message);
-      return res.status(500).json({ error: 'Lỗi lưu ca chăm sóc vào MySQL: ' + e.message });
+      return res.status(500).json({ error: 'Lỗi lưu ca chăm sóc: ' + e.message });
     }
   }
 
-  return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  return res.status(500).json({ error: 'Chưa kết nối CSDL' });
 });
 
-// 10. Cập nhật trạng thái ca chăm sóc (MySQL)
+// 10. Cập nhật trạng thái ca chăm sóc (Hỗ trợ xác nhận hoàn thành 2 chiều bắt buộc)
 app.patch('/api/schedules/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { status } = req.body;
+  const { status, confirmedBy } = req.body;
 
   if (isMySqlConnected) {
     try {
+      const [existingRows] = await pool.execute('SELECT * FROM schedules WHERE id = ?', [id]);
+      if (existingRows.length === 0) {
+        return res.status(404).json({ error: 'Không tìm thấy ca chăm sóc' });
+      }
+      const item = existingRows[0];
+
+      // XỬ LÝ QUY TRÌNH HOÀN THÀNH CA BẮT BUỘC 2 CHIỀU (Gia đình VÀ Người chăm sóc)
+      if (status === 'completed' || confirmedBy) {
+        let isCaregiverConfirmed = Boolean(item.caregiver_confirmed_completed);
+        let isFamilyConfirmed = Boolean(item.family_confirmed_completed);
+
+        if (confirmedBy === 'caregiver') {
+          isCaregiverConfirmed = true;
+          await pool.execute('UPDATE schedules SET caregiver_confirmed_completed = TRUE, caregiver_completed_at = NOW() WHERE id = ?', [id]);
+        } else if (confirmedBy === 'family') {
+          isFamilyConfirmed = true;
+          await pool.execute('UPDATE schedules SET family_confirmed_completed = TRUE, family_completed_at = NOW() WHERE id = ?', [id]);
+        } else {
+          // Admin hoặc hệ thống duyệt trực tiếp cả 2 bên
+          isCaregiverConfirmed = true;
+          isFamilyConfirmed = true;
+          await pool.execute('UPDATE schedules SET caregiver_confirmed_completed = TRUE, family_confirmed_completed = TRUE WHERE id = ?', [id]);
+        }
+
+        // Kiểm tra xem CẢ HAI PHÍA ĐÃ XÁC NHẬN CHƯA
+        if (isCaregiverConfirmed && isFamilyConfirmed) {
+          // CẢ HAI BÊN ĐÃ XÁC NHẬN -> CHÍNH THỨC HOÀN TẤT VÀ GIẢI NGÂN
+          await pool.execute("UPDATE schedules SET status = 'completed' WHERE id = ?", [id]);
+
+          // Tự động giải ngân ký quỹ 85% cho người chăm sóc, trích 15% phí sàn
+          try {
+            const ref = 'PAYOUT-' + Math.floor(10000000 + Math.random() * 90000000);
+            await pool.execute(
+              `UPDATE booking_escrow_payments 
+               SET escrow_status = 'paid_out', 
+                   released_at = NOW(), 
+                   bank_reference = ?,
+                   notes = 'Cả hai bên đã xác nhận hoàn thành ca. Hệ thống đã giải ngân tự động 85% thù lao vào tài khoản ngân hàng' 
+               WHERE schedule_id = ?`,
+              [ref, id]
+            );
+
+            if (item.caregiver_user_id) {
+              const netEarn = Math.round((Number(item.price) || 400000) * 0.85);
+              await createNotification(
+                item.caregiver_user_id,
+                'payment',
+                '✅ Thù lao đã chuyển về tài khoản ngân hàng!',
+                `Cả hai bên đã xác nhận hoàn thành ca #${id}. Hệ thống đã tự động chuyển ${netEarn.toLocaleString('vi-VN')} đ (85% thù lao) vào tài khoản ngân hàng của bạn.`,
+                '/payments'
+              );
+            }
+          } catch (payoutErr) {
+            console.warn('Lỗi giải ngân tự động khi hoàn thành ca:', payoutErr.message);
+          }
+
+          if (item.family_user_id) {
+            await createNotification(
+              item.family_user_id,
+              'schedule',
+              'Ca chăm sóc đã kết thúc hoàn tất ✓',
+              `${item.caregiver_name || 'Người chăm sóc'} đã hoàn thành ca chăm sóc cho ${item.elderly_name || 'người thân'}. Vui lòng đánh giá chất lượng dịch vụ ⭐`,
+              '/schedule'
+            );
+          }
+
+          const [updated] = await pool.execute('SELECT * FROM schedules WHERE id = ?', [id]);
+          return res.json({ ...updated[0], both_confirmed: true, message: 'Cả hai bên đã xác nhận hoàn tất ca thành công!' });
+        } else if (isCaregiverConfirmed && !isFamilyConfirmed) {
+          // Chỉ mới người chăm sóc xác nhận -> Chờ gia đình
+          await pool.execute("UPDATE schedules SET status = 'caregiver_completed' WHERE id = ?", [id]);
+          if (item.family_user_id) {
+            await createNotification(
+              item.family_user_id,
+              'schedule',
+              '⚠️ Người chăm sóc đã báo hoàn thành ca',
+              `${item.caregiver_name || 'Người chăm sóc'} đã báo hoàn thành ca chăm sóc cho ${item.elderly_name || 'người thân'}. Vui lòng xác nhận hoàn tất để giải ngân thù lao.`,
+              '/schedule'
+            );
+          }
+          const [updated] = await pool.execute('SELECT * FROM schedules WHERE id = ?', [id]);
+          return res.json({ ...updated[0], both_confirmed: false, message: 'Đã báo hoàn thành ca. Đang chờ gia đình xác nhận đối soát!' });
+        } else if (!isCaregiverConfirmed && isFamilyConfirmed) {
+          // Chỉ mới gia đình xác nhận -> Chờ người chăm sóc
+          await pool.execute("UPDATE schedules SET status = 'family_completed' WHERE id = ?", [id]);
+          if (item.caregiver_user_id) {
+            await createNotification(
+              item.caregiver_user_id,
+              'schedule',
+              '⚠️ Gia đình đã xác nhận ca hoàn tất',
+              `Gia đình ${item.elderly_name || 'người thân'} đã xác nhận ca làm việc xong. Vui lòng bấm xác nhận hoàn thành để nhận giải ngân thù lao.`,
+              '/caregiver'
+            );
+          }
+          const [updated] = await pool.execute('SELECT * FROM schedules WHERE id = ?', [id]);
+          return res.json({ ...updated[0], both_confirmed: false, message: 'Đã xác nhận hoàn tất ca. Đang chờ người chăm sóc xác nhận đối soát!' });
+        }
+      }
+
+      // Cập nhật các trạng thái khác (confirmed, pending, cancelled, ...)
       await pool.execute('UPDATE schedules SET status = ? WHERE id = ?', [status, id]);
       const [rows] = await pool.execute('SELECT * FROM schedules WHERE id = ?', [id]);
       if (rows.length > 0) {
-        const item = rows[0];
+        const updatedItem = rows[0];
         console.log(`✅ [MySQL] Đã cập nhật trạng thái ca #${id} thành: ${status}`);
-        if (status === 'confirmed' && item.family_user_id) {
+        
+        if (status === 'confirmed' && updatedItem.family_user_id) {
           await createNotification(
-            item.family_user_id,
+            updatedItem.family_user_id,
             'schedule',
             'Người chăm sóc đã nhận ca! ✓',
-            `${item.caregiver_name || 'Người chăm sóc'} đã xác nhận nhận ca chăm sóc cho ${item.elderly_name || 'người thân'} (${item.schedule_date || 'Hôm nay'}).`,
-            '/schedule'
-          );
-        } else if (status === 'completed' && item.family_user_id) {
-          await createNotification(
-            item.family_user_id,
-            'schedule',
-            'Ca chăm sóc đã hoàn thành ✓',
-            `${item.caregiver_name || 'Người chăm sóc'} đã hoàn thành ca chăm sóc cho ${item.elderly_name || 'người thân'}.`,
+            `${updatedItem.caregiver_name || 'Người chăm sóc'} đã xác nhận nhận ca chăm sóc cho ${updatedItem.elderly_name || 'người thân'} (${updatedItem.schedule_date || 'Hôm nay'}).`,
             '/schedule'
           );
         }
-        return res.json(item);
+        return res.json(updatedItem);
       }
       return res.status(404).json({ error: 'Không tìm thấy ca chăm sóc' });
     } catch (e) {
@@ -1246,7 +2401,7 @@ app.patch('/api/schedules/:id', async (req, res) => {
     }
   }
 
-  return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  return res.status(500).json({ error: 'Chưa kết nối CSDL' });
 });
 
 // 11. Xóa / Hủy ca chăm sóc (MySQL)
@@ -1627,7 +2782,7 @@ app.get('/api/admin/stats', async (req, res) => {
   }
 });
 
-// A2. Danh sách tất cả người dùng (family + caregiver) kèm tóm tắt
+// A2. Danh sách tất cả người dùng (family + caregiver) kèm tóm tắt và hoạt động mới nhất
 app.get('/api/admin/users', async (req, res) => {
   if (!isMySqlConnected) return res.json([]);
   try {
@@ -1635,13 +2790,27 @@ app.get('/api/admin/users', async (req, res) => {
     let query = `
       SELECT u.id, u.username, u.full_name, u.email, u.phone, u.role, u.created_at,
              cp.id AS cp_id, cp.title, cp.experience_years, cp.care_score, cp.verification_status,
-             cp.hourly_rate, cp.district, cp.rating,
+             cp.hourly_rate, cp.shift_rate, cp.night_shift_rate, cp.district, cp.rating,
+             cp.interview_status, cp.interview_date, cp.interview_time, cp.interview_meeting_link,
+             fp.id AS fp_id, fp.representative_name, fp.id_number AS fp_id_number,
+             fp.verification_status AS fp_verification_status, fp.district AS fp_district,
              (SELECT COUNT(*) FROM schedules s WHERE 
                (u.role = 'family' AND s.family_user_id = u.id) OR 
                (u.role = 'caregiver' AND s.caregiver_user_id = u.id)
-             ) AS schedule_count
+             ) AS schedule_count,
+             (SELECT MAX(s.created_at) FROM schedules s WHERE 
+               (u.role = 'family' AND s.family_user_id = u.id) OR 
+               (u.role = 'caregiver' AND s.caregiver_user_id = u.id)
+             ) AS last_schedule_at,
+             (SELECT COALESCE(AVG(cr.rating), 5.0) FROM caregiver_reviews cr WHERE cr.caregiver_user_id = u.id AND cr.status = 'approved') AS avg_rating,
+             (SELECT COUNT(*) FROM caregiver_reviews cr WHERE cr.caregiver_user_id = u.id AND cr.status = 'approved') AS review_count,
+             (SELECT cr.review_text FROM caregiver_reviews cr WHERE cr.caregiver_user_id = u.id AND cr.status = 'approved' ORDER BY cr.created_at DESC LIMIT 1) AS latest_review_text,
+             (SELECT cr.rating FROM caregiver_reviews cr WHERE cr.caregiver_user_id = u.id AND cr.status = 'approved' ORDER BY cr.created_at DESC LIMIT 1) AS latest_review_rating,
+             (SELECT MAX(b.created_at) FROM booking_escrow_payments b WHERE b.family_user_id = u.id OR b.caregiver_user_id = u.id) AS last_payment_at,
+             (SELECT COALESCE(SUM(b.total_amount), 0) FROM booking_escrow_payments b WHERE b.family_user_id = u.id) AS total_family_spent
       FROM users u
       LEFT JOIN caregiver_profiles cp ON u.id = cp.user_id
+      LEFT JOIN family_profiles fp ON u.id = fp.user_id
       WHERE u.role != 'admin'
     `;
     const params = [];
@@ -1651,7 +2820,18 @@ app.get('/api/admin/users', async (req, res) => {
     }
     query += ' ORDER BY u.created_at DESC';
     const [rows] = await pool.execute(query, params);
-    return res.json(rows);
+    
+    // Bổ sung thuộc tính last_activity_date để sắp xếp theo tương tác mới nhất
+    const mapped = rows.map(r => {
+      const dates = [r.last_schedule_at, r.last_payment_at, r.created_at].filter(Boolean).map(d => new Date(d).getTime());
+      const maxDate = dates.length > 0 ? Math.max(...dates) : new Date(r.created_at).getTime();
+      return {
+        ...r,
+        last_activity_date: new Date(maxDate).toISOString()
+      };
+    });
+
+    return res.json(mapped);
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
@@ -1692,7 +2872,13 @@ app.get('/api/admin/users/:id/profile', async (req, res) => {
 
     if (user.role === 'family') {
       const [elderly] = await pool.execute('SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC', [uid]);
-      return res.json({ user, elderly_profiles: elderly.map(e => ({ ...e, care_needs: parseJson(e.care_needs, []) })) });
+      const [familyRows] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
+      const familyProfile = familyRows[0] || null;
+      return res.json({
+        user,
+        family_profile: familyProfile,
+        elderly_profiles: elderly.map(e => ({ ...e, care_needs: parseJson(e.care_needs, []) }))
+      });
     } else if (user.role === 'caregiver') {
       const [cpRows] = await pool.execute('SELECT * FROM caregiver_profiles WHERE user_id = ? LIMIT 1', [uid]);
       const cp = cpRows[0] || null;
@@ -1739,7 +2925,7 @@ app.get('/api/admin/users/:id/profile', async (req, res) => {
           }
         }
       }
-      return res.json({ user, caregiver_profile: cp ? { ...cp, skills: parseJson(cp.skills, []), documents } : null });
+      return res.json({ user, caregiver_profile: cp ? { ...cp, title: 'Chuyên viên chăm sóc', role: 'Chuyên viên chăm sóc', skills: parseJson(cp.skills, []), work_history: parseJson(cp.work_history, []), documents } : null });
     }
     return res.json({ user });
   } catch (e) {
@@ -1976,6 +3162,1310 @@ app.patch('/api/admin/caregiver-documents/:id/status', async (req, res) => {
   }
 });
 
+// ========================================================
+// API QUẢN LÝ GÓI ĐĂNG KÝ PREMIUM GIA ĐÌNH (50.000đ/tháng)
+// ========================================================
+
+// 1. Lấy thông tin gói Premium của 1 gia đình
+app.get('/api/family/subscription/:userId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!isMySqlConnected) {
+    return res.json({ hasSubscription: false, is_premium: false, monthlyPrice: 50000 });
+  }
+  try {
+    const [rows] = await pool.execute(
+      `SELECT s.*, 
+              DATEDIFF(s.end_date, NOW()) AS days_remaining,
+              CASE WHEN s.end_date > NOW() AND s.status = 'active' THEN 1 ELSE 0 END AS is_valid
+       FROM family_subscriptions s
+       WHERE s.user_id = ?
+       ORDER BY s.created_at DESC
+       LIMIT 1`,
+      [userId]
+    );
+
+    const benefits = [
+      'Ưu tiên ghép ca với Điều dưỡng / Người chăm sóc có CARE SCORE cao nhất',
+      'Ưu tiên đặt lịch & Giữ chỗ các khung giờ cao điểm, dịp Lễ Tết',
+      'Đội ngũ CSKH ưu tiên hỗ trợ & xử lý yêu cầu/khiếu nại trong vòng 15 phút',
+      'Đường dây nóng y tế & Chuyên gia tư vấn phác đồ chăm sóc 24/7',
+      'Miễn phí đổi người chăm sóc trong 24h đầu nếu chưa phù hợp phong cách',
+      'Huy hiệu Thành viên Gia Đình VIP độc quyền trên hệ sinh thái CARE-MATCH'
+    ];
+
+    if (rows.length === 0) {
+      return res.json({
+        hasSubscription: false,
+        is_premium: false,
+        monthlyPrice: 50000,
+        planName: 'Gói Gia Đình Premium',
+        benefits
+      });
+    }
+
+    const sub = rows[0];
+    const isPremium = Boolean(sub.is_valid);
+
+    return res.json({
+      hasSubscription: true,
+      is_premium: isPremium,
+      subscription: sub,
+      days_remaining: Math.max(0, sub.days_remaining || 0),
+      monthlyPrice: 50000,
+      planName: 'Gói Gia Đình Premium',
+      benefits
+    });
+  } catch (err) {
+    console.error('Lỗi lấy subscription:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Gia đình đăng ký / gia hạn gói Premium (50.000đ/tháng)
+app.post('/api/family/subscribe', async (req, res) => {
+  const { userId, paymentMethod, transactionCode, notes } = req.body;
+  const uid = Number(userId);
+  if (!uid) return res.status(400).json({ error: 'Thiếu userId gia đình' });
+
+  if (!isMySqlConnected) {
+    return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  }
+
+  try {
+    const [uRows] = await pool.execute('SELECT id, full_name, email, phone FROM users WHERE id = ?', [uid]);
+    if (uRows.length === 0) return res.status(404).json({ error: 'Không tìm thấy tài khoản gia đình' });
+    const user = uRows[0];
+
+    const code = transactionCode || ('PREM-' + Date.now().toString().slice(-6));
+    const method = paymentMethod || 'Chuyển khoản QR (VietQR)';
+    const price = 50000;
+
+    // Tính ngày kết thúc: Nếu còn hạn thì cộng dồn 30 ngày, ngược lại từ hôm nay + 30 ngày
+    const [curSub] = await pool.execute(
+      `SELECT end_date FROM family_subscriptions WHERE user_id = ? AND status = 'active' AND end_date > NOW() ORDER BY end_date DESC LIMIT 1`,
+      [uid]
+    );
+
+    let startDate = new Date();
+    let endDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    if (curSub.length > 0 && new Date(curSub[0].end_date) > new Date()) {
+      endDate = new Date(new Date(curSub[0].end_date).getTime() + 30 * 24 * 60 * 60 * 1000);
+    }
+
+    const [subRes] = await pool.execute(
+      `INSERT INTO family_subscriptions 
+       (user_id, plan_name, price, billing_cycle, status, start_date, end_date, payment_method, transaction_code, notes)
+       VALUES (?, 'Gói Gia Đình Premium', ?, 'monthly', 'active', NOW(), ?, ?, ?, ?)`,
+      [uid, price, endDate, method, code, notes || 'Đăng ký Gói Gia Đình Premium 50.000đ/tháng']
+    );
+
+    // Cập nhật profile
+    await pool.execute(
+      `UPDATE family_profiles SET is_premium = TRUE, premium_until = ? WHERE user_id = ?`,
+      [endDate, uid]
+    );
+
+    // Ghi vào bảng transactions cho thống kê tài chính Admin
+    try {
+      await pool.execute(
+        `INSERT INTO transactions 
+         (transaction_code, schedule_id, family_user_id, caregiver_user_id, service_name, total_amount, platform_fee, payout_amount, family_payment_status, caregiver_payout_status, payment_method, paid_at, notes)
+         VALUES (?, NULL, ?, 1, 'Gói Gia Đình Premium (50.000đ/tháng)', ?, ?, 0, 'paid', 'paid', ?, NOW(), 'Thanh toán gói hội viên VIP')`,
+        [code, uid, price, price, method]
+      );
+    } catch (tErr) {
+      console.warn('Lỗi ghi transaction:', tErr.message);
+    }
+
+    // Tự động gửi tin nhắn chào mừng đặc quyền từ Admin vào hộp thoại của gia đình
+    const convId = `conv_1_${uid}`;
+    const welcomeMsg = `Chúc mừng bạn ${user.full_name} đã nâng cấp thành công GÓI GIA ĐÌNH PREMIUM (50.000đ/tháng)!\n\nToàn bộ đặc quyền VIP đã kích hoạt:\n⭐ 1. Ưu tiên tìm kiếm người chăm sóc hàng đầu (CARE SCORE cao nhất)\n⭐ 2. Ưu tiên đặt lịch & giữ chỗ khung giờ cao điểm / Lễ Tết\n⭐ 3. Đội ngũ CSKH hỗ trợ & xử lý sự cố trong vòng 15 phút\n⭐ 4. Đường dây nóng y tế & Chuyên gia tư vấn chăm sóc 24/7\n⭐ 5. Miễn phí đổi người chăm sóc trong 24h đầu nếu chưa hài lòng.\n\nCảm ơn bạn đã tin tưởng đồng hành cùng CARE-MATCH!`;
+
+    await pool.execute(
+      `INSERT INTO messages (conversation_id, sender_user_id, sender_name, sender_role, recipient_user_id, recipient_name, content, is_read)
+       VALUES (?, 1, 'Ban Quản Trị CARE-MATCH', 'admin', ?, ?, ?, FALSE)`,
+      [convId, uid, user.full_name, welcomeMsg]
+    );
+
+    await createNotification(
+      uid,
+      'subscription',
+      '⭐ Kích hoạt Gói Gia Đình Premium thành công!',
+      'Gia đình bạn đã nhận trọn vẹn đặc quyền VIP (Ưu tiên đặt lịch, tìm người & hỗ trợ 24/7).',
+      '/dashboard'
+    );
+
+    await createNotification(
+      1,
+      'subscription',
+      'Gia đình mới đăng ký Premium',
+      `${user.full_name} (#${uid}) đã đăng ký Gói Gia Đình Premium (50.000đ/tháng).`,
+      '/admin'
+    );
+
+    console.log(`⭐ [Premium] Gia đình #${uid} (${user.full_name}) đã kích hoạt Gói Premium đến ${endDate.toLocaleDateString('vi-VN')}`);
+
+    return res.json({
+      success: true,
+      subscriptionId: subRes.insertId,
+      message: 'Kích hoạt Gói Gia Đình Premium thành công!',
+      endDate: endDate.toISOString()
+    });
+  } catch (err) {
+    console.error('Lỗi đăng ký Premium:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Admin lấy toàn bộ danh sách người đăng ký gói Premium & Thống kê
+app.get('/api/admin/subscriptions', async (req, res) => {
+  if (!isMySqlConnected) return res.json({ subscriptions: [], stats: {} });
+  try {
+    const [rows] = await pool.execute(`
+      SELECT 
+        s.id,
+        s.user_id,
+        s.plan_name,
+        s.price,
+        s.billing_cycle,
+        s.status,
+        s.start_date,
+        s.end_date,
+        s.payment_method,
+        s.transaction_code,
+        s.notes,
+        s.created_at,
+        u.full_name,
+        u.email,
+        u.phone,
+        fp.representative_name,
+        fp.district,
+        fp.address,
+        DATEDIFF(s.end_date, NOW()) AS days_remaining,
+        CASE 
+          WHEN s.end_date > NOW() AND s.status = 'active' THEN 'active'
+          WHEN s.end_date <= NOW() THEN 'expired'
+          ELSE s.status 
+        END AS current_status
+      FROM family_subscriptions s
+      JOIN users u ON s.user_id = u.id
+      LEFT JOIN family_profiles fp ON u.id = fp.user_id
+      ORDER BY s.created_at DESC
+    `);
+
+    const totalSubscribers = rows.length;
+    const activeSubscribers = rows.filter(r => r.current_status === 'active').length;
+    const expiredSubscribers = rows.filter(r => r.current_status === 'expired').length;
+    const totalRevenue = rows.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
+
+    return res.json({
+      subscriptions: rows,
+      stats: {
+        totalSubscribers,
+        activeSubscribers,
+        expiredSubscribers,
+        totalRevenue,
+        monthlyPrice: 50000
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi lấy danh sách subscriptions:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Admin gia hạn thêm 30 ngày cho 1 gói
+app.post('/api/admin/subscriptions/:id/extend', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  const subId = Number(req.params.id);
+  const days = Number(req.body.days) || 30;
+
+  try {
+    const [rows] = await pool.execute('SELECT * FROM family_subscriptions WHERE id = ?', [subId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy gói' });
+    const sub = rows[0];
+
+    const curEnd = new Date(sub.end_date);
+    const baseDate = curEnd > new Date() ? curEnd : new Date();
+    const newEnd = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+
+    await pool.execute(
+      `UPDATE family_subscriptions SET end_date = ?, status = 'active' WHERE id = ?`,
+      [newEnd, subId]
+    );
+    await pool.execute(
+      `UPDATE family_profiles SET is_premium = TRUE, premium_until = ? WHERE user_id = ?`,
+      [newEnd, sub.user_id]
+    );
+
+    return res.json({ success: true, newEndDate: newEnd.toISOString() });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Admin thay đổi trạng thái (active / cancelled / expired)
+app.post('/api/admin/subscriptions/:id/status', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  const subId = Number(req.params.id);
+  const { status } = req.body;
+
+  try {
+    const [rows] = await pool.execute('SELECT * FROM family_subscriptions WHERE id = ?', [subId]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy gói' });
+    const sub = rows[0];
+
+    await pool.execute('UPDATE family_subscriptions SET status = ? WHERE id = ?', [status, subId]);
+    if (status !== 'active') {
+      await pool.execute('UPDATE family_profiles SET is_premium = FALSE WHERE user_id = ?', [sub.user_id]);
+    } else {
+      await pool.execute('UPDATE family_profiles SET is_premium = TRUE WHERE user_id = ?', [sub.user_id]);
+    }
+
+    return res.json({ success: true, status });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================================
+// HỆ THỐNG THANH TOÁN TỰ ĐỘNG & BẢO LÃNH KÝ QUỸ (ESCROW SAFE-PAY)
+// ========================================================
+
+// 1. DÀNH CHO GIA ĐÌNH: Lấy danh sách ca đặt & trạng thái thanh toán ký quỹ
+app.get('/api/payments/family/:userId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!isMySqlConnected) return res.json({ bookings: [], stats: {}, is_premium: false });
+  try {
+    const [bookings] = await pool.execute(`
+      SELECT 
+        b.*,
+        COALESCE(u_cg.full_name, 'Chuyên viên chăm sóc') AS caregiver_name,
+        u_cg.phone AS caregiver_phone,
+        u_cg.email AS caregiver_email,
+        s.title AS schedule_title,
+        s.tasks AS schedule_tasks,
+        s.status AS schedule_status
+      FROM booking_escrow_payments b
+      LEFT JOIN users u_cg ON b.caregiver_user_id = u_cg.id
+      LEFT JOIN schedules s ON b.schedule_id = s.id
+      WHERE b.family_user_id = ?
+      ORDER BY b.created_at DESC
+    `, [userId]);
+
+    let totalBooked = bookings.length;
+    let paidInEscrow = 0;
+    let pendingPayment = 0;
+    let completedPaid = 0;
+
+    for (const b of bookings) {
+      if (b.escrow_status === 'in_escrow') {
+        paidInEscrow += Number(b.total_amount) || 0;
+      } else if (b.escrow_status === 'pending_payment') {
+        pendingPayment += Number(b.total_amount) || 0;
+      } else if (b.escrow_status === 'paid_out') {
+        completedPaid += Number(b.total_amount) || 0;
+      }
+    }
+
+    const [subRows] = await pool.execute(
+      `SELECT is_premium, premium_until FROM family_profiles WHERE user_id = ? LIMIT 1`,
+      [userId]
+    );
+    const fp = subRows[0] || {};
+    const isPremium = fp.is_premium === 1 || fp.is_premium === true;
+
+    return res.json({
+      bookings,
+      stats: {
+        total_booked: totalBooked,
+        paid_in_escrow: paidInEscrow,
+        pending_payment: pendingPayment,
+        completed_paid: completedPaid,
+        total_spent: paidInEscrow + completedPaid
+      },
+      is_premium: isPremium,
+      premium_until: fp.premium_until
+    });
+  } catch (err) {
+    console.error('Lỗi lấy thanh toán gia đình:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. DÀNH CHO GIA ĐÌNH: Thanh toán ký quỹ cho 1 ca chăm sóc (Mô phỏng tự động VietQR Napas)
+app.post('/api/payments/pay-booking', async (req, res) => {
+  const { paymentId, scheduleId, userId, paymentMethod } = req.body;
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  try {
+    let pId = Number(paymentId);
+    if (!pId && scheduleId) {
+      const [fRows] = await pool.execute('SELECT id FROM booking_escrow_payments WHERE schedule_id = ? LIMIT 1', [Number(scheduleId)]);
+      if (fRows.length > 0) pId = fRows[0].id;
+    }
+
+    if (!pId) return res.status(400).json({ error: 'Không tìm thấy hóa đơn ca cần thanh toán' });
+
+    const ref = 'NPS' + Math.floor(100000000 + Math.random() * 900000000);
+    await pool.execute(
+      `UPDATE booking_escrow_payments 
+       SET escrow_status = 'in_escrow', 
+           family_paid_at = NOW(), 
+           payment_method = ?, 
+           bank_reference = ?,
+           notes = 'Đã thanh toán giữ chỗ an toàn qua VietQR. Tiền đang ký quỹ bảo lãnh tại CARE-MATCH.'
+       WHERE id = ?`,
+      [paymentMethod || 'Chuyển khoản QR (VietQR Napas)', ref, pId]
+    );
+
+    const [rows] = await pool.execute(`SELECT * FROM booking_escrow_payments WHERE id = ?`, [pId]);
+    const b = rows[0];
+
+    if (b && b.schedule_id) {
+      await pool.execute(`UPDATE schedules SET status = 'confirmed' WHERE id = ? AND status IN ('pending', 'pending_payment')`, [b.schedule_id]);
+    }
+
+    if (b) {
+      await createNotification(
+        b.family_user_id,
+        'payment',
+        '🛡️ Thanh toán ca an toàn thành công!',
+        `Đã chuyển tiền ký quỹ cho ca ${b.shift_date} (${Number(b.total_amount).toLocaleString('vi-VN')} đ). CARE-MATCH bảo lãnh số tiền này đến khi ca hoàn thành.`,
+        '/payments'
+      );
+
+      await createNotification(
+        b.caregiver_user_id,
+        'payment',
+        'Gia đình đã thanh toán giữ chỗ! 🛡️',
+        `Gia đình đã thanh toán tiền giữ chỗ cho ca ${b.shift_date}. Bạn có thể an tâm nhận ca!`,
+        '/payments'
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: 'Thanh toán giữ chỗ an toàn thành công!',
+      bankReference: ref,
+      booking: b
+    });
+  } catch (err) {
+    console.error('Lỗi thanh toán ca:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. DÀNH CHO NGƯỜI CHĂM SÓC: Quản lý thu nhập & giải ngân thù lao
+app.get('/api/payments/caregiver/:userId', async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!isMySqlConnected) return res.json({ shifts: [], stats: {}, bank_account: null });
+  try {
+    const [bankRows] = await pool.execute(
+      `SELECT * FROM caregiver_bank_accounts WHERE caregiver_user_id = ? ORDER BY is_default DESC, id DESC LIMIT 1`,
+      [userId]
+    );
+    const bankAccount = bankRows[0] || null;
+
+    const [shifts] = await pool.execute(`
+      SELECT 
+        b.*,
+        COALESCE(u_fam.full_name, 'Gia đình') AS family_name,
+        u_fam.phone AS family_phone,
+        s.status AS schedule_status
+      FROM booking_escrow_payments b
+      LEFT JOIN users u_fam ON b.family_user_id = u_fam.id
+      LEFT JOIN schedules s ON b.schedule_id = s.id
+      WHERE b.caregiver_user_id = ?
+      ORDER BY b.created_at DESC
+    `, [userId]);
+
+    let totalShifts = shifts.length;
+    let grossEarnings = 0;
+    let platformFee = 0;
+    let netEarnings = 0;
+    let paidOutAmount = 0;
+    let inEscrowAmount = 0;
+    let pendingFamilyAmount = 0;
+
+    for (const s of shifts) {
+      const gross = Number(s.total_amount) || 0;
+      const fee = Number(s.platform_fee) || Math.round(gross * 0.15);
+      const net = Number(s.caregiver_earnings) || (gross - fee);
+
+      grossEarnings += gross;
+      platformFee += fee;
+      netEarnings += net;
+
+      if (s.escrow_status === 'paid_out') {
+        paidOutAmount += net;
+      } else if (s.escrow_status === 'in_escrow') {
+        inEscrowAmount += net;
+      } else if (s.escrow_status === 'pending_payment') {
+        pendingFamilyAmount += net;
+      }
+    }
+
+    return res.json({
+      shifts,
+      bank_account: bankAccount,
+      stats: {
+        total_shifts: totalShifts,
+        gross_earnings: grossEarnings,
+        platform_fee: platformFee,        // 15% trích lại cho nền tảng
+        net_earnings: netEarnings,        // 85% thực nhận
+        paid_out_amount: paidOutAmount,   // Đã nhận về TK ngân hàng
+        in_escrow_amount: inEscrowAmount, // Chờ nhận (tiền đã ký quỹ, chờ ca xong)
+        pending_family_amount: pendingFamilyAmount // Gia đình chưa thanh toán
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi lấy thanh toán người chăm sóc:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. DÀNH CHO NGƯỜI CHĂM SÓC: Cập nhật tài khoản ngân hàng thụ hưởng
+app.post('/api/caregiver/bank-account', async (req, res) => {
+  const { caregiverUserId, bankName, accountNumber, accountHolder, branch } = req.body;
+  if (!caregiverUserId || !bankName || !accountNumber || !accountHolder) {
+    return res.status(400).json({ error: 'Vui lòng điền đầy đủ tên ngân hàng, số tài khoản và chủ tài khoản.' });
+  }
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  try {
+    const uid = Number(caregiverUserId);
+    const [existing] = await pool.execute('SELECT id FROM caregiver_bank_accounts WHERE caregiver_user_id = ? LIMIT 1', [uid]);
+    if (existing.length > 0) {
+      await pool.execute(
+        `UPDATE caregiver_bank_accounts 
+         SET bank_name = ?, account_number = ?, account_holder = ?, branch = ? 
+         WHERE caregiver_user_id = ?`,
+        [bankName.trim(), accountNumber.trim(), accountHolder.trim().toUpperCase(), branch ? branch.trim() : '', uid]
+      );
+    } else {
+      await pool.execute(
+        `INSERT INTO caregiver_bank_accounts (caregiver_user_id, bank_name, account_number, account_holder, branch)
+         VALUES (?, ?, ?, ?, ?)`,
+        [uid, bankName.trim(), accountNumber.trim(), accountHolder.trim().toUpperCase(), branch ? branch.trim() : '']
+      );
+    }
+    return res.json({ success: true, message: 'Đã lưu tài khoản ngân hàng nhận thù lao thành công!' });
+  } catch (err) {
+    console.error('Lỗi cập nhật tài khoản ngân hàng:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. XÁC NHẬN HOÀN THÀNH CA (YÊU CẦU XÁC NHẬN 2 CHIỀU: GIA ĐÌNH VÀ NGƯỜI CHĂM SÓC MỚI GIẢI NGÂN)
+app.post('/api/payments/confirm-shift-complete', async (req, res) => {
+  const { scheduleId, paymentId, confirmedBy } = req.body;
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  try {
+    let sId = Number(scheduleId);
+    let pId = Number(paymentId);
+
+    let bRecord = null;
+    if (pId) {
+      const [rows] = await pool.execute('SELECT * FROM booking_escrow_payments WHERE id = ?', [pId]);
+      if (rows.length > 0) {
+        bRecord = rows[0];
+        sId = bRecord.schedule_id;
+      }
+    } else if (sId) {
+      const [rows] = await pool.execute('SELECT * FROM booking_escrow_payments WHERE schedule_id = ?', [sId]);
+      if (rows.length > 0) bRecord = rows[0];
+    }
+
+    if (!sId) {
+      return res.status(400).json({ error: 'Thiếu scheduleId' });
+    }
+
+    const [schedRows] = await pool.execute('SELECT * FROM schedules WHERE id = ?', [sId]);
+    if (schedRows.length === 0) {
+      return res.status(404).json({ error: 'Không tìm thấy ca chăm sóc' });
+    }
+    const item = schedRows[0];
+
+    let isCaregiverConfirmed = Boolean(item.caregiver_confirmed_completed);
+    let isFamilyConfirmed = Boolean(item.family_confirmed_completed);
+
+    if (confirmedBy === 'caregiver') {
+      isCaregiverConfirmed = true;
+      await pool.execute('UPDATE schedules SET caregiver_confirmed_completed = TRUE, caregiver_completed_at = NOW() WHERE id = ?', [sId]);
+    } else if (confirmedBy === 'family') {
+      isFamilyConfirmed = true;
+      await pool.execute('UPDATE schedules SET family_confirmed_completed = TRUE, family_completed_at = NOW() WHERE id = ?', [sId]);
+    } else {
+      isCaregiverConfirmed = true;
+      isFamilyConfirmed = true;
+      await pool.execute('UPDATE schedules SET caregiver_confirmed_completed = TRUE, family_confirmed_completed = TRUE WHERE id = ?', [sId]);
+    }
+
+    // NẾU CẢ 2 BÊN ĐỀU ĐÃ XÁC NHẬN -> GIẢI NGÂN VÀ CHUYỂN TRẠNG THÁI SANG COMPLETED
+    if (isCaregiverConfirmed && isFamilyConfirmed) {
+      await pool.execute("UPDATE schedules SET status = 'completed' WHERE id = ?", [sId]);
+
+      if (bRecord) {
+        const ref = 'PAYOUT-' + Math.floor(10000000 + Math.random() * 90000000);
+        await pool.execute(
+          `UPDATE booking_escrow_payments 
+           SET escrow_status = 'paid_out', 
+               released_at = NOW(), 
+               bank_reference = ?,
+               notes = 'Cả hai bên đã xác nhận hoàn thành ca. Hệ thống đã giải ngân tự động 85% thù lao vào tài khoản ngân hàng của Người chăm sóc' 
+           WHERE id = ?`,
+          [ref, bRecord.id]
+        );
+
+        await createNotification(
+          bRecord.caregiver_user_id,
+          'payment',
+          '✅ Thù lao đã chuyển về tài khoản ngân hàng!',
+          `Cả hai bên đã xác nhận hoàn thành ca #${sId}. Hệ thống đã tự động chuyển ${Number(bRecord.caregiver_earnings).toLocaleString('vi-VN')} đ (85% thù lao) vào tài khoản ngân hàng của bạn. Mã GD: ${ref}.`,
+          '/payments'
+        );
+
+        await createNotification(
+          bRecord.family_user_id,
+          'schedule',
+          'Ca chăm sóc đã kết thúc hoàn tất ✓',
+          `Cảm ơn bạn đã tin tưởng dịch vụ CARE-MATCH. Thù lao bảo lãnh đã được tự động tất toán cho chuyên viên chăm sóc. Vui lòng đánh giá chất lượng dịch vụ ⭐`,
+          '/schedule'
+        );
+      }
+
+      return res.json({
+        success: true,
+        both_confirmed: true,
+        status: 'completed',
+        message: 'Cả hai bên đã xác nhận hoàn thành ca! Thù lao 85% đã được tự động giải ngân thành công.'
+      });
+    } else if (isCaregiverConfirmed && !isFamilyConfirmed) {
+      // Chỉ mới người chăm sóc xác nhận -> KHÔNG GIẢI NGÂN, chờ gia đình xác nhận
+      await pool.execute("UPDATE schedules SET status = 'caregiver_completed' WHERE id = ?", [sId]);
+      if (item.family_user_id) {
+        await createNotification(
+          item.family_user_id,
+          'schedule',
+          '⚠️ Người chăm sóc đã báo hoàn thành ca',
+          `${item.caregiver_name || 'Người chăm sóc'} đã báo hoàn thành ca chăm sóc. Vui lòng vào xác nhận để hoàn tất ca và giải ngân thù lao.`,
+          '/schedule'
+        );
+      }
+      return res.json({
+        success: true,
+        both_confirmed: false,
+        status: 'caregiver_completed',
+        message: 'Đã ghi nhận bạn hoàn thành ca. Đang chờ gia đình xác nhận đối soát để tất toán thù lao!'
+      });
+    } else if (!isCaregiverConfirmed && isFamilyConfirmed) {
+      // Chỉ mới gia đình xác nhận -> KHÔNG GIẢI NGÂN, chờ người chăm sóc xác nhận
+      await pool.execute("UPDATE schedules SET status = 'family_completed' WHERE id = ?", [sId]);
+      if (item.caregiver_user_id) {
+        await createNotification(
+          item.caregiver_user_id,
+          'schedule',
+          '⚠️ Gia đình đã xác nhận ca hoàn tất',
+          `Gia đình ${item.elderly_name || 'người thân'} đã xác nhận ca chăm sóc xong. Vui lòng bấm xác nhận hoàn thành để nhận thù lao.`,
+          '/caregiver'
+        );
+      }
+      return res.json({
+        success: true,
+        both_confirmed: false,
+        status: 'family_completed',
+        message: 'Bạn đã xác nhận ca xong. Đang chờ người chăm sóc xác nhận đối soát!'
+      });
+    }
+
+    return res.json({ success: true, message: 'Đã cập nhật trạng thái ca.' });
+  } catch (err) {
+    console.error('Lỗi hoàn thành ca & giải ngân:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. DÀNH CHO ADMIN: BẢNG ĐIỀU KHIỂN DOANH THU & BIỂU ĐỒ CỘT THU NHẬP THEO TỪNG THÁNG
+app.get('/api/admin/payments/dashboard', async (req, res) => {
+  if (!isMySqlConnected) return res.json({ stats: {}, monthly_chart_data: [], transactions: [] });
+  try {
+    const [escrowRows] = await pool.execute(`
+      SELECT 
+        COALESCE(SUM(total_amount), 0) AS total_gmv,
+        COALESCE(SUM(platform_fee), 0) AS total_shift_fees,
+        COALESCE(SUM(CASE WHEN escrow_status = 'paid_out' THEN caregiver_earnings ELSE 0 END), 0) AS total_caregiver_paid,
+        COALESCE(SUM(CASE WHEN escrow_status = 'in_escrow' THEN total_amount ELSE 0 END), 0) AS total_in_escrow,
+        COALESCE(SUM(CASE WHEN escrow_status = 'pending_payment' THEN total_amount ELSE 0 END), 0) AS total_pending_payment,
+        COALESCE(SUM(CASE WHEN escrow_status = 'paid_out' THEN total_amount ELSE 0 END), 0) AS total_completed_amount,
+        COUNT(*) AS total_shift_count
+      FROM booking_escrow_payments
+    `);
+    const er = escrowRows[0] || {};
+
+    const [subRows] = await pool.execute(`
+      SELECT 
+        COALESCE(SUM(price), 0) AS total_vip_revenue,
+        COUNT(*) AS total_vip_count,
+        COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0) AS active_vip_count
+      FROM family_subscriptions
+    `);
+    const sr = subRows[0] || {};
+
+    const totalVipRev = Number(sr.total_vip_revenue) || 0;
+    const totalShiftFees = Number(er.total_shift_fees) || 0;
+    const netPlatformRevenue = totalShiftFees + totalVipRev;
+
+    // BIỂU ĐỒ CỘT PHÂN TÍCH THU NHẬP QUA TỪNG THÁNG (REAL-TIME ĐỒNG BỘ 100% TỪ MYSQL)
+    const [monthlyEscrowRows] = await pool.execute(`
+      SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') AS ym,
+        YEAR(created_at) AS y,
+        MONTH(created_at) AS m,
+        COALESCE(SUM(CASE WHEN escrow_status = 'paid_out' THEN total_amount ELSE 0 END), 0) AS shift_paid,
+        COALESCE(SUM(CASE WHEN escrow_status IN ('in_escrow', 'pending_payment') THEN total_amount ELSE 0 END), 0) AS shift_pending,
+        COALESCE(SUM(platform_fee), 0) AS shift_fee,
+        COALESCE(SUM(total_amount), 0) AS shift_total
+      FROM booking_escrow_payments
+      WHERE created_at <= NOW()
+      GROUP BY ym, y, m
+      ORDER BY ym ASC
+    `);
+
+    const [monthlyVipRows] = await pool.execute(`
+      SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') AS ym,
+        COALESCE(SUM(price), 0) AS vip_revenue
+      FROM family_subscriptions
+      WHERE created_at <= NOW()
+      GROUP BY ym
+    `);
+
+    const vipByMonth = {};
+    for (const vr of monthlyVipRows) {
+      vipByMonth[vr.ym] = Number(vr.vip_revenue) || 0;
+    }
+
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+
+    const monthlyChartData = monthlyEscrowRows
+      .filter(r => {
+        // Chỉ lấy các tháng <= tháng hiện tại (Tuyệt đối không lấy tháng tương lai)
+        if (r.y > curYear) return false;
+        if (r.y === curYear && r.m > curMonth) return false;
+        return true;
+      })
+      .map(r => {
+        const vip = vipByMonth[r.ym] || 0;
+        const paid = Number(r.shift_paid) + vip;
+        const pending = Number(r.shift_pending);
+        const fee = Number(r.shift_fee) + vip;
+        const gmv = paid + pending;
+        const mStr = String(r.m).padStart(2, '0');
+        return {
+          month: `T${mStr}/${r.y}`,
+          label: `Tháng ${mStr}`,
+          year: r.y,
+          paid_amount: paid,
+          pending_amount: pending,
+          platform_fee: fee,
+          vip_revenue: vip,
+          total_gmv: gmv
+        };
+      });
+
+    const [transactions] = await pool.execute(`
+      SELECT 
+        b.*,
+        COALESCE(u_fam.full_name, 'Gia đình') AS family_name,
+        u_fam.phone AS family_phone,
+        u_fam.email AS family_email,
+        COALESCE(u_cg.full_name, 'Người chăm sóc') AS caregiver_name,
+        u_cg.phone AS caregiver_phone,
+        u_cg.email AS caregiver_email,
+        ba.bank_name AS cg_bank_name,
+        ba.account_number AS cg_acc_number,
+        ba.account_holder AS cg_acc_holder
+      FROM booking_escrow_payments b
+      LEFT JOIN users u_fam ON b.family_user_id = u_fam.id
+      LEFT JOIN users u_cg ON b.caregiver_user_id = u_cg.id
+      LEFT JOIN caregiver_bank_accounts ba ON b.caregiver_user_id = ba.caregiver_user_id AND ba.is_default = TRUE
+      ORDER BY b.created_at DESC
+    `);
+
+    return res.json({
+      stats: {
+        total_gmv: Number(er.total_gmv) + totalVipRev,
+        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (15% ca + 50k VIP)
+        platform_fee_total: totalShiftFees,             // 15% từ các ca
+        vip_revenue: totalVipRev,                       // Doanh thu VIP 50k
+        caregiver_paid_total: Number(er.total_caregiver_paid), // Đã giải ngân cho Người chăm sóc (85%)
+        escrow_holding_total: Number(er.total_in_escrow),      // Tiền đang giữ trung gian
+        pending_family_total: Number(er.total_pending_payment),// Gia đình chưa trả trước ca
+        active_vip_count: Number(sr.active_vip_count),
+        total_shift_count: Number(er.total_shift_count)
+      },
+      monthly_chart_data: monthlyChartData,
+      transactions
+    });
+  } catch (err) {
+    console.error('Lỗi lấy thống kê doanh thu Admin:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. DÀNH CHO ADMIN: Thao tác ép giải ngân thù lao cho Người chăm sóc
+app.post('/api/admin/payments/:id/release-payout', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  try {
+    const ref = 'ADMIN-PAYOUT-' + Math.floor(10000000 + Math.random() * 90000000);
+    await pool.execute(
+      `UPDATE booking_escrow_payments 
+       SET escrow_status = 'paid_out', 
+           released_at = NOW(), 
+           bank_reference = ?,
+           notes = 'Admin xác nhận đối soát & giải ngân thù lao 85% cho Người chăm sóc' 
+       WHERE id = ?`,
+      [ref, id]
+    );
+
+    const [rows] = await pool.execute('SELECT * FROM booking_escrow_payments WHERE id = ?', [id]);
+    const b = rows[0];
+    if (b && b.schedule_id) {
+      await pool.execute("UPDATE schedules SET status = 'completed' WHERE id = ?", [b.schedule_id]);
+    }
+
+    return res.json({ success: true, message: 'Đã giải ngân cho Người chăm sóc thành công!', booking: b });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================================
+// 8. CỘNG ĐỒNG NGƯỜI CAO TUỔI & GIA ĐÌNH (COMMUNITIES)
+// ========================================================
+
+// Lấy danh sách cộng đồng (hỗ trợ filter theo status/search)
+app.get('/api/communities', async (req, res) => {
+  if (!isMySqlConnected) return res.json({ communities: [] });
+  try {
+    const { category, search, status } = req.query;
+    let query = 'SELECT * FROM communities WHERE 1=1';
+    const params = [];
+
+    if (status && status !== 'all') {
+      query += ' AND status = ?';
+      params.push(status);
+    } else if (!status) {
+      // Mặc định trả về active cho người dùng
+      query += " AND status = 'active'";
+    }
+
+    if (category && category !== 'Tất cả') {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+
+    if (search) {
+      query += ' AND (name LIKE ? OR description LIKE ? OR location LIKE ? OR leader_name LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s, s);
+    }
+
+    query += ' ORDER BY id ASC';
+    const [rows] = await pool.execute(query, params);
+    
+    // Parse tags JSON
+    const communities = rows.map(r => ({
+      ...r,
+      tags: parseJson(r.tags, [])
+    }));
+
+    return res.json({ success: true, communities });
+  } catch (err) {
+    console.error('Lỗi lấy danh sách cộng đồng:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin lấy tất cả cộng đồng kèm thống kê
+app.get('/api/admin/communities', async (req, res) => {
+  if (!isMySqlConnected) return res.json({ communities: [], stats: {} });
+  try {
+    const [rows] = await pool.execute('SELECT * FROM communities ORDER BY id DESC');
+    const communities = rows.map(r => ({
+      ...r,
+      tags: parseJson(r.tags, [])
+    }));
+
+    const totalMembers = communities.reduce((sum, c) => sum + (Number(c.member_count) || 0), 0);
+    const activeCount = communities.filter(c => c.status === 'active').length;
+
+    return res.json({
+      success: true,
+      communities,
+      stats: {
+        total_communities: communities.length,
+        active_communities: activeCount,
+        total_members: totalMembers
+      }
+    });
+  } catch (err) {
+    console.error('Lỗi lấy danh sách cộng đồng admin:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Thêm cộng đồng mới
+app.post('/api/communities', async (req, res) => {
+  const { name, category, description, meeting_schedule, location, member_count, leader_name, tags, zalo_link, qr_code_url } = req.body;
+  if (!name) return res.status(400).json({ error: 'Tên cộng đồng không được để trống' });
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+
+  try {
+    const finalZalo = zalo_link || 'https://zalo.me/g/carematch_community';
+    const finalQr = qr_code_url || `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(finalZalo)}`;
+    const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : (typeof tags === 'string' ? JSON.stringify(tags.split(',').map(t => t.trim())) : '[]');
+
+    const [result] = await pool.execute(
+      `INSERT INTO communities 
+       (name, category, description, meeting_schedule, location, member_count, leader_name, tags, zalo_link, qr_code_url, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [
+        name.trim(),
+        category || 'Sức khỏe & Vận động',
+        description || '',
+        meeting_schedule || '05:30 - 06:45 Hàng ngày',
+        location || 'Hà Nội',
+        member_count ? Number(member_count) : 50,
+        leader_name || 'Ban Quản Trị CARE-MATCH',
+        tagsJson,
+        finalZalo,
+        finalQr
+      ]
+    );
+
+    return res.json({ success: true, message: 'Thêm cộng đồng thành công!', communityId: result.insertId });
+  } catch (err) {
+    console.error('Lỗi thêm cộng đồng:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Chỉnh sửa cộng đồng
+app.put('/api/communities/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, category, description, meeting_schedule, location, member_count, leader_name, tags, zalo_link, qr_code_url, status } = req.body;
+  if (!name) return res.status(400).json({ error: 'Tên cộng đồng không được để trống' });
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+
+  try {
+    const finalZalo = zalo_link || 'https://zalo.me/g/carematch_community';
+    const finalQr = qr_code_url || `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(finalZalo)}`;
+    const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : (typeof tags === 'string' ? JSON.stringify(tags.split(',').map(t => t.trim())) : '[]');
+
+    await pool.execute(
+      `UPDATE communities 
+       SET name = ?, category = ?, description = ?, meeting_schedule = ?, location = ?, member_count = ?, leader_name = ?, tags = ?, zalo_link = ?, qr_code_url = ?, status = ?
+       WHERE id = ?`,
+      [
+        name.trim(),
+        category || 'Sức khỏe & Vận động',
+        description || '',
+        meeting_schedule || '05:30 - 06:45 Hàng ngày',
+        location || 'Hà Nội',
+        member_count ? Number(member_count) : 50,
+        leader_name || 'Ban Quản Trị CARE-MATCH',
+        tagsJson,
+        finalZalo,
+        finalQr,
+        status || 'active',
+        id
+      ]
+    );
+
+    return res.json({ success: true, message: 'Cập nhật cộng đồng thành công!' });
+  } catch (err) {
+    console.error('Lỗi cập nhật cộng đồng:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Xóa cộng đồng
+app.delete('/api/communities/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+
+  try {
+    await pool.execute('DELETE FROM communities WHERE id = ?', [id]);
+    return res.json({ success: true, message: 'Đã xóa cộng đồng thành công!' });
+  } catch (err) {
+    console.error('Lỗi xóa cộng đồng:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================================
+// 9. ĐÁNH GIÁ SAO & NHẬN XÉT (CAREGIVER REVIEWS)
+// ========================================================
+
+// Lấy danh sách đánh giá
+app.get('/api/caregiver-reviews', async (req, res) => {
+  if (!isMySqlConnected) return res.json({ reviews: [] });
+  try {
+    const { caregiver_id, schedule_id, status } = req.query;
+    let query = `
+      SELECT r.*, 
+             u_cg.full_name AS caregiver_name,
+             cp.avatar_url AS caregiver_avatar,
+             u_fam.full_name AS family_user_fullname
+      FROM caregiver_reviews r
+      LEFT JOIN users u_cg ON r.caregiver_user_id = u_cg.id
+      LEFT JOIN caregiver_profiles cp ON r.caregiver_user_id = cp.user_id
+      LEFT JOIN users u_fam ON r.family_user_id = u_fam.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (caregiver_id) {
+      query += ' AND r.caregiver_user_id = ?';
+      params.push(Number(caregiver_id));
+    }
+    if (schedule_id) {
+      query += ' AND r.schedule_id = ?';
+      params.push(Number(schedule_id));
+    }
+    if (status) {
+      query += ' AND r.status = ?';
+      params.push(status);
+    } else {
+      query += " AND r.status != 'hidden'";
+    }
+
+    query += ' ORDER BY r.created_at DESC';
+    const [rows] = await pool.execute(query, params);
+
+    const reviews = rows.map(r => ({
+      ...r,
+      tags: parseJson(r.tags, [])
+    }));
+
+    return res.json({ success: true, reviews });
+  } catch (err) {
+    console.error('Lỗi lấy đánh giá:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Lấy toàn bộ đánh giá và điểm số trung bình của 1 người chăm sóc
+app.get('/api/reviews/caregiver/:id', async (req, res) => {
+  if (!isMySqlConnected) return res.json({ reviews: [], stats: { avg_rating: 5, count: 0 } });
+  const cgId = Number(req.params.id);
+  try {
+    const [rows] = await pool.execute(
+      `SELECT r.*, u_fam.full_name AS family_user_fullname 
+       FROM caregiver_reviews r
+       LEFT JOIN users u_fam ON r.family_user_id = u_fam.id
+       WHERE r.caregiver_user_id = ? AND r.status != 'hidden'
+       ORDER BY r.created_at DESC`,
+      [cgId]
+    );
+
+    const [statsRows] = await pool.execute(
+      `SELECT COALESCE(AVG(rating), 5.0) as avg_rating, COUNT(*) as count 
+       FROM caregiver_reviews 
+       WHERE caregiver_user_id = ? AND status != 'hidden'`,
+      [cgId]
+    );
+
+    const reviews = rows.map(r => ({ ...r, tags: parseJson(r.tags, []) }));
+    const avg = Number(statsRows[0]?.avg_rating || 5.0);
+    const count = Number(statsRows[0]?.count || 0);
+
+    return res.json({
+      success: true,
+      reviews,
+      stats: {
+        avg_rating: Math.round(avg * 10) / 10,
+        count
+      }
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Gửi đánh giá sao mới từ gia đình (sau khi hoàn thành ca)
+app.post('/api/caregiver-reviews', async (req, res) => {
+  const { schedule_id, caregiver_user_id, family_user_id, family_name, patient_name, service_title, rating, tags, review_text } = req.body;
+  if (!caregiver_user_id || !rating) {
+    return res.status(400).json({ error: 'Thiếu thông tin người chăm sóc hoặc số sao đánh giá.' });
+  }
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+
+  try {
+    const cgId = Number(caregiver_user_id);
+    const famId = family_user_id ? Number(family_user_id) : 5;
+    const schedId = schedule_id ? Number(schedule_id) : null;
+    const starRating = Math.max(1, Math.min(5, Number(rating) || 5));
+    const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : '[]';
+
+    // 1. Thêm bản ghi review
+    const [result] = await pool.execute(
+      `INSERT INTO caregiver_reviews 
+       (schedule_id, caregiver_user_id, family_user_id, family_name, patient_name, service_title, rating, tags, review_text, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
+      [
+        schedId,
+        cgId,
+        famId,
+        family_name || 'Gia đình',
+        patient_name || 'Người thân',
+        service_title || 'Ca chăm sóc',
+        starRating,
+        tagsJson,
+        review_text || 'Chăm sóc chu đáo, tận tâm!'
+      ]
+    );
+
+    // 2. Tính lại trung bình sao và care_score cho caregiver_profiles
+    const [stats] = await pool.execute(
+      `SELECT AVG(rating) as avg_rating, COUNT(*) as count FROM caregiver_reviews WHERE caregiver_user_id = ? AND status = 'approved'`,
+      [cgId]
+    );
+    const avgRating = Number(stats[0].avg_rating || 5);
+    const calculatedCareScore = Math.min(100, Math.round(avgRating * 19.5));
+
+    await pool.execute(
+      `UPDATE caregiver_profiles SET care_score = ? WHERE user_id = ?`,
+      [calculatedCareScore, cgId]
+    );
+
+    // 3. Tạo thông báo cho người chăm sóc
+    await createNotification(
+      cgId,
+      'review',
+      `Bạn nhận được đánh giá ${starRating} sao! ⭐`,
+      `Gia đình ${family_name || ''} đã gửi lời khen ngợi và đánh giá ${starRating} sao cho ca làm của bạn.`,
+      '/profile'
+    );
+
+    return res.json({
+      success: true,
+      message: 'Gửi đánh giá thành công! Cảm ơn bạn đã phản hồi chất lượng dịch vụ.',
+      reviewId: result.insertId,
+      newCareScore: calculatedCareScore,
+      avgRating
+    });
+  } catch (err) {
+    console.error('Lỗi gửi đánh giá:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin duyệt / ẩn đánh giá
+app.patch('/api/caregiver-reviews/:id/status', async (req, res) => {
+  const id = Number(req.params.id);
+  const { status } = req.body;
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  try {
+    await pool.execute('UPDATE caregiver_reviews SET status = ? WHERE id = ?', [status, id]);
+    return res.json({ success: true, message: 'Đã cập nhật trạng thái đánh giá!' });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================================================
+// 10. XUẤT BÁO CÁO FILE CSV THẬT TẢI VỀ MÁY (REAL CSV DOWNLOAD)
+// ========================================================
+
+// Xuất file CSV Báo cáo giao dịch ký quỹ tài chính cho Admin
+app.get('/api/export/transactions-csv', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).send('Database not connected');
+  try {
+    const [rows] = await pool.execute(`
+      SELECT 
+        b.id,
+        b.transaction_code,
+        b.shift_date,
+        b.shift_time,
+        b.patient_name,
+        b.total_amount,
+        b.platform_fee,
+        b.caregiver_earnings,
+        b.escrow_status,
+        b.payment_method,
+        b.bank_reference,
+        b.family_paid_at,
+        b.released_at,
+        u_fam.full_name AS family_name,
+        u_fam.phone AS family_phone,
+        u_cg.full_name AS caregiver_name,
+        u_cg.phone AS caregiver_phone,
+        b.caregiver_bank_name,
+        b.caregiver_account_number
+      FROM booking_escrow_payments b
+      LEFT JOIN users u_fam ON b.family_user_id = u_fam.id
+      LEFT JOIN users u_cg ON b.caregiver_user_id = u_cg.id
+      ORDER BY b.created_at DESC
+    `);
+
+    // Tạo CSV headers và rows với UTF-8 BOM
+    const header = [
+      'Mã Giao Dịch',
+      'Ngày Ca',
+      'Giờ Ca',
+      'Gia Đình Đặt Ca',
+      'SĐT Gia Đình',
+      'Bệnh Nhân/Người Thân',
+      'Người Chăm Sóc',
+      'SĐT Điều Dưỡng',
+      'Tổng Tiền Ký Quỹ (VNĐ)',
+      'Phí Nền Tảng 15% (VNĐ)',
+      'Thực Nhận Điều Dưỡng 85% (VNĐ)',
+      'Trạng Thái Ký Quỹ',
+      'Phương Thức Thanh Toán',
+      'Mã Đối Soát Ngân Hàng',
+      'Thời Điểm Gia Đình Nộp Quỹ',
+      'Thời Điểm Admin Giải Ngân',
+      'Ngân Hàng Nhận Thù Lao',
+      'Số Tài Khoản Nhận Thù Lao'
+    ];
+
+    const statusMap = {
+      'paid_out': 'Đã Giải Ngân (85%)',
+      'in_escrow': 'Đang Giữ Ký Quỹ (Escrow Bảo Đảm)',
+      'pending_payment': 'Chờ Gia Đình Ký Quỹ',
+      'refunded': 'Đã Hoàn Tiền'
+    };
+
+    const csvLines = [header.join(',')];
+
+    for (const r of rows) {
+      const escape = (val) => {
+        if (val === null || val === undefined) return '""';
+        const str = String(val).replace(/"/g, '""');
+        return `"${str}"`;
+      };
+
+      const line = [
+        escape(r.transaction_code),
+        escape(r.shift_date),
+        escape(r.shift_time),
+        escape(r.family_name || 'Gia đình'),
+        escape(r.family_phone || ''),
+        escape(r.patient_name),
+        escape(r.caregiver_name || 'Người chăm sóc'),
+        escape(r.caregiver_phone || ''),
+        escape(Number(r.total_amount).toLocaleString('vi-VN')),
+        escape(Number(r.platform_fee).toLocaleString('vi-VN')),
+        escape(Number(r.caregiver_earnings).toLocaleString('vi-VN')),
+        escape(statusMap[r.escrow_status] || r.escrow_status),
+        escape(r.payment_method),
+        escape(r.bank_reference || 'N/A'),
+        escape(r.family_paid_at ? new Date(r.family_paid_at).toLocaleString('vi-VN') : 'Chưa nộp'),
+        escape(r.released_at ? new Date(r.released_at).toLocaleString('vi-VN') : 'Chưa giải ngân'),
+        escape(r.caregiver_bank_name || 'Vietcombank'),
+        escape(r.caregiver_account_number || 'N/A')
+      ];
+      csvLines.push(line.join(','));
+    }
+
+    const csvContent = '\uFEFF' + csvLines.join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="Bao_Cao_Giao_Dich_Ky_Quy_CareMatch_2026.csv"');
+    return res.send(csvContent);
+  } catch (err) {
+    console.error('Lỗi xuất CSV:', err.message);
+    return res.status(500).send('Lỗi xuất file CSV: ' + err.message);
+  }
+});
+
+// Xuất file CSV danh sách ca chăm sóc
+app.get('/api/export/schedules-csv', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).send('Database not connected');
+  try {
+    const [rows] = await pool.execute(`
+      SELECT 
+        s.id,
+        s.patient_name,
+        s.date,
+        s.time,
+        s.status,
+        s.service_type,
+        s.price,
+        s.location,
+        s.notes,
+        u_fam.full_name AS family_name,
+        u_fam.phone AS family_phone,
+        u_cg.full_name AS caregiver_name,
+        u_cg.phone AS caregiver_phone
+      FROM schedules s
+      LEFT JOIN users u_fam ON s.family_user_id = u_fam.id
+      LEFT JOIN users u_cg ON s.caregiver_user_id = u_cg.id
+      ORDER BY s.date DESC
+    `);
+
+    const header = [
+      'Mã Ca (ID)',
+      'Bệnh Nhân/Người Thân',
+      'Ngày Thực Hiện',
+      'Khung Giờ',
+      'Loại Dịch Vụ',
+      'Giá Tiền (VNĐ)',
+      'Trạng Thái Ca',
+      'Gia Đình Đặt Ca',
+      'SĐT Gia Đình',
+      'Điều Dưỡng Tiếp Nhận',
+      'SĐT Điều Dưỡng',
+      'Địa Chỉ',
+      'Ghi Chú Y Tế'
+    ];
+
+    const statusMap = {
+      'completed': 'Đã Hoàn Thành',
+      'confirmed': 'Đã Xác Nhận / Đang Thực Hiện',
+      'pending': 'Chờ Xác Nhận',
+      'cancelled': 'Đã Hủy'
+    };
+
+    const csvLines = [header.join(',')];
+
+    for (const r of rows) {
+      const escape = (val) => {
+        if (val === null || val === undefined) return '""';
+        const str = String(val).replace(/"/g, '""');
+        return `"${str}"`;
+      };
+
+      const line = [
+        escape(r.id),
+        escape(r.patient_name),
+        escape(r.date),
+        escape(r.time),
+        escape(r.service_type || 'Chăm sóc người già'),
+        escape(Number(r.price).toLocaleString('vi-VN')),
+        escape(statusMap[r.status] || r.status),
+        escape(r.family_name || 'Gia đình'),
+        escape(r.family_phone || ''),
+        escape(r.caregiver_name || 'Chưa phân công'),
+        escape(r.caregiver_phone || ''),
+        escape(r.location || ''),
+        escape(r.notes || '')
+      ];
+      csvLines.push(line.join(','));
+    }
+
+    const csvContent = '\uFEFF' + csvLines.join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="Danh_Sach_Ca_Cham_Soc_CareMatch_2026.csv"');
+    return res.send(csvContent);
+  } catch (err) {
+    return res.status(500).send('Lỗi: ' + err.message);
+  }
+});
 
 // ========================================================
 // KHỞI ĐỘNG SERVER

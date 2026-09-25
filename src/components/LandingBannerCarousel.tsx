@@ -35,8 +35,8 @@ export function LandingBannerCarousel({ onActionClick }: LandingBannerCarouselPr
       ],
       badge: "Ghép đôi thông minh",
       icon: SlidersHorizontal,
-      gradient: "from-[#2e4735] via-[#233829] to-[#1a2b1f]",
-      accentColor: "#d69f52",
+      gradient: "from-[#283f1a] via-[#1e3014] to-[#14220d]",
+      accentColor: "#dfa338",
       ctaText: "Tìm người chăm sóc ngay"
     },
     {
@@ -52,8 +52,8 @@ export function LandingBannerCarousel({ onActionClick }: LandingBannerCarouselPr
       ],
       badge: "Quản trị trường hợp",
       icon: HeartHandshake,
-      gradient: "from-[#354f3d] via-[#273d2e] to-[#1c2e22]",
-      accentColor: "#9ec495",
+      gradient: "from-[#2f491f] via-[#233817] to-[#18260f]",
+      accentColor: "#9ec980",
       ctaText: "Khám phá vai trò CTXH"
     },
     {
@@ -69,7 +69,7 @@ export function LandingBannerCarousel({ onActionClick }: LandingBannerCarouselPr
       ],
       badge: "Kiểm định pháp lý",
       icon: ShieldCheck,
-      gradient: "from-[#3a493b] via-[#2b392d] to-[#1e2a1f]",
+      gradient: "from-[#334620] via-[#263717] to-[#1a260f]",
       accentColor: "#e5b76b",
       ctaText: "Xem bảng tiêu chí Care Score"
     },
@@ -86,8 +86,8 @@ export function LandingBannerCarousel({ onActionClick }: LandingBannerCarouselPr
       ],
       badge: "Linh hoạt thời gian",
       icon: Clock3,
-      gradient: "from-[#294235] via-[#21352a] to-[#18261e]",
-      accentColor: "#e5c58a",
+      gradient: "from-[#273d1b] via-[#1c2e13] to-[#13220d]",
+      accentColor: "#e8c98e",
       ctaText: "Xem chi tiết bảng giá"
     }
   ];

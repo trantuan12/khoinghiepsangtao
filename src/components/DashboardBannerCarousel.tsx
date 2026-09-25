@@ -8,15 +8,49 @@ import {
   Calendar, 
   ArrowRight,
   Stethoscope,
-  Award
+  Award,
+  Crown
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 
-export function DashboardBannerCarousel() {
+interface DashboardBannerCarouselProps {
+  onOpenPremiumModal?: () => void;
+  isFamilyPremium?: boolean;
+}
+
+export function DashboardBannerCarousel({ onOpenPremiumModal, isFamilyPremium = false }: DashboardBannerCarouselProps = {}) {
   const [, setLocation] = useLocation();
   const [currentSlide, setCurrentSlide] = useState(0);
 
-  const slides = [
+  const allSlides = [
+    {
+      id: "premium_subscription",
+      tag: "⭐ ĐẶC QUYỀN VIP · GÓI GIA ĐÌNH PREMIUM 50.000Đ/THÁNG",
+      title: "Ưu Tiên Tìm Người, Giữ Chỗ Đặt Lịch & Hỗ Trợ Y Tế 24/7",
+      description: "Chỉ 50.000đ/tháng: Ưu tiên kết nối Điều dưỡng/Người chăm sóc hàng đầu (CARE SCORE 95đ+), ưu tiên đặt lịch giờ cao điểm/Lễ Tết, đội ngũ CSKH hỗ trợ trong 15 phút và hotline y tế 24/7.",
+      ctaText: "Xem bảng quyền lợi & Đăng ký (50.000đ)",
+      ctaLink: "#premium",
+      isPremiumTrigger: true,
+      icon: Crown,
+      gradient: "from-[#fdf6e6] via-[#fdfaf0] to-[#eef7ee]",
+      tagColor: "#855812",
+      tagBg: "#fae7be",
+      btnBg: "#996a1b",
+      btnText: "#ffffff"
+    },
+    {
+      tag: "ƯU ĐÃI GIAI ĐOẠN THỬ NGHIỆM · 100% MIỄN PHÍ",
+      title: "Miễn Phí 100% Chi Phí Tư Vấn & Kết Nối Với Người Chăm Sóc",
+      description: "Trong giai đoạn thử nghiệm, CARE-MATCH miễn phí 100% kết nối và đánh giá nhu cầu ban đầu theo thang đo ADL, hỗ trợ gia đình tìm người đồng hành tận tâm nhất.",
+      ctaText: "Tìm người chăm sóc ngay",
+      ctaLink: "/matches",
+      icon: Sparkles,
+      gradient: "from-[#eaf5ea] via-[#f5faf2] to-[#eef7ee]",
+      tagColor: "#256029",
+      tagBg: "#cbe7cb",
+      btnBg: "#2d6a4f",
+      btnText: "#ffffff"
+    },
     {
       tag: "TÍNH NĂNG CỐT LÕI · GHÉP ĐÔI THÔNG MINH",
       title: "Đề Xuất Người Chăm Sóc Chuẩn Xác Theo Thang Đo ADL",
@@ -47,8 +81,8 @@ export function DashboardBannerCarousel() {
       tag: "AN TÂM TUYỆT ĐỐI · CARE SCORE 100 ĐIỂM",
       title: "100% Người Chăm Sóc Đã Được Admin Duyệt Pháp Lý",
       description: "Căn cước công dân gắn chip, giấy xác nhận lý lịch tư pháp số 2 và chứng chỉ sơ cấp cứu y tế đã được kiểm định minh bạch.",
-      ctaText: "Xem tiêu chuẩn kiểm định",
-      ctaLink: "/social-work",
+      ctaText: "Khám phá câu lạc bộ cộng đồng",
+      ctaLink: "/community",
       icon: ShieldCheck,
       gradient: "from-[#e9f2ee] via-[#f4f7f4] to-[#fbf8f0]",
       tagColor: "#3d6b5e",
@@ -70,6 +104,10 @@ export function DashboardBannerCarousel() {
       btnText: "#ffffff"
     }
   ];
+
+  const slides = isFamilyPremium 
+    ? allSlides.filter(s => s.id !== "premium_subscription") 
+    : allSlides;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -128,8 +166,18 @@ export function DashboardBannerCarousel() {
         {/* Chân banner: Nút bấm & Dots */}
         <div className="relative z-10 mt-2 flex flex-wrap items-center justify-between gap-3">
           <button
-            onClick={() => setLocation(slide.ctaLink)}
-            className="inline-flex items-center gap-2 rounded-[13px] px-4 py-2 text-[12px] font-bold transition hover:opacity-90 active:scale-[0.98] shadow-sm"
+            onClick={() => {
+              if ((slide as any).isPremiumTrigger || slide.ctaLink === '#premium') {
+                if (onOpenPremiumModal) {
+                  onOpenPremiumModal();
+                } else {
+                  window.dispatchEvent(new CustomEvent('open-family-premium-modal'));
+                }
+              } else {
+                setLocation(slide.ctaLink);
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded-[13px] px-4 py-2 text-[12px] font-bold transition hover:opacity-90 active:scale-[0.98] shadow-sm cursor-pointer"
             style={{ backgroundColor: slide.btnBg, color: slide.btnText }}
           >
             <span>{slide.ctaText}</span>

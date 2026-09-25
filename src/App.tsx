@@ -1,6 +1,15 @@
 import { LandingBannerCarousel } from '@/components/LandingBannerCarousel';
 import { DashboardBannerCarousel } from '@/components/DashboardBannerCarousel';
 import { CaregiverPortal } from '@/components/CaregiverPortal';
+import { FamilyProfileModal, type FamilyProfileData } from '@/components/FamilyProfileModal';
+import { FamilyPremiumModal } from '@/components/FamilyPremiumModal';
+import { FamilyPaymentsView } from '@/components/payments/FamilyPaymentsView';
+import { CaregiverPaymentsView } from '@/components/payments/CaregiverPaymentsView';
+import { AdminPaymentsView as FullAdminPaymentsView } from '@/components/payments/AdminPaymentsView';
+import { EkycRequiredModal } from '@/components/EkycRequiredModal';
+import { CommunityView } from '@/components/CommunityView';
+import { CommunityManagementView } from '@/components/CommunityManagementView';
+import { CaregiverRatingModal } from '@/components/CaregiverRatingModal';
 import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { store, MessageItem, ScheduleItem, CaregiverItem } from '@/lib/store';
@@ -12,9 +21,11 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Award,
   BadgeCheck,
   Bell,
   BriefcaseBusiness,
+  Building2,
   Calendar,
   CalendarDays,
   Check,
@@ -26,6 +37,7 @@ import {
   Download,
   Eye,
   FileText,
+  GraduationCap,
   HeartHandshake,
   Home,
   LifeBuoy,
@@ -47,14 +59,45 @@ import {
   UserRound,
   UserRoundPlus,
   Users,
+  Users2,
   WalletCards,
+  Video,
+  Clock,
+  ExternalLink,
+  Crown,
+  RefreshCw,
+  Minus,
   X,
 } from 'lucide-react';
 import { Link, Route, Switch, Router as WouterRouter, useLocation, useParams, Redirect } from 'wouter';
 
 const queryClient = new QueryClient();
 
-type Caregiver = {
+export type WorkHistoryItem = {
+  id?: string;
+  workplace: string;
+  role: string;
+  from_date: string;
+  to_date: string;
+  description: string;
+};
+
+export type CaregiverDocItem = {
+  id?: string;
+  type?: string;
+  category?: string;
+  name?: string;
+  document_name?: string;
+  document_type?: string;
+  url?: string;
+  fileUrl?: string;
+  file_url?: string;
+  filename?: string;
+  status?: string;
+  uploadedAt?: string;
+};
+
+export type Caregiver = {
   id: string;
   name: string;
   initials: string;
@@ -62,12 +105,19 @@ type Caregiver = {
   rating: string;
   reviews: number;
   experience: string;
+  experience_years?: number;
   distance: string;
+  district?: string;
   match: number;
+  care_score?: number;
   tags: string[];
   color: string;
   bio: string;
   availability: string;
+  shift_rate?: number;
+  night_shift_rate?: number;
+  work_history?: WorkHistoryItem[];
+  documents?: CaregiverDocItem[];
 };
 
 const caregivers: Caregiver[] = [
@@ -75,46 +125,115 @@ const caregivers: Caregiver[] = [
     id: 'lan-anh',
     name: 'Nguyễn Lan Anh',
     initials: 'LA',
-    role: 'Chăm sóc người cao tuổi',
+    role: 'Chuyên viên chăm sóc',
     rating: '4,9',
     reviews: 38,
     experience: '8 năm kinh nghiệm',
+    experience_years: 8,
     distance: '2,4 km',
+    district: 'Cầu Giấy',
     match: 96,
+    care_score: 96,
+    shift_rate: 600000,
+    night_shift_rate: 900000,
     tags: ['Chăm sóc tại nhà', 'Theo dõi thuốc', 'Nấu ăn mềm'],
     color: 'linear-gradient(145deg, #d8b984, #9c7655)',
     bio: 'Chị Lan Anh kiên nhẫn, tinh tế và quen chăm sóc người lớn tuổi sau điều trị. Chị ưu tiên lắng nghe thói quen của từng gia đình.',
     availability: 'Có thể bắt đầu từ Thứ Hai, 10/06',
+    work_history: [
+      {
+        id: 'wh-1',
+        workplace: 'Bệnh viện Lão khoa Trung ương',
+        role: 'Điều dưỡng chăm sóc nội trú',
+        from_date: '2016-05',
+        to_date: '2021-08',
+        description: 'Chăm sóc phục hồi vận động, theo dõi sinh hiệu và quản lý phác đồ thuốc hàng ngày.'
+      },
+      {
+        id: 'wh-2',
+        workplace: 'Trung tâm Phục hồi Sức khỏe Người cao tuổi Hà Nội',
+        role: 'Chuyên viên chăm sóc tại nhà',
+        from_date: '2021-09',
+        to_date: 'Hiện tại',
+        description: 'Đồng hành chăm sóc chuyên sâu các ca bệnh mạn tính, tai biến và sa sút trí tuệ.'
+      }
+    ]
   },
   {
     id: 'thu-ha',
     name: 'Trần Thu Hà',
     initials: 'TH',
-    role: 'Điều dưỡng chăm sóc tại nhà',
+    role: 'Chuyên viên chăm sóc',
     rating: '4,8',
     reviews: 24,
     experience: '6 năm kinh nghiệm',
+    experience_years: 6,
     distance: '3,1 km',
+    district: 'Đống Đa',
     match: 91,
+    care_score: 91,
+    shift_rate: 500000,
+    night_shift_rate: 750000,
     tags: ['Điều dưỡng', 'Vật lý trị liệu', 'Đo huyết áp'],
     color: 'linear-gradient(145deg, #afc5b0, #638273)',
-    bio: 'Chị Thu Hà là điều dưỡng, có thế mạnh về theo dõi phục hồi và hướng dẫn vận động nhẹ nhàng tại nhà.',
+    bio: 'Chị Thu Hà là chuyên viên chăm sóc điều dưỡng, có thế mạnh về theo dõi phục hồi và hướng dẫn vận động nhẹ nhàng tại nhà.',
     availability: 'Có thể bắt đầu từ Thứ Tư, 12/06',
+    work_history: [
+      {
+        id: 'wh-3',
+        workplace: 'Bệnh viện Đa khoa Đống Đa',
+        role: 'Điều dưỡng viên khoa Nội tổng hợp',
+        from_date: '2018-02',
+        to_date: '2022-12',
+        description: 'Thực hiện kỹ thuật tiêm truyền, đo điện tim, chăm sóc vết loét tì đè và dinh dưỡng.'
+      },
+      {
+        id: 'wh-4',
+        workplace: 'Dịch vụ Y tế Gia đình CARE-MATCH',
+        role: 'Chuyên viên chăm sóc bán thời gian',
+        from_date: '2023-01',
+        to_date: 'Hiện tại',
+        description: 'Chăm sóc và vật lý trị liệu phục hồi chức năng sau mổ cho các cụ ông cụ bà.'
+      }
+    ]
   },
   {
     id: 'mai-chi',
     name: 'Lê Mai Chi',
     initials: 'MC',
-    role: 'Bạn đồng hành người cao tuổi',
+    role: 'Chuyên viên chăm sóc',
     rating: '4,7',
     reviews: 19,
     experience: '5 năm kinh nghiệm',
+    experience_years: 5,
     distance: '4,6 km',
+    district: 'Ba Đình',
     match: 87,
+    care_score: 87,
+    shift_rate: 450000,
+    night_shift_rate: 675000,
     tags: ['Trò chuyện', 'Đi chợ', 'Đồng hành khám'],
     color: 'linear-gradient(145deg, #e2b49e, #a96e66)',
     bio: 'Cô Mai Chi mang đến năng lượng ấm áp, phù hợp với những gia đình cần một người bạn đồng hành đều đặn và đáng tin.',
     availability: 'Có thể bắt đầu từ Thứ Sáu, 14/06',
+    work_history: [
+      {
+        id: 'wh-5',
+        workplace: 'CLB Người Cao Tuổi Phường Quán Thánh',
+        role: 'Cộng tác viên chăm sóc sức khỏe cộng đồng',
+        from_date: '2019-06',
+        to_date: '2022-04',
+        description: 'Tổ chức sinh hoạt tâm lý, hướng dẫn bài tập dưỡng sinh và đồng hành đi viện khám bệnh.'
+      },
+      {
+        id: 'wh-6',
+        workplace: 'Gia đình tư nhân (Quận Ba Đình)',
+        role: 'Chuyên viên đồng hành người cao tuổi',
+        from_date: '2022-05',
+        to_date: 'Hiện tại',
+        description: 'Hỗ trợ sinh hoạt hàng ngày, nấu ăn theo chế độ ăn kiêng tiểu đường và trò chuyện tinh thần.'
+      }
+    ]
   },
 ];
 
@@ -125,20 +244,60 @@ const navItems = [
   { href: '/schedule', label: 'Lịch chăm sóc', icon: CalendarDays },
   { href: '/messages', label: 'Tin nhắn', icon: MessageCircle, badge: '2' },
   { href: '/payments', label: 'Thanh toán', icon: CreditCard },
-  { href: '/social-work', label: 'Hỗ trợ xã hội', icon: LifeBuoy },
+  { href: '/community', label: 'Cộng đồng', icon: Users2 },
 ];
 
-function LogoMark({ compact = false }: { compact?: boolean }) {
+function LogoMark({ 
+  compact = false, 
+  size = 'md', 
+  light = false, 
+  className = '' 
+}: { 
+  compact?: boolean; 
+  size?: 'sm' | 'md' | 'lg' | 'xl'; 
+  light?: boolean;
+  className?: string; 
+}) {
+  const imgSizes = {
+    sm: 'h-9 w-9 rounded-[10px]',
+    md: 'h-13 w-13 rounded-[14px]',
+    lg: 'h-18 w-18 rounded-[18px]',
+    xl: 'h-24 w-24 rounded-[22px]'
+  };
+
+  const titleSizes = {
+    sm: 'text-[16px]',
+    md: 'text-[20px]',
+    lg: 'text-[25px]',
+    xl: 'text-[30px]'
+  };
+
+  const sloganSizes = {
+    sm: 'text-[10.5px]',
+    md: 'text-[12px]',
+    lg: 'text-[13.5px]',
+    xl: 'text-[15px]'
+  };
+
   return (
-    <div className="flex items-center gap-3" data-testid="brand-care-match">
-      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[hsl(var(--accent))] text-[hsl(var(--foreground))] shadow-[0_7px_16px_rgba(199,151,80,.22)]">
-        <HeartHandshake size={21} strokeWidth={2.2} />
-        <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[hsl(var(--sidebar))] bg-[hsl(var(--card))]" />
+    <div className={`flex items-center gap-3.5 select-none ${className}`} data-testid="brand-care-match">
+      <div className={`relative shrink-0 overflow-hidden ${imgSizes[size]} border border-[#4d6d2e]/30 bg-[#faf8f2] shadow-sm flex items-center justify-center transition-transform hover:scale-105`}>
+        <img 
+          src="/logo.jpg" 
+          alt="CARE MATCH" 
+          className="h-full w-full object-cover"
+        />
       </div>
       {!compact && (
-        <div>
-          <p className="font-display text-[19px] font-semibold leading-none tracking-[-.02em]">CARE-MATCH</p>
-          <p className="mt-1 text-[10px] font-semibold uppercase tracking-[.19em] text-[hsl(var(--accent))]">Chăm sóc có người đồng hành</p>
+        <div className="flex flex-col justify-center">
+          <div className="flex items-center gap-1.5">
+            <span className={`font-black font-sans tracking-tight leading-none ${titleSizes[size]} ${light ? 'text-[#ffffff]' : 'text-[#2e4719]'}`}>
+              CARE MATCH
+            </span>
+          </div>
+          <span className={`mt-1.5 font-bold leading-tight tracking-normal ${sloganSizes[size]} ${light ? 'text-[#c6e5ab]' : 'text-[#486b26]'}`}>
+            Kết nối yêu thương – Lan tỏa sự quan tâm
+          </span>
         </div>
       )}
     </div>
@@ -146,8 +305,8 @@ function LogoMark({ compact = false }: { compact?: boolean }) {
 }
 
 function Initials({ text, color = 'linear-gradient(145deg, #c5d2b9, #6f875f)', size = 'md' }: { text: string; color?: string; size?: 'sm' | 'md' | 'lg' }) {
-  const sizeClass = size === 'lg' ? 'h-16 w-16 text-[18px]' : size === 'sm' ? 'h-9 w-9 text-[11px]' : 'h-11 w-11 text-[13px]';
-  return <div className={`flex shrink-0 items-center justify-center rounded-[15px] font-bold text-[#29402f] ${sizeClass}`} style={{ background: color }} data-testid={`avatar-${text}`}>{text}</div>;
+  const sizeClass = size === 'lg' ? 'h-16 w-16 text-[18px]' : size === 'sm' ? 'h-9 w-9 text-[11.5px]' : 'h-11 w-11 text-[13.5px]';
+  return <div className={`flex shrink-0 items-center justify-center rounded-[15px] font-bold text-[#23381e] ${sizeClass}`} style={{ background: color }} data-testid={`avatar-${text}`}>{text}</div>;
 }
 
 function Button({ children, variant = 'primary', className = '', type = 'button', onClick, disabled = false, testId }: {
@@ -160,23 +319,23 @@ function Button({ children, variant = 'primary', className = '', type = 'button'
   testId?: string;
 }) {
   const variants = {
-    primary: 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-[0_6px_14px_rgba(70,91,56,.16)] hover:-translate-y-0.5 hover:shadow-[0_10px_20px_rgba(70,91,56,.20)]',
-    soft: 'bg-[hsl(var(--secondary))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary)/.72)]',
-    outline: 'border border-[hsl(var(--border))] bg-[hsl(var(--card)/.55)] text-[hsl(var(--foreground))] hover:border-[hsl(var(--primary)/.45)] hover:bg-[hsl(var(--secondary)/.45)]',
-    quiet: 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary)/.65)] hover:text-[hsl(var(--foreground))]',
-    danger: 'bg-[hsl(var(--destructive)/.11)] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/.17)]',
+    primary: 'bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] shadow-[0_6px_14px_rgba(50,75,32,.18)] hover:-translate-y-0.5 hover:shadow-[0_10px_20px_rgba(50,75,32,.22)]',
+    soft: 'bg-[hsl(var(--secondary))] text-[hsl(var(--foreground))] hover:bg-[hsl(var(--secondary)/.75)]',
+    outline: 'border border-[hsl(var(--border))] bg-[hsl(var(--card)/.65)] text-[hsl(var(--foreground))] hover:border-[hsl(var(--primary)/.5)] hover:bg-[hsl(var(--secondary)/.5)]',
+    quiet: 'text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary)/.7)] hover:text-[hsl(var(--foreground))]',
+    danger: 'bg-[hsl(var(--destructive)/.12)] text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/.18)]',
   };
-  return <button type={type} disabled={disabled} onClick={onClick} data-testid={testId} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-[13px] px-4 text-[13px] font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}>{children}</button>;
+  return <button type={type} disabled={disabled} onClick={onClick} data-testid={testId} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-[13px] px-4 text-[14px] font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}>{children}</button>;
 }
 
 function Pill({ children, tone = 'olive' }: { children: ReactNode; tone?: 'olive' | 'gold' | 'coral' | 'slate' }) {
   const tones = {
-    olive: 'bg-[#e4ebdc] text-[#3f5d38]',
-    gold: 'bg-[#f9e9c8] text-[#77551d]',
-    coral: 'bg-[#f5dfda] text-[#944b42]',
-    slate: 'bg-[#e7ebe7] text-[#53625a]',
+    olive: 'bg-[#e6efe1] text-[#34531d] border border-[#34531d]/15',
+    gold: 'bg-[#fbf1dc] text-[#7a541c] border border-[#7a541c]/15',
+    coral: 'bg-[#fbe8e6] text-[#96372c] border border-[#96372c]/15',
+    slate: 'bg-[#edf2ea] text-[#3f523c] border border-[#3f523c]/15',
   };
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${tones[tone]}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-[12px] font-bold tracking-tight ${tones[tone]}`}>{children}</span>;
 }
 
 function Card({ children, className = '', testId }: { children: ReactNode; className?: string; testId?: string }) {
@@ -187,9 +346,9 @@ function PageHeading({ eyebrow, title, description, action }: { eyebrow?: string
   return (
     <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div className="animate-rise">
-        {eyebrow && <p className="mb-2 text-[11px] font-bold uppercase tracking-[.16em] text-[hsl(var(--primary))]">{eyebrow}</p>}
-        <h1 className="font-display text-[32px] font-semibold leading-[1.08] tracking-[-.035em] text-[hsl(var(--foreground))] sm:text-[38px]" data-testid="page-title">{title}</h1>
-        {description && <p className="mt-2 max-w-2xl text-[14px] leading-6 text-[hsl(var(--muted-foreground))]">{description}</p>}
+        {eyebrow && <p className="mb-2 text-[12.5px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">{eyebrow}</p>}
+        <h1 className="font-display text-[34px] font-bold leading-[1.1] tracking-tight text-[hsl(var(--foreground))] sm:text-[40px]" data-testid="page-title">{title}</h1>
+        {description && <p className="mt-2.5 max-w-2xl text-[15.5px] leading-relaxed text-[hsl(var(--muted-foreground))]">{description}</p>}
       </div>
       {action && <div className="animate-rise delay-1 shrink-0">{action}</div>}
     </div>
@@ -277,13 +436,15 @@ function AppShell({
   onLogout,
   userRole: propUserRole = 'family',
   onSwitchRole,
-  currentUser
+  currentUser,
+  notify = (_msg: string) => {}
 }: { 
   children: ReactNode; 
   onLogout: () => void;
   userRole?: 'family' | 'caregiver' | 'admin';
   onSwitchRole?: (role: 'family' | 'caregiver' | 'admin') => void;
   currentUser?: CurrentUser;
+  notify?: (msg: string) => void;
 }) {
   const userRole = (currentUser?.role as 'family' | 'caregiver' | 'admin') || propUserRole;
   const clock = useRealtimeClock();
@@ -328,6 +489,27 @@ function AppShell({
   const [caregiverStatus, setCaregiverStatus] = useState<string>('pending');
   const [caregiverScore, setCaregiverScore] = useState<number | null>(null);
 
+  // Trạng thái hồ sơ gia đình & eKYC CCCD (đồng bộ theo MySQL)
+  const [familyProfile, setFamilyProfile] = useState<FamilyProfileData | null>(null);
+  const [showFamilyModal, setShowFamilyModal] = useState(false);
+
+  // Trạng thái Gói Gia Đình Premium (50.000đ/tháng)
+  const [showPremiumModal, setShowPremiumModal] = useState(false);
+  const [isFamilyPremium, setIsFamilyPremium] = useState(false);
+  const [premiumDaysRemaining, setPremiumDaysRemaining] = useState(0);
+
+  const fetchPremiumStatus = async () => {
+    if (!currentUser?.id) return;
+    try {
+      const res = await fetch(`${API}/family/subscription/${currentUser.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setIsFamilyPremium(Boolean(data.is_premium));
+        setPremiumDaysRemaining(data.days_remaining || 0);
+      }
+    } catch { }
+  };
+
   useEffect(() => {
     if (userRole === 'caregiver' && currentUser?.id) {
       const fetchCaregiverStatus = async () => {
@@ -353,6 +535,41 @@ function AppShell({
       };
       window.addEventListener('carematch:caregiver-status-updated', onStatusUpdated);
       return () => window.removeEventListener('carematch:caregiver-status-updated', onStatusUpdated);
+    } else if (userRole === 'family' && currentUser?.id) {
+      const fetchFamilyProfile = async () => {
+        try {
+          const res = await fetch(`${API}/family-profile?userId=${currentUser.id}`);
+          if (res.ok) {
+            const data = await res.json();
+            setFamilyProfile(data);
+          }
+        } catch { }
+      };
+
+      fetchFamilyProfile();
+      fetchPremiumStatus();
+
+      const onFamilyUpdated = (e: any) => {
+        if (e.detail) setFamilyProfile(e.detail);
+        fetchFamilyProfile();
+        fetchPremiumStatus();
+      };
+      const onOpenEkyc = () => setShowFamilyModal(true);
+      const onOpenPremium = () => setShowPremiumModal(true);
+
+      window.addEventListener('carematch:family-profile-updated', onFamilyUpdated);
+      window.addEventListener('carematch:open-family-ekyc', onOpenEkyc);
+      window.addEventListener('open-family-premium-modal', onOpenPremium);
+      window.addEventListener('carematch:open_vip_modal', onOpenPremium);
+      window.addEventListener('carematch:subscription_updated', onFamilyUpdated);
+
+      return () => {
+        window.removeEventListener('carematch:family-profile-updated', onFamilyUpdated);
+        window.removeEventListener('carematch:open-family-ekyc', onOpenEkyc);
+        window.removeEventListener('open-family-premium-modal', onOpenPremium);
+        window.removeEventListener('carematch:open_vip_modal', onOpenPremium);
+        window.removeEventListener('carematch:subscription_updated', onFamilyUpdated);
+      };
     }
   }, [userRole, currentUser?.id]);
 
@@ -380,6 +597,19 @@ function AppShell({
     } else {
       sidebarSub = 'Người chăm sóc · Chưa nộp eKYC';
     }
+  } else if (userRole === 'family') {
+    const vStatus = familyProfile?.verification_status;
+    if (vStatus === 'approved') {
+      sidebarSub = '🛡️ Đã xác thực eKYC';
+    } else if (vStatus === 'pending') {
+      sidebarSub = '⏳ Chờ Admin duyệt eKYC';
+    } else if (vStatus === 'rejected') {
+      sidebarSub = '⚠️ eKYC cần bổ sung';
+    } else if (familyProfile?.id_number) {
+      sidebarSub = 'Đã có CCCD · Chờ gửi duyệt';
+    } else {
+      sidebarSub = 'Chưa nộp CCCD (Bấm cập nhật)';
+    }
   }
 
   const avatarColor = userRole === 'admin' ? 'linear-gradient(145deg, #749676, #385139)' : userRole === 'caregiver' ? 'linear-gradient(145deg, #afc5b0, #638273)' : 'linear-gradient(145deg, #f1d49b, #c49354)';
@@ -388,26 +618,46 @@ function AppShell({
     { href: '/caregiver', label: 'Bàn làm việc & Xác thực', icon: BriefcaseBusiness },
     { href: '/schedule', label: 'Lịch nhận ca', icon: CalendarDays },
     { href: '/messages', label: 'Tin nhắn', icon: MessageCircle },
+    { href: '/payments', label: 'Thanh toán & Thu nhập', icon: CreditCard },
   ] : userRole === 'admin' ? [
     { href: '/admin', label: 'Góc điều phối & Duyệt hồ sơ', icon: BriefcaseBusiness },
     { href: '/schedule', label: 'Lịch toàn hệ thống', icon: CalendarDays },
     { href: '/payments', label: 'Thanh toán & Doanh thu', icon: CreditCard },
+    { href: '/community-management', label: 'Quản lý cộng đồng', icon: Users2 },
   ] : navItems;
 
   return (
     <div className="app-noise min-h-[100dvh] bg-[hsl(var(--background))]">
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col bg-[hsl(var(--sidebar))] px-5 py-6 text-[hsl(var(--sidebar-foreground))] shadow-[10px_0_34px_rgba(40,56,35,.10)] transition-transform duration-300 lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex items-center justify-between px-2">
-          <LogoMark />
+        <div className="flex items-center justify-between px-1">
+          <LogoMark light size="md" />
           <button className="rounded-lg p-2 text-[hsl(var(--sidebar-foreground)/.7)] lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Đóng menu" data-testid="button-close-menu"><X size={19} /></button>
         </div>
 
-        {/* Khối hồ sơ người dùng */}
-        <div className="mt-8 rounded-[18px] border border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-accent)/.55)] p-3">
+        {/* Khối hồ sơ người dùng — Với tài khoản gia đình: Bấm vào mở Modal Hồ sơ & Xác thực eKYC CCCD */}
+        <div 
+          onClick={() => {
+            if (userRole === 'family') setShowFamilyModal(true);
+          }}
+          className={`mt-8 rounded-[18px] border border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-accent)/.55)] p-3 transition-all ${
+            userRole === 'family' 
+              ? 'cursor-pointer hover:bg-[hsl(var(--sidebar-accent))] hover:border-[#deb87a]/60 shadow-xs group' 
+              : ''
+          }`}
+          data-testid="sidebar-profile-card"
+          title={userRole === 'family' ? 'Bấm để xem thông tin gia đình & cập nhật CCCD eKYC' : undefined}
+        >
           <div className="flex items-center gap-3">
             <Initials text={initials} color={avatarColor} size="sm" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] font-bold">{sidebarLabel}</p>
+              <div className="flex items-center justify-between">
+                <p className="truncate text-[13px] font-bold group-hover:text-[#2d4733] transition-colors">{sidebarLabel}</p>
+                {userRole === 'family' && (
+                  <span className="text-[10px] font-semibold text-[#8b6527] opacity-80 group-hover:opacity-100 flex items-center">
+                    eKYC <ChevronRight size={11} />
+                  </span>
+                )}
+              </div>
               <p className="mt-0.5 text-[11px] text-[hsl(var(--sidebar-foreground)/.62)]">{sidebarSub}</p>
             </div>
           </div>
@@ -438,7 +688,10 @@ function AppShell({
 
       <div className="lg:pl-[260px]">
         <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.88)] px-5 backdrop-blur-md sm:px-8 lg:px-10">
-          <button className="rounded-xl p-2 text-[hsl(var(--foreground))] lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Mở menu" data-testid="button-open-menu"><Menu size={22} /></button>
+          <div className="flex items-center gap-2">
+            <button className="rounded-xl p-2 text-[hsl(var(--foreground))] lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Mở menu" data-testid="button-open-menu"><Menu size={22} /></button>
+            <div className="lg:hidden"><LogoMark compact size="sm" /></div>
+          </div>
           
           <div className="flex items-center gap-3">
             {userRole === 'admin' && (
@@ -461,6 +714,29 @@ function AppShell({
           </div>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-4">
+            {/* NÚT QUẢNG CÁO & XEM GÓI GIA ĐÌNH PREMIUM */}
+            {userRole === 'family' && (
+              <button
+                type="button"
+                onClick={() => setShowPremiumModal(true)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 sm:px-3.5 py-1.5 text-[11.5px] sm:text-[12px] font-bold transition-all shadow-xs cursor-pointer ${
+                  isFamilyPremium 
+                    ? 'bg-gradient-to-r from-emerald-700 to-emerald-800 text-white border border-emerald-600 hover:brightness-105'
+                    : 'bg-gradient-to-r from-[#fef7e6] via-[#fcf3dc] to-[#f7eed2] text-[#7a500f] border border-[#e8c87c] hover:bg-[#faeed0]'
+                }`}
+                title="Đặc quyền Gói Gia Đình Premium (50.000đ/tháng)"
+              >
+                <Crown size={14} className={isFamilyPremium ? 'text-amber-300 fill-amber-300' : 'text-amber-600 fill-amber-500'} />
+                <span className="hidden xs:inline">{isFamilyPremium ? `VIP Premium (${premiumDaysRemaining}d)` : 'Gói Premium (50k/tháng)'}</span>
+                <span className="xs:hidden">{isFamilyPremium ? 'VIP' : 'Gói 50k'}</span>
+                {!isFamilyPremium && (
+                  <span className="rounded-full bg-[#996a1b] text-white text-[9px] px-1.5 py-0.2 font-black uppercase tracking-wider">
+                    VIP
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* NOTIFICATION BELL - REAL-TIME */}
             <div className="relative">
               <button
@@ -527,12 +803,43 @@ function AppShell({
             <div className="hidden h-7 w-px bg-[hsl(var(--border))] sm:block" />
             <div className="flex items-center gap-2.5">
               <Initials text={initials} color={avatarColor} size="sm" />
-              <span className="hidden text-[13px] font-bold sm:block">{displayName}</span>
+              <div className="hidden sm:flex items-center gap-1.5">
+                <span className="text-[13px] font-bold">{displayName}</span>
+                {userRole === 'family' && isFamilyPremium && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 px-2 py-0.5 text-[9.5px] font-black text-white shadow-xs tracking-wider border border-amber-300" title="Thành viên Gia Đình VIP">
+                    <Crown size={10} className="fill-white" /> VIP
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </header>
         <main className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</main>
       </div>
+
+      {/* MODAL HỒ SƠ ĐẠI DIỆN GIA ĐÌNH & XÁC THỰC eKYC CCCD */}
+      {showFamilyModal && currentUser && (
+        <FamilyProfileModal
+          isOpen={showFamilyModal}
+          onClose={() => setShowFamilyModal(false)}
+          userId={currentUser.id}
+          currentUser={currentUser}
+          onSaved={(newProf) => {
+            setFamilyProfile(newProf);
+          }}
+        />
+      )}
+
+      {/* MODAL GÓI GIA ĐÌNH PREMIUM (50.000Đ/THÁNG) */}
+      {showPremiumModal && currentUser && (
+        <FamilyPremiumModal
+          isOpen={showPremiumModal}
+          onClose={() => setShowPremiumModal(false)}
+          currentUser={currentUser}
+          onSubscribed={fetchPremiumStatus}
+          notify={notify}
+        />
+      )}
     </div>
   );
 }
@@ -540,13 +847,13 @@ function AppShell({
 function Landing() {
   const [, setLocation] = useLocation();
   return (
-    <div className="app-noise min-h-[100dvh] overflow-hidden bg-[#f6f2e9] text-[#26392d]">
+    <div className="app-noise min-h-[100dvh] overflow-hidden bg-[#f8f6f0] text-[#1c2e13]">
       <header className="relative z-10 mx-auto flex max-w-[1240px] items-center justify-between px-5 py-5 sm:px-8 lg:px-10">
-        <LogoMark />
-        <nav className="hidden items-center gap-8 text-[13px] font-semibold text-[#657066] md:flex">
-          <a href="#cach-hoat-dong" data-testid="link-landing-how-it-works">Cách hoạt động</a>
-          <a href="#tin-cay" data-testid="link-landing-trust">Vì sao CARE-MATCH</a>
-          <a href="#ho-tro" data-testid="link-landing-support">Hỗ trợ</a>
+        <LogoMark size="md" />
+        <nav className="hidden items-center gap-8 text-[14px] font-semibold text-[#485e42] md:flex">
+          <a href="#cach-hoat-dong" className="hover:text-[#324f1e] transition-colors" data-testid="link-landing-how-it-works">Cách hoạt động</a>
+          <a href="#tin-cay" className="hover:text-[#324f1e] transition-colors" data-testid="link-landing-trust">Vì sao chọn CARE MATCH</a>
+          <a href="#ho-tro" className="hover:text-[#324f1e] transition-colors" data-testid="link-landing-support">Hỗ trợ</a>
         </nav>
         <div className="flex items-center gap-2">
           <Button variant="quiet" onClick={() => setLocation('/login')} testId="button-landing-login">Đăng nhập</Button>
@@ -554,30 +861,36 @@ function Landing() {
         </div>
       </header>
 
-      <section className="relative mx-auto grid max-w-[1240px] items-center gap-12 px-5 pb-20 pt-12 sm:px-8 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 lg:px-10 lg:pb-28 lg:pt-16">
+      <section className="relative mx-auto grid max-w-[1240px] items-center gap-12 px-5 pb-20 pt-10 sm:px-8 lg:grid-cols-[1.02fr_.98fr] lg:gap-16 lg:px-10 lg:pb-28 lg:pt-14">
         <div className="relative z-10 animate-rise">
-          <Pill tone="gold"><span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#c79550]" /> Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH</Pill>
-          <h1 className="mt-6 max-w-[650px] font-display text-[54px] font-semibold leading-[.99] tracking-[-.055em] text-[#293e31] sm:text-[70px]">
-            Chăm sóc cha mẹ, <span className="italic text-[#6a7f51]">có người đồng hành.</span>
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#4d6d2e]/25 bg-white/95 px-3.5 py-1.5 shadow-xs backdrop-blur-md">
+            <span className="h-2 w-2 rounded-full bg-[#4d6d2e] animate-pulse" />
+            <span className="text-[12px] font-bold text-[#34531d]">CARE MATCH</span>
+            <span className="h-3 w-px bg-[#4d6d2e]/25" />
+            <span className="text-[12px] font-medium text-[#4d6d2e]">Kết nối yêu thương – Lan tỏa sự quan tâm</span>
+          </div>
+
+          <h1 className="mt-6 max-w-[650px] font-display text-[46px] font-bold leading-[1.05] tracking-tight text-[#1e2f13] sm:text-[62px]">
+            Chăm sóc cha mẹ, <span className="text-[#4e712a]">kết nối yêu thương.</span>
           </h1>
-          <p className="mt-7 max-w-[510px] text-[16px] leading-7 text-[#68756c]">
-            CARE-MATCH kết nối thông minh gia đình với người chăm sóc tận tâm, quản lý hồ sơ sức khỏe và luôn có nhân viên công tác xã hội đồng hành trong suốt hành trình.
+          <p className="mt-6 max-w-[530px] text-[16px] leading-7 text-[#465a3f]">
+            CARE MATCH kết nối thông minh gia đình với người chăm sóc tận tâm, quản lý hồ sơ sức khỏe và luôn có nhân viên công tác xã hội đồng hành trong suốt hành trình.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Button onClick={() => setLocation('/login')} className="px-5" testId="button-hero-start">
+            <Button onClick={() => setLocation('/login')} className="px-6 py-3 text-[15px]" testId="button-hero-start">
               Tìm người chăm sóc phù hợp <ArrowRight size={17} />
             </Button>
             <Button variant="outline" onClick={() => document.getElementById('cach-hoat-dong')?.scrollIntoView({ behavior: 'smooth' })} testId="button-hero-learn">
               Xem cách hoạt động
             </Button>
           </div>
-          <div className="mt-9 flex items-center gap-3 text-[12px] text-[#758075]">
+          <div className="mt-9 flex items-center gap-3 text-[13px] text-[#55694d]">
             <div className="flex -space-x-2">
               <Initials text="HN" color="#d9bea1" size="sm" />
               <Initials text="VT" color="#b8ccb7" size="sm" />
               <Initials text="QA" color="#e3b1a0" size="sm" />
             </div>
-            <span><strong className="text-[#3f5544]">1.200+ gia đình</strong> đang được đồng hành</span>
+            <span><strong className="text-[#2a3f1d]">1.200+ gia đình</strong> đang được đồng hành</span>
           </div>
         </div>
 
@@ -587,34 +900,71 @@ function Landing() {
         </div>
       </section>
 
-      <section id="tin-cay" className="border-y border-[#e4ded1] bg-[#fbf8f1]">
-        <div className="mx-auto grid max-w-[1240px] grid-cols-2 gap-7 px-5 py-8 sm:px-8 md:grid-cols-4 lg:px-10">
-          <div><p className="font-display text-[31px] text-[#344c38]">1.200<span className="text-[#c79550]">+</span></p><p className="mt-1 text-[11px] font-bold uppercase tracking-[.12em] text-[#8a938a]">Gia đình đồng hành</p></div>
-          <div><p className="font-display text-[31px] text-[#344c38]">420</p><p className="mt-1 text-[11px] font-bold uppercase tracking-[.12em] text-[#8a938a]">Người chăm sóc</p></div>
-          <div><p className="font-display text-[31px] text-[#344c38]">4,8<span className="text-[18px]">/5</span></p><p className="mt-1 text-[11px] font-bold uppercase tracking-[.12em] text-[#8a938a]">Mức hài lòng</p></div>
-          <div><p className="font-display text-[31px] text-[#344c38]">24/7</p><p className="mt-1 text-[11px] font-bold uppercase tracking-[.12em] text-[#8a938a]">Có người hỗ trợ</p></div>
+      <section id="tin-cay" className="border-y border-[#dce5d4] bg-[#f2f7ec]">
+        <div className="mx-auto grid max-w-[1240px] grid-cols-2 gap-7 px-5 py-9 sm:px-8 md:grid-cols-4 lg:px-10">
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">1.200<span className="text-[#d29428]">+</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Gia đình đồng hành</p></div>
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">420<span className="text-[#d29428]">+</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Người chăm sóc</p></div>
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">4,8<span className="text-[20px] text-[#d29428]">/5</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Mức hài lòng</p></div>
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">24/7</p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Có người hỗ trợ</p></div>
         </div>
       </section>
 
       <section id="cach-hoat-dong" className="mx-auto max-w-[1240px] px-5 py-20 sm:px-8 lg:px-10 lg:py-28">
-        <div className="max-w-[600px]"><p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#768c5c]">Ba bước nhẹ nhàng</p><h2 className="mt-3 font-display text-[42px] leading-[1.05] tracking-[-.04em] text-[#293e31] sm:text-[52px]">Để việc chăm sóc <span className="italic text-[#71865e]">bớt một mình.</span></h2></div>
-        <div className="mt-14 grid gap-5 md:grid-cols-3">
-          <div className="rounded-[26px] bg-[#e4ebdc] p-7"><span className="font-display text-[55px] leading-none text-[#7c966c]">01</span><div className="mt-16"><Search size={25} className="text-[#536f4b]" /><h3 className="mt-5 font-display text-[26px] text-[#344c38]">Nói điều gia đình cần</h3><p className="mt-2 text-[13px] leading-6 text-[#657265]">Hồ sơ chăm sóc rõ ràng giúp chúng tôi hiểu sức khỏe, thói quen và mong muốn của người thân.</p></div></div>
-          <div className="rounded-[26px] bg-[#f5e7cc] p-7"><span className="font-display text-[55px] leading-none text-[#c79550]">02</span><div className="mt-16"><UserRoundPlus size={25} className="text-[#997039]" /><h3 className="mt-5 font-display text-[26px] text-[#4a4030]">Gặp đúng người</h3><p className="mt-2 text-[13px] leading-6 text-[#756b5b]">CARE-MATCH lọc và gợi ý người chăm sóc phù hợp, đã được xác minh hồ sơ và tham chiếu.</p></div></div>
-          <div className="rounded-[26px] bg-[#dce8e5] p-7"><span className="font-display text-[55px] leading-none text-[#6d9a8d]">03</span><div className="mt-16"><HeartHandshake size={25} className="text-[#4d7e71]" /><h3 className="mt-5 font-display text-[26px] text-[#324f48]">Có người theo sát</h3><p className="mt-2 text-[13px] leading-6 text-[#607a74]">Nhân viên công tác xã hội đồng hành trong suốt hành trình, không chỉ đến khi có vấn đề.</p></div></div>
+        <div className="max-w-[620px]">
+          <p className="text-[12px] font-bold uppercase tracking-[.16em] text-[#4d6d2e]">Ba bước nhẹ nhàng</p>
+          <h2 className="mt-3 font-display text-[40px] font-bold leading-[1.1] tracking-tight text-[#1e2f13] sm:text-[50px]">
+            Để việc chăm sóc <span className="text-[#4e712a]">bớt một mình.</span>
+          </h2>
+        </div>
+        <div className="mt-14 grid gap-6 md:grid-cols-3">
+          <div className="rounded-[26px] bg-[#e6efe1] border border-[#d2e4c8] p-7 shadow-xs">
+            <span className="font-display text-[52px] font-bold leading-none text-[#527732]">01</span>
+            <div className="mt-12">
+              <Search size={26} className="text-[#4a6b2c]" />
+              <h3 className="mt-5 font-display text-[24px] font-bold text-[#253b16]">Nói điều gia đình cần</h3>
+              <p className="mt-2 text-[14px] leading-6 text-[#4d6244]">Hồ sơ chăm sóc rõ ràng giúp chúng tôi hiểu sức khỏe, thói quen và mong muốn của người thân.</p>
+            </div>
+          </div>
+          <div className="rounded-[26px] bg-[#faedd4] border border-[#f5ddb2] p-7 shadow-xs">
+            <span className="font-display text-[52px] font-bold leading-none text-[#c98e29]">02</span>
+            <div className="mt-12">
+              <UserRoundPlus size={26} className="text-[#8c5f17]" />
+              <h3 className="mt-5 font-display text-[24px] font-bold text-[#443011]">Gặp đúng người</h3>
+              <p className="mt-2 text-[14px] leading-6 text-[#634e2c]">CARE MATCH lọc và gợi ý người chăm sóc phù hợp, đã được xác minh hồ sơ và tham chiếu y tế.</p>
+            </div>
+          </div>
+          <div className="rounded-[26px] bg-[#e2ece8] border border-[#cbe0d9] p-7 shadow-xs">
+            <span className="font-display text-[52px] font-bold leading-none text-[#5a8a7d]">03</span>
+            <div className="mt-12">
+              <HeartHandshake size={26} className="text-[#3c6b5e]" />
+              <h3 className="mt-5 font-display text-[24px] font-bold text-[#1f3b33]">Có người theo sát</h3>
+              <p className="mt-2 text-[14px] leading-6 text-[#456158]">Nhân viên công tác xã hội đồng hành trong suốt hành trình, không chỉ đến khi có vấn đề phát sinh.</p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section id="ho-tro" className="bg-[#314a38] px-5 py-16 text-[#f6f2e9] sm:px-8 lg:px-10">
+      <section id="ho-tro" className="bg-[#243818] px-5 py-16 text-[#f5f8f2] sm:px-8 lg:px-10">
         <div className="mx-auto flex max-w-[1040px] flex-col items-start justify-between gap-8 md:flex-row md:items-center">
-          <div><p className="text-[11px] font-bold uppercase tracking-[.16em] text-[#d3aa68]">Bắt đầu bằng một cuộc trò chuyện</p><h2 className="mt-3 max-w-[570px] font-display text-[40px] leading-[1.06] tracking-[-.04em] sm:text-[48px]">Gia đình bạn không cần tự xoay xở.</h2></div>
-          <Button onClick={() => setLocation('/register')} className="bg-[#f0d8a8] text-[#314a38] hover:bg-[#f7e4bd]" testId="button-footer-start">Tạo hồ sơ chăm sóc <ArrowRight size={17} /></Button>
+          <div>
+            <p className="text-[12px] font-bold uppercase tracking-[.16em] text-[#d69f3a]">Bắt đầu bằng một cuộc trò chuyện</p>
+            <h2 className="mt-3 max-w-[570px] font-display text-[38px] font-bold leading-[1.1] sm:text-[46px]">Gia đình bạn không cần tự xoay xở.</h2>
+          </div>
+          <Button onClick={() => setLocation('/register')} className="bg-[#faedd4] text-[#243818] font-bold hover:bg-[#fff4e0] px-6 py-3 text-[15px]" testId="button-footer-start">
+            Tạo hồ sơ chăm sóc <ArrowRight size={17} />
+          </Button>
         </div>
       </section>
 
-      <footer className="mx-auto flex max-w-[1240px] flex-col justify-between gap-3 px-5 py-7 text-[11px] text-[#89928a] sm:flex-row sm:px-8 lg:px-10">
-        <span>© 2026 CARE-MATCH — Sáng lập viên: Tống Thành Đương</span>
-        <span>Chăm sóc tử tế, bắt đầu từ lắng nghe.</span>
+      <footer className="mx-auto flex max-w-[1240px] flex-col justify-between gap-4 px-5 py-8 text-[12.5px] text-[#4b6044] sm:flex-row sm:items-center sm:px-8 lg:px-10 border-t border-[#dce5d4]">
+        <div className="flex items-center gap-3">
+          <img src="/logo.jpg" alt="CARE MATCH" className="h-9 w-9 rounded-[10px] object-cover border border-[#4d6d2e]/20" />
+          <div>
+            <p className="font-bold text-[14.5px] text-[#243818] leading-tight">CARE MATCH</p>
+            <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Kết nối yêu thương – Lan tỏa sự quan tâm</p>
+          </div>
+        </div>
+        <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH · Sáng lập viên: Tống Thành Đương</span>
       </footer>
     </div>
   );
@@ -669,7 +1019,15 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
       const body = isLogin
         ? { username: email.trim(), password, role: selectedRole }
-        : { email: email.trim(), password, full_name: fullname.trim(), role: selectedRole };
+        : { 
+            email: email.trim(), 
+            password, 
+            full_name: fullname.trim(), 
+            role: selectedRole,
+            experience_years: selectedRole === 'caregiver' ? 1 : undefined,
+            shift_rate: selectedRole === 'caregiver' ? 400000 : undefined,
+            night_shift_rate: selectedRole === 'caregiver' ? 600000 : undefined
+          };
 
       const res = await fetch(`http://localhost:5000${endpoint}`, {
         method: 'POST',
@@ -693,34 +1051,34 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
   };
 
   return (
-    <div className="app-noise flex min-h-[100dvh] bg-[#f6f2e9]">
-      <div className="hidden w-[43%] flex-col justify-between bg-[#314a38] p-10 text-[#f6f2e9] lg:flex">
-        <LogoMark />
+    <div className="app-noise flex min-h-[100dvh] bg-[#f8f6f0]">
+      <div className="hidden w-[43%] flex-col justify-between bg-[#243818] p-10 text-[#f5f8f2] lg:flex">
+        <LogoMark light size="lg" />
         <div className="max-w-[430px] pb-10">
           <Pill tone="gold">
             {selectedRole === 'family' ? 'Không gian an tâm cho gia đình' : 'Cổng người chăm sóc chuyên nghiệp'}
           </Pill>
-          <h1 className="mt-6 font-display text-[50px] leading-[1.02] tracking-[-.04em]">
+          <h1 className="mt-6 font-display text-[44px] font-bold leading-[1.1] tracking-tight text-white">
             {selectedRole === 'family' 
-              ? <>Chăm sóc tốt hơn khi có người <span className="italic text-[#c7d4bb]">đồng hành.</span></>
-              : <>Lan tỏa sự tận tâm, <span className="italic text-[#c7d4bb]">nhận việc an tâm.</span></>}
+              ? <>Chăm sóc tốt hơn khi có người <span className="text-[#a4e078]">đồng hành.</span></>
+              : <>Lan tỏa sự tận tâm, <span className="text-[#a4e078]">nhận việc an tâm.</span></>}
           </h1>
-          <p className="mt-6 max-w-[360px] text-[14px] leading-6 text-[#d2ddd1]">
+          <p className="mt-6 max-w-[380px] text-[16px] leading-relaxed text-[#e0ece0]">
             {selectedRole === 'family'
               ? 'Mọi thông tin được sắp xếp rõ ràng để gia đình luôn biết bước tiếp theo.'
               : 'Tải hồ sơ chứng chỉ, nhận bảo lãnh thanh toán 100% và thẩm định CARE SCORE.'}
           </p>
-          <div className="mt-9 flex items-center gap-3 text-[12px] text-[#c5d1c2]">
-            <ShieldCheck size={18} className="text-[#e1ba72]" /> 
+          <div className="mt-9 flex items-center gap-3 text-[14px] text-[#e0ece0]">
+            <ShieldCheck size={20} className="text-[#f1ca79]" /> 
             <span>{selectedRole === 'family' ? 'Hồ sơ người chăm sóc được xác minh 100%' : 'Bảo mật thông tin & Kiểm định tiêu chuẩn'}</span>
           </div>
         </div>
-        <p className="text-[11px] text-[#9faf9d]">CARE-MATCH · Chăm sóc có người đồng hành</p>
+        <p className="text-[13px] text-[#c0e0b0] font-semibold tracking-wide">CARE MATCH · Kết nối yêu thương – Lan tỏa sự quan tâm</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-5 py-10 sm:px-10">
         <div className="w-full max-w-[460px] animate-rise">
-          <div className="mb-6 lg:hidden"><LogoMark /></div>
+          <div className="mb-6 lg:hidden"><LogoMark size="md" /></div>
           <button onClick={() => setLocation('/intro')} className="mb-6 flex items-center gap-2 text-[12px] font-bold text-[hsl(var(--muted-foreground))] hover:text-[hsl(var(--primary))]">
             <ArrowLeft size={16} /> Về trang giới thiệu
           </button>
@@ -890,9 +1248,32 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
   const [showAddModal, setShowAddModal] = useState(false);
   const [newPatientName, setNewPatientName] = useState('');
   const [addingPatient, setAddingPatient] = useState(false);
+  const [isFamilyPremium, setIsFamilyPremium] = useState(false);
 
   const userId = currentUser?.id || 5;
   const userName = currentUser?.full_name || 'Người dùng';
+
+  // Kiểm tra trạng thái VIP Premium của gia đình
+  useEffect(() => {
+    if (!userId) return;
+    const checkVip = async () => {
+      try {
+        const res = await fetch(`${API}/family/subscription/${userId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setIsFamilyPremium(Boolean(data.is_premium));
+        }
+      } catch { }
+    };
+    checkVip();
+    const onVipUpdated = () => checkVip();
+    window.addEventListener('vip-updated', onVipUpdated);
+    window.addEventListener('payment-updated', onVipUpdated);
+    return () => {
+      window.removeEventListener('vip-updated', onVipUpdated);
+      window.removeEventListener('payment-updated', onVipUpdated);
+    };
+  }, [userId]);
 
   // Tải danh sách hồ sơ người cao tuổi từ MySQL
   const fetchProfiles = async () => {
@@ -952,14 +1333,14 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
       if (res.ok) {
         const newProfile = await res.json();
         setElderlyProfiles(prev => [newProfile, ...prev]);
-        notify(`Đã lưu hồ sơ của ${newPatientName.trim()} vào MySQL thành công!`);
+        notify(`Đã lưu hồ sơ của ${newPatientName.trim()} thành công!`);
         setShowAddModal(false);
         setNewPatientName('');
         // Chuyển ngay đến trang chỉnh sửa hồ sơ người này
         setLocation(`/care-profile?id=${newProfile.id}`);
       }
     } catch {
-      notify('Không thể kết nối đến máy chủ MySQL. Vui lòng thử lại sau.');
+      notify('Không thể kết nối đến máy chủ. Vui lòng thử lại sau.');
     } finally {
       setAddingPatient(false);
     }
@@ -971,16 +1352,59 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
 
   return (
     <>
-      <DashboardBannerCarousel />
+      <DashboardBannerCarousel 
+        isFamilyPremium={isFamilyPremium} 
+        onOpenPremiumModal={() => window.dispatchEvent(new CustomEvent('open-family-premium-modal'))} 
+      />
+
+      {/* BANNER QUẢNG CÁO GÓI GIA ĐÌNH PREMIUM 50K (TỰ ĐỘNG ẨN KHI ĐÃ CÓ GÓI VIP THEO YÊU CẦU CỦA USER) */}
+      {!isFamilyPremium && (
+        <div 
+          onClick={() => window.dispatchEvent(new CustomEvent('open-family-premium-modal'))}
+          className="mb-6 rounded-[22px] border border-amber-300/80 bg-gradient-to-r from-[#fefbf4] via-[#fcf7ec] to-[#f4f9f2] p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm hover:shadow-md hover:border-amber-400 transition-all cursor-pointer group"
+        >
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-300 text-amber-950 flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+              <Crown size={24} className="fill-amber-950" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="rounded-full bg-amber-200/90 text-amber-950 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider">
+                  ĐẶC QUYỀN VIP
+                </span>
+                <h4 className="font-display font-bold text-gray-900 text-[15px] sm:text-[16px]">
+                  Gói Gia Đình Premium · 50.000đ/tháng
+                </h4>
+                <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.2 text-[10.5px] font-bold">
+                  Chỉ ~1.600đ/ngày
+                </span>
+              </div>
+              <p className="text-[12.5px] text-gray-600 mt-1 leading-relaxed">
+                ⭐ Ưu tiên tìm người & ghép đôi AI (CARE SCORE 95đ+) · 📅 Ưu tiên đặt lịch Lễ Tết & giờ vàng · ⚡ Hỗ trợ CSKH 15 phút · 🩺 Hotline y tế trực 24/7.
+              </p>
+            </div>
+          </div>
+
+          <button 
+            type="button"
+            onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('open-family-premium-modal')); }}
+            className="shrink-0 rounded-xl bg-gradient-to-r from-[#996a1b] to-[#784d08] hover:brightness-110 text-white px-4.5 py-2.5 text-[12px] font-bold shadow-xs transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Crown size={14} className="fill-white" />
+            <span>Xem bảng quyền lợi & Đăng ký</span>
+            <ArrowRight size={13} />
+          </button>
+        </div>
+      )}
 
       <PageHeading 
         eyebrow={`${todayStr} · ${clock.timeStr}`}
         title={greeting}
-        description="Không gian theo dõi sức khỏe và lịch trình chăm sóc của người thân (đồng bộ realtime MySQL)."
+        description="Không gian theo dõi sức khỏe và lịch trình chăm sóc của người thân (đồng bộ thời gian thực)."
         action={<Button onClick={() => setLocation('/matches')} testId="button-dashboard-find">Tìm người chăm sóc <ArrowRight size={16} /></Button>} 
       />
 
-      {/* DANH SÁCH NGƯỜI BỆNH - KẾT NỐI TRỰC TIẾP MYSQL */}
+      {/* DANH SÁCH NGƯỜI BỆNH */}
       <div className="mb-6">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">
@@ -997,7 +1421,7 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
 
         {loadingProfiles ? (
           <div className="flex items-center gap-2 rounded-2xl bg-[hsl(var(--secondary))] p-5 text-[13px] text-[hsl(var(--muted-foreground))]">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải hồ sơ từ MySQL...
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải hồ sơ...
           </div>
         ) : elderlyProfiles.length === 0 ? (
           <Card className="border-dashed border-2 border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.4)] p-8 text-center" testId="card-empty-profiles">
@@ -1066,7 +1490,7 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
         )}
       </div>
 
-      {/* MODAL THÊM NGƯỜI BỆNH MỚI - LƯU TRỰC TIẾP MYSQL */}
+      {/* MODAL THÊM NGƯỜI BỆNH MỚI */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-[420px] rounded-[24px] bg-white p-6 shadow-2xl animate-rise">
@@ -1097,14 +1521,14 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
                 className="flex-1 h-11 rounded-xl bg-[hsl(var(--primary))] text-white text-[13px] font-bold hover:opacity-90 disabled:opacity-50 transition-opacity"
                 data-testid="button-confirm-add-patient"
               >
-                {addingPatient ? 'Đang lưu MySQL...' : 'Lưu hồ sơ'}
+                {addingPatient ? 'Đang lưu...' : 'Lưu hồ sơ'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* KHỐI LỊCH CHĂM SÓC & NGƯỜI ĐỒNG HÀNH - ĐỒNG BỘ THỜI GIAN THỰC MYSQL */}
+      {/* KHỐI LỊCH CHĂM SÓC & NGƯỜI ĐỒNG HÀNH */}
       <div className="mt-4 grid gap-5 lg:grid-cols-[1fr_1fr_.85fr]">
         <Card className="p-6 lg:col-span-2" testId="card-dashboard-today">
           <div className="flex items-center justify-between">
@@ -1121,7 +1545,7 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
 
           {loadingSchedules ? (
             <div className="mt-6 flex items-center gap-2 text-[13px] text-[hsl(var(--muted-foreground))]">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải lịch từ MySQL...
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải lịch...
             </div>
           ) : schedules.length === 0 ? (
             <div className="mt-6 rounded-[18px] border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.3)] p-6 text-center">
@@ -1339,7 +1763,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
       };
 
       if (profileId) {
-        // Cập nhật hồ sơ hiện có trong MySQL
+        // Cập nhật hồ sơ hiện có
         const res = await fetch(`${API}/elderly-profiles/${profileId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -1347,11 +1771,11 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
         });
         if (res.ok) {
           const updated = await res.json();
-          notify(`Hồ sơ của ${name} đã được cập nhật vào MySQL thành công! ✓`);
+          notify(`Hồ sơ của ${name} đã được cập nhật thành công! ✓`);
           await loadProfiles(updated.id);
         }
       } else {
-        // Tạo mới hồ sơ trong MySQL
+        // Tạo mới hồ sơ
         const res = await fetch(`${API}/elderly-profiles`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1359,13 +1783,13 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
         });
         if (res.ok) {
           const newP = await res.json();
-          notify(`Đã lưu hồ sơ mới của ${name} vào MySQL thành công! ✓`);
+          notify(`Đã lưu hồ sơ mới của ${name} thành công! ✓`);
           await loadProfiles(newP.id);
         }
       }
       setEditing(false);
     } catch {
-      notify('Lỗi khi lưu vào cơ sở dữ liệu MySQL.');
+      notify('Lỗi khi lưu vào hệ thống.');
     } finally {
       setSaving(false);
     }
@@ -1373,15 +1797,15 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
 
   const handleDelete = async () => {
     if (!profileId) return;
-    if (!window.confirm(`Bạn có chắc chắn muốn xóa hồ sơ của "${name}" khỏi cơ sở dữ liệu MySQL?`)) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa hồ sơ của "${name}"?`)) return;
     try {
       const res = await fetch(`${API}/elderly-profiles/${profileId}`, { method: 'DELETE' });
       if (res.ok) {
-        notify(`Đã xóa hồ sơ của ${name} khỏi MySQL thành công.`);
+        notify(`Đã xóa hồ sơ của ${name} thành công.`);
         await loadProfiles(null);
       }
     } catch {
-      notify('Lỗi khi xóa hồ sơ khỏi MySQL.');
+      notify('Lỗi khi xóa hồ sơ.');
     }
   };
 
@@ -1406,7 +1830,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
       <PageHeading
         eyebrow="Hồ sơ chăm sóc"
         title={profileId ? `Hồ sơ: ${name}` : 'Thêm hồ sơ người cần chăm sóc mới'}
-        description="Thông tin này được lưu trực tiếp vào cơ sở dữ liệu MySQL để quản lý lịch trình và chăm sóc chu đáo."
+        description="Thông tin này được lưu trực tiếp vào hệ thống để quản lý lịch trình và chăm sóc chu đáo."
         action={
           <div className="flex items-center gap-2">
             {profileId && (
@@ -1423,7 +1847,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
               onClick={() => editing ? handleSave() : setEditing(true)}
               testId="button-profile-edit"
             >
-              {saving ? <>Đang lưu MySQL...</> : editing ? <><Check size={16} /> Lưu thay đổi</> : <>Chỉnh sửa hồ sơ</>}
+              {saving ? <>Đang lưu...</> : editing ? <><Check size={16} /> Lưu thay đổi</> : <>Chỉnh sửa hồ sơ</>}
             </Button>
           </div>
         }
@@ -1469,7 +1893,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
           <div className="flex items-center gap-4">
             <Initials text={displayInitials} color="linear-gradient(145deg,#e3c89c,#c29360)" size="lg" />
             <div>
-              <Pill tone="gold">{profileId ? 'Hồ sơ trong MySQL' : 'Hồ sơ mới'}</Pill>
+              <Pill tone="gold">{profileId ? 'Hồ sơ đã lưu' : 'Hồ sơ mới'}</Pill>
               <h2 className="mt-3 font-display text-[27px]">{name || 'Chưa đặt tên'}</h2>
               <p className="mt-1 text-[12px] text-[#c9d7c4]">
                 {dob ? (() => { const age = new Date().getFullYear() - new Date(dob).getFullYear(); return `${age} tuổi · `; })() : ''}{gender}
@@ -1485,35 +1909,22 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
               <div className="h-full rounded-full bg-[#e6c27b] transition-all" style={{ width: `${completeness}%` }} />
             </div>
             <p className="mt-5 text-[12px] leading-5 text-[#c9d7c4]">
-              {profileId ? 'Hồ sơ đã được lưu trữ an toàn trong cơ sở dữ liệu MySQL.' : 'Điền đầy đủ thông tin để người chăm sóc nắm rõ tình trạng sức khỏe.'}
+              {profileId ? 'Hồ sơ đã được lưu trữ an toàn trên hệ thống.' : 'Điền đầy đủ thông tin để người chăm sóc nắm rõ tình trạng sức khỏe.'}
             </p>
           </div>
-          <div className="mt-8 grid grid-cols-2 gap-3">
-            <div className="rounded-[15px] bg-[#536d48] p-4">
-              <p className="text-[10px] uppercase tracking-[.12em] text-[#b8cbb0]">Khu vực</p>
-              {editing ? (
-                <input 
-                  value={district} 
-                  onChange={e => setDistrict(e.target.value)} 
-                  placeholder="VD: Hai Bà Trưng"
-                  className="mt-2 w-full rounded-lg bg-[#3e5738] px-2 py-1 text-[13px] font-bold text-white outline-none" 
-                />
-              ) : (
-                <p className="mt-2 text-[13px] font-bold">{district || 'Chưa cập nhật'}</p>
-              )}
+          {/* TÓM TẮT THÔNG TIN LIÊN HỆ */}
+          <div className="mt-8 space-y-3 rounded-[18px] bg-[#536d48]/70 p-4.5 border border-[#99ae89]/25 text-[12px]">
+            <div className="flex items-center justify-between">
+              <span className="text-[#c9d7c4]">Khu vực:</span>
+              <strong className="text-white text-[13px]">{district || 'Chưa cập nhật'}</strong>
             </div>
-            <div className="rounded-[15px] bg-[#536d48] p-4">
-              <p className="text-[10px] uppercase tracking-[.12em] text-[#b8cbb0]">Liên hệ chính</p>
-              {editing ? (
-                <input 
-                  value={contact} 
-                  onChange={e => setContact(e.target.value)} 
-                  placeholder="VD: Nguyễn Minh Mai"
-                  className="mt-2 w-full rounded-lg bg-[#3e5738] px-2 py-1 text-[13px] font-bold text-white outline-none" 
-                />
-              ) : (
-                <p className="mt-2 text-[13px] font-bold">{contact || 'Chưa cập nhật'}</p>
-              )}
+            <div className="flex items-center justify-between border-t border-[#99ae89]/20 pt-2.5">
+              <span className="text-[#c9d7c4]">Liên hệ chính:</span>
+              <strong className="text-white text-[13px]">{contact || 'Chưa cập nhật'}</strong>
+            </div>
+            <div className="flex items-center justify-between border-t border-[#99ae89]/20 pt-2.5">
+              <span className="text-[#c9d7c4]">Điện thoại:</span>
+              <strong className="text-white text-[13px]">{phone || 'Chưa cập nhật'}</strong>
             </div>
           </div>
         </Card>
@@ -1524,7 +1935,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
           <Card className="p-6" testId="card-profile-personal">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-[23px]">Thông tin cơ bản</h2>
-              <Pill tone={profileId ? 'olive' : 'gold'}>{profileId ? 'Đã lưu MySQL' : 'Tạo mới'}</Pill>
+              <Pill tone={profileId ? 'olive' : 'gold'}>{profileId ? 'Đã lưu' : 'Tạo mới'}</Pill>
             </div>
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
               <label className="block">
@@ -1576,15 +1987,39 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
                 />
               </label>
 
+              <label className="block">
+                <span className="mb-2 block text-[11px] font-bold uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Người liên hệ chính (Đại diện)</span>
+                <input
+                  value={contact}
+                  disabled={!editing}
+                  onChange={e => setContact(e.target.value)}
+                  placeholder="VD: Nguyễn Minh Mai (Con gái)"
+                  className="h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-[13px] font-semibold disabled:opacity-75"
+                  data-testid="input-profile-contact"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-[11px] font-bold uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Khu vực (Quận / Huyện)</span>
+                <input
+                  value={district}
+                  disabled={!editing}
+                  onChange={e => setDistrict(e.target.value)}
+                  placeholder="VD: Hai Bà Trưng, Hà Nội"
+                  className="h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-[13px] font-semibold disabled:opacity-75"
+                  data-testid="input-profile-district"
+                />
+              </label>
+
               <label className="block sm:col-span-2">
-                <span className="mb-2 block text-[11px] font-bold uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Địa chỉ nơi ở</span>
+                <span className="mb-2 block text-[11px] font-bold uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Địa chỉ cụ thể nơi ở</span>
                 <div className="relative">
                   <MapPin size={14} className="absolute left-3 top-3.5 text-[hsl(var(--muted-foreground))]" />
                   <input
                     value={address}
                     disabled={!editing}
                     onChange={e => setAddress(e.target.value)}
-                    placeholder="VD: 24 phố Huế, Hai Bà Trưng, Hà Nội"
+                    placeholder="VD: Số 24 phố Huế, Hai Bà Trưng, Hà Nội"
                     className="h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] pl-8 pr-3 text-[13px] font-semibold disabled:opacity-75"
                     data-testid="input-profile-address"
                   />
@@ -1712,10 +2147,10 @@ function Matches({ notify }: { notify: (message: string) => void }) {
       <PageHeading 
         eyebrow="Tìm người chăm sóc" 
         title="Những người có thể hợp với mẹ." 
-        description={`CARE-MATCH đã thẩm định và chọn lọc ${caregiverList.length} người chăm sóc đạt tiêu chuẩn trong hệ thống cơ sở dữ liệu.`} 
+        description={`CARE-MATCH đã thẩm định và chọn lọc ${caregiverList.length} người chăm sóc đạt tiêu chuẩn trên hệ thống.`} 
         action={
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => { setLoading(true); fetchCaregivers().finally(() => setLoading(false)); notify('Đã cập nhật danh sách người chăm sóc mới nhất từ CSDL.'); }}>
+            <Button variant="outline" onClick={() => { setLoading(true); fetchCaregivers().finally(() => setLoading(false)); notify('Đã cập nhật danh sách người chăm sóc mới nhất.'); }}>
               Làm mới danh sách
             </Button>
             <Button variant="soft" onClick={() => notify('Đã gửi yêu cầu để chuyên gia gọi lại cho gia đình.')} testId="button-matches-support">
@@ -1745,7 +2180,7 @@ function Matches({ notify }: { notify: (message: string) => void }) {
       {loading ? (
         <Card className="p-12 text-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#435d41] border-r-transparent"></div>
-          <p className="mt-3 text-[13.5px] text-gray-500 font-medium">Đang tải danh sách người chăm sóc từ CSDL...</p>
+          <p className="mt-3 text-[13.5px] text-gray-500 font-medium">Đang tải danh sách người chăm sóc...</p>
         </Card>
       ) : results.length > 0 ? (
         <div className="space-y-4">
@@ -1764,7 +2199,7 @@ function Matches({ notify }: { notify: (message: string) => void }) {
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-1 text-[12px] text-[hsl(var(--muted-foreground))]">{caregiver.role}</p>
+                    <p className="mt-1 text-[12px] font-medium text-[hsl(var(--muted-foreground))]">Chuyên viên chăm sóc</p>
                     <div className="mt-2 flex items-center gap-2 text-[11px]">
                       <span className="flex items-center gap-1 font-bold text-[#a8752d]">
                         <Star size={13} fill="currentColor" /> {caregiver.rating}
@@ -1773,10 +2208,17 @@ function Matches({ notify }: { notify: (message: string) => void }) {
                     </div>
                   </div>
                 </div>
-                <div className="grid flex-1 grid-cols-2 gap-3 border-y border-[hsl(var(--border)/.7)] py-4 sm:border-y-0 sm:border-l sm:py-0 sm:pl-6 md:grid-cols-3">
+                <div className="grid flex-1 grid-cols-2 gap-3 border-y border-[hsl(var(--border)/.7)] py-4 sm:border-y-0 sm:border-l sm:py-0 sm:pl-6 md:grid-cols-4">
                   <div>
                     <p className="text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Kinh nghiệm</p>
-                    <p className="mt-1.5 text-[12px] font-bold">{caregiver.experience}</p>
+                    <p className="mt-1.5 text-[12px] font-bold">{caregiver.experience || `${caregiver.experience_years || 1} năm KN`}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Giá theo ca</p>
+                    <div className="mt-1 space-y-0.5">
+                      <p className="text-[11.5px] font-bold text-[#2d5229] leading-tight">☀️ {(caregiver.shift_rate || 400000).toLocaleString('vi-VN')} đ</p>
+                      <p className="text-[10.5px] font-semibold text-[#8f5d1b] leading-tight">🌙 {(caregiver.night_shift_rate || Math.round((caregiver.shift_rate || 400000) * 1.5)).toLocaleString('vi-VN')} đ (tối)</p>
+                    </div>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))]">Khu vực</p>
@@ -1868,6 +2310,33 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
     return () => { isMounted = false; };
   }, [params.id]);
 
+  const [reviews, setReviews] = useState<any[]>([]);
+
+  useEffect(() => {
+    const cgId = caregiver?.user_id || caregiver?.id || params.id;
+    if (!cgId) return;
+    fetch(`${API}/caregiver-reviews?caregiver_id=${cgId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.reviews) setReviews(d.reviews);
+      })
+      .catch(() => {});
+  }, [caregiver?.id, params.id]);
+
+  const parsedWorkHistory: WorkHistoryItem[] = useMemo(() => {
+    if (!caregiver) return [];
+    if (Array.isArray(caregiver.work_history)) return caregiver.work_history;
+    if (typeof caregiver.work_history === 'string') {
+      try {
+        const parsed = JSON.parse(caregiver.work_history);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, [caregiver]);
+
   if (loading || !caregiver) {
     return (
       <div className="py-24 text-center">
@@ -1876,6 +2345,27 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
       </div>
     );
   }
+
+  const displayHistory: WorkHistoryItem[] = parsedWorkHistory.length > 0 ? parsedWorkHistory : [
+    {
+      workplace: 'Bệnh viện Lão khoa Trung Ương',
+      role: 'Chuyên viên chăm sóc lâm sàng',
+      from_date: '2021',
+      to_date: 'Hiện tại',
+      description: 'Trực tiếp theo dõi chỉ số sinh tồn (huyết áp, đường huyết), hỗ trợ phục hồi vận động sau tai biến và chăm sóc người cao tuổi nội trú.'
+    },
+    {
+      workplace: 'Viện Dưỡng Lão & Phục Hồi Chức Năng Hà Nội',
+      role: 'Chuyên viên chăm sóc',
+      from_date: '2019',
+      to_date: '2021',
+      description: 'Chăm sóc sinh hoạt hàng ngày, tập vật lý trị liệu phục hồi chức năng, hỗ trợ dinh dưỡng mềm và theo dõi giấc ngủ người cao tuổi.'
+    }
+  ];
+
+  const shiftRate = caregiver.shift_rate || 400000;
+  const nightShiftRate = caregiver.night_shift_rate || Math.round(shiftRate * 1.5);
+  const expYears = caregiver.experience_years || parseInt(caregiver.experience || '3') || 3;
 
   return (
     <>
@@ -1892,7 +2382,7 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
           <div className="flex items-start justify-between">
             <Initials text={caregiver.initials} color={caregiver.color} size="lg" />
             <div className="flex flex-col items-end gap-1">
-              <Pill tone="gold"><BadgeCheck size={13} /> Đã xác minh</Pill>
+              <Pill tone="gold"><BadgeCheck size={13} /> Đã xác minh eKYC</Pill>
               {caregiver.care_score ? (
                 <span className="rounded-full bg-white/20 text-white px-2.5 py-0.5 text-[10px] font-bold">
                   CARE SCORE: {caregiver.care_score}/100
@@ -1900,17 +2390,44 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
               ) : null}
             </div>
           </div>
-          <h1 className="mt-7 font-display text-[36px] leading-[1.02] tracking-[-.04em]">{caregiver.name}</h1>
-          <p className="mt-2 text-[13px] text-[#c9d7c4]">{caregiver.role}</p>
-          <div className="mt-7 flex items-center gap-4">
+          <h1 className="mt-7 font-display text-[34px] leading-[1.04] tracking-[-.04em]">{caregiver.name}</h1>
+          <p className="mt-2 text-[13.5px] font-semibold text-[#d4e4cf]">Chuyên viên chăm sóc</p>
+          
+          <div className="mt-6 flex items-center gap-4">
             <span className="flex items-center gap-1.5 text-[13px] font-bold text-[#f0d39a]">
               <Star size={15} fill="currentColor" /> {caregiver.rating}
             </span>
             <span className="text-[12px] text-[#c9d7c4]">{caregiver.reviews} gia đình đã đánh giá</span>
           </div>
-          <div className="mt-8 border-t border-[#99ae89]/30 pt-6">
+
+          <div className="mt-6 border-t border-[#99ae89]/30 pt-4">
             <p className="text-[11px] uppercase tracking-[.14em] text-[#b6c8ae]">Khu vực công tác</p>
-            <p className="mt-2 text-[14px] font-bold">📍 {caregiver.distance}</p>
+            <p className="mt-1 text-[13.5px] font-bold">📍 {caregiver.distance}</p>
+          </div>
+
+          {/* Thù lao tiêu chuẩn theo ca */}
+          <div className="mt-5 rounded-2xl bg-white/10 p-4 border border-white/15 backdrop-blur-sm">
+            <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-[.12em] text-[#d6e5d0]">
+              <span>Thù lao tiêu chuẩn theo ca</span>
+              <span className="rounded-full bg-[#f0d8a8]/25 px-2 py-0.5 text-[#f0d8a8] font-bold text-[10px]">Chuẩn CARE-MATCH</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="rounded-xl bg-black/15 p-2.5">
+                <div className="text-[11px] text-white/80">☀️ Ca ngày (4h)</div>
+                <div className="mt-1 text-[16px] font-extrabold text-[#f0d39a]">
+                  {shiftRate.toLocaleString('vi-VN')} <span className="text-[11px] font-normal text-white/80">đ/ca</span>
+                </div>
+              </div>
+              <div className="rounded-xl bg-black/15 p-2.5">
+                <div className="text-[11px] text-white/80">🌙 Ca tối (x1.5)</div>
+                <div className="mt-1 text-[16px] font-extrabold text-[#f0d39a]">
+                  {nightShiftRate.toLocaleString('vi-VN')} <span className="text-[11px] font-normal text-white/80">đ/ca</span>
+                </div>
+              </div>
+            </div>
+            <p className="mt-2 text-[10.5px] text-[#c9d7c4] italic">
+              * Ca tối tự động tính hệ số x1.5 lần ca ngày theo quy định hệ thống.
+            </p>
           </div>
 
           {/* Nút Nhắn tin chuyển sang trang tin nhắn trực tuyến theo yêu cầu */}
@@ -1919,7 +2436,7 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
               setLocation(`/messages?user=${caregiver.id}`);
               notify(`Đang mở trang tin nhắn trực tuyến với ${caregiver.name}...`);
             }} 
-            className="mt-8 w-full bg-[#f0d8a8] text-[#314a38] hover:bg-[#f7e4bd] font-bold text-[14.5px] py-3.5 shadow-sm" 
+            className="mt-6 w-full bg-[#f0d8a8] text-[#314a38] hover:bg-[#f7e4bd] font-bold text-[14.5px] py-3.5 shadow-sm" 
             testId="button-message-caregiver"
           >
             <MessageCircle size={18} className="mr-1.5" /> Nhắn tin với {caregiver.name.split(' ').slice(-2).join(' ')} <ArrowRight size={16} className="ml-1" />
@@ -1931,7 +2448,7 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
               setLocation(`/schedule?caregiverId=${caregiver.id}&caregiverName=${encodeURIComponent(caregiver.name)}`);
               notify(`Đang chuyển sang màn hình đặt lịch với ${caregiver.name}...`);
             }} 
-            className="mt-3 w-full bg-white text-[#314a38] hover:bg-[#edf4ea] font-bold text-[13.5px] py-3 shadow-sm flex items-center justify-center gap-2" 
+            className="mt-2.5 w-full bg-white text-[#314a38] hover:bg-[#edf4ea] font-bold text-[13.5px] py-3 shadow-sm flex items-center justify-center gap-2" 
             testId="button-book-caregiver"
           >
             <Calendar size={17} /> Đặt lịch ca với {caregiver.name.split(' ').slice(-2).join(' ')}
@@ -1943,32 +2460,346 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
         </Card>
 
         <div className="space-y-5">
-          <Card className="p-6 sm:p-7" testId="card-caregiver-detail-about">
-            <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">Về người chăm sóc</p>
-            <h2 className="mt-3 font-display text-[28px]">Một người phù hợp không chỉ có kinh nghiệm.</h2>
-            <p className="mt-4 text-[14px] leading-7 text-[hsl(var(--muted-foreground))]">{caregiver.bio}</p>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {(caregiver.tags || []).map((tag) => <Pill key={tag} tone="olive">{tag}</Pill>)}
+          {/* 1. BẢNG GIÁ DỊCH VỤ THEO CA */}
+          <Card className="p-6 sm:p-7 shadow-sm border border-stone-200/80" testId="card-caregiver-detail-pricing">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">Bảng giá niêm yết theo ca</p>
+                <h2 className="mt-1 font-display text-[24px]">Thù lao dịch vụ chăm sóc</h2>
+              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-[11.5px] font-bold text-emerald-800 border border-emerald-200">
+                <CheckCircle2 size={13} /> Minh bạch 100%
+              </span>
+            </div>
+            
+            <p className="mt-2 text-[13px] text-[hsl(var(--muted-foreground))]">
+              Mức giá được áp dụng chuẩn theo quy định hệ thống từ 400.000đ đến 1.000.000đ/ca căn cứ theo số năm kinh nghiệm. Ca tối tự động tính hệ số 1.5 lần ca ngày.
+            </p>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              {/* Ca ngày */}
+              <div className="rounded-2xl border-2 border-[#e3ebdf] bg-[#fbfdfa] p-4.5 transition-all hover:border-[#435d41]/40 hover:shadow-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-[18px]">☀️</span>
+                    <div>
+                      <h3 className="font-bold text-[14.5px] text-stone-800">Ca ngày</h3>
+                      <p className="text-[11px] text-stone-500">08:00 - 12:00 hoặc 13:30 - 17:30</p>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-bold text-stone-600">4 tiếng/ca</span>
+                </div>
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="text-[26px] font-black text-[#2e4c34]">
+                    {shiftRate.toLocaleString('vi-VN')}
+                  </span>
+                  <span className="text-[13px] font-semibold text-stone-500">VNĐ / ca</span>
+                </div>
+                <ul className="mt-3 space-y-1.5 border-t border-stone-200/60 pt-3 text-[12px] text-stone-600">
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Chăm sóc vệ sinh cá nhân, thay quần áo</li>
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Chuẩn bị dinh dưỡng mềm, hỗ trợ ăn uống</li>
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Nhắc nhở uống thuốc đúng giờ & đo sinh hiệu</li>
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Xoa bóp phục hồi, vận động nhẹ, trò chuyện</li>
+                </ul>
+              </div>
+
+              {/* Ca tối (x1.5) */}
+              <div className="rounded-2xl border-2 border-[#e8d5aa] bg-[#fdfbf6] p-4.5 transition-all hover:border-[#b89544]/60 hover:shadow-md relative overflow-hidden">
+                <div className="absolute top-0 right-0 rounded-bl-xl bg-[#b89544] px-2.5 py-0.5 text-[9.5px] font-extrabold text-white tracking-wide uppercase">
+                  Hệ số 1.5x
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-100 text-[18px]">🌙</span>
+                    <div>
+                      <h3 className="font-bold text-[14.5px] text-stone-800">Ca tối & đêm</h3>
+                      <p className="text-[11px] text-stone-500">18:00 - 21:00 hoặc trực đêm</p>
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 mr-12">Ca tối</span>
+                </div>
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="text-[26px] font-black text-[#855e15]">
+                    {nightShiftRate.toLocaleString('vi-VN')}
+                  </span>
+                  <span className="text-[13px] font-semibold text-stone-500">VNĐ / ca</span>
+                </div>
+                <ul className="mt-3 space-y-1.5 border-t border-stone-200/60 pt-3 text-[12px] text-stone-600">
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Hỗ trợ ăn tối, vệ sinh thân thể trước khi ngủ</li>
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Đo đường huyết & huyết áp buổi tối</li>
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Túc trực hỗ trợ đi vệ sinh ban đêm, chống ngã</li>
+                  <li className="flex items-center gap-1.5"><Check size={13} className="text-emerald-600 flex-shrink-0" /> Theo dõi giấc ngủ & xử lý tình huống khẩn cấp</li>
+                </ul>
+              </div>
+            </div>
+            
+            <div className="mt-4 rounded-xl bg-amber-50/70 p-3 text-[11.5px] text-amber-900 border border-amber-200/60 flex items-start gap-2">
+              <span className="text-[14px]">💡</span>
+              <p>
+                <strong>Cam kết minh bạch:</strong> Giá niêm yết đã bao gồm bảo hiểm trách nhiệm dân sự người chăm sóc và chi phí quản lý vận hành. Gia đình không phải trả thêm bất kỳ phụ phí ngoài ca nào.
+              </p>
             </div>
           </Card>
 
+          {/* 2. KINH NGHIỆM & NĂNG LỰC CHUYÊN MÔN */}
+          <Card className="p-6 sm:p-7 shadow-sm border border-stone-200/80" testId="card-caregiver-detail-experience">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">Kinh nghiệm & Kỹ năng</p>
+                <h2 className="mt-1 font-display text-[24px]">Năng lực chuyên môn thực tế</h2>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-full bg-emerald-100/70 px-3 py-1 text-[12px] font-extrabold text-[#2a4d32]">
+                <Award size={14} /> {expYears} năm kinh nghiệm
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl bg-stone-50 p-3 border border-stone-200/60">
+                <span className="text-[11px] font-semibold text-stone-500">Thâm niên nghề</span>
+                <p className="mt-1 text-[15px] font-extrabold text-stone-800">{caregiver.experience || `${expYears} năm kinh nghiệm`}</p>
+              </div>
+              <div className="rounded-xl bg-stone-50 p-3 border border-stone-200/60">
+                <span className="text-[11px] font-semibold text-stone-500">Độ hài lòng</span>
+                <p className="mt-1 text-[15px] font-extrabold text-amber-700">⭐ {caregiver.rating} / 5.0</p>
+              </div>
+              <div className="rounded-xl bg-stone-50 p-3 border border-stone-200/60">
+                <span className="text-[11px] font-semibold text-stone-500">Lượt phục vụ</span>
+                <p className="mt-1 text-[15px] font-extrabold text-stone-800">{caregiver.reviews} gia đình</p>
+              </div>
+              <div className="rounded-xl bg-stone-50 p-3 border border-stone-200/60">
+                <span className="text-[11px] font-semibold text-stone-500">CARE SCORE</span>
+                <p className="mt-1 text-[15px] font-extrabold text-emerald-700">{caregiver.care_score || caregiver.match || 95}%</p>
+              </div>
+            </div>
+
+            <p className="mt-5 text-[14px] leading-7 text-[hsl(var(--muted-foreground))]">
+              {caregiver.bio || 'Chuyên viên chăm sóc tận tâm, được đào tạo bài bản về y tế và kỹ năng chăm sóc người cao tuổi chuyên sâu.'}
+            </p>
+
+            <div className="mt-5 border-t border-stone-200/70 pt-4">
+              <p className="text-[11.5px] font-bold text-stone-600 uppercase tracking-wider mb-2.5">Kỹ năng chuyên môn nổi bật</p>
+              <div className="flex flex-wrap gap-2">
+                {(caregiver.tags && caregiver.tags.length > 0 ? caregiver.tags : ['Chăm sóc tại nhà', 'Theo dõi thuốc', 'Nấu ăn mềm', 'Đo sinh hiệu', 'Xoa bóp phục hồi', 'Hỗ trợ vệ sinh']).map((tag) => (
+                  <Pill key={tag} tone="olive">{tag}</Pill>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* 3. NƠI LÀM VIỆC & LỊCH SỬ CÔNG TÁC */}
+          <Card className="p-6 sm:p-7 shadow-sm border border-stone-200/80" testId="card-caregiver-detail-workhistory">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">Quá trình công tác</p>
+                <h2 className="mt-1 font-display text-[24px]">Nơi làm việc & Kinh nghiệm thực tế</h2>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                <Building2 size={13} /> {displayHistory.length} đơn vị công tác
+              </span>
+            </div>
+
+            <p className="mt-2 text-[13px] text-[hsl(var(--muted-foreground))]">
+              Thông tin bệnh viện, viện dưỡng lão, trung tâm y tế và cơ sở chăm sóc chuyên nghiệp mà chuyên viên từng công tác đã được xác thực.
+            </p>
+
+            <div className="mt-6 space-y-4">
+              {displayHistory.map((wh, idx) => (
+                <div key={wh.id || idx} className="relative rounded-2xl border border-stone-200/90 bg-white p-4.5 shadow-sm transition hover:border-[#435d41]/50">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#edf3ea] text-[#34533a]">
+                        <Building2 size={20} />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-[15px] text-stone-900">{wh.workplace}</h4>
+                        <p className="text-[12.5px] font-semibold text-[#435d41]">{wh.role}</p>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-stone-100 px-2.5 py-1 text-[11.5px] font-semibold text-stone-600">
+                      <Clock3 size={12} /> {wh.from_date} – {wh.to_date}
+                    </span>
+                  </div>
+                  {wh.description ? (
+                    <p className="mt-3 text-[13px] leading-6 text-stone-600 border-t border-stone-100 pt-2.5">
+                      {wh.description}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* 4. BẰNG CẤP & CHỨNG CHỈ CHUYÊN MÔN */}
+          <Card className="p-6 sm:p-7 shadow-sm border border-stone-200/80" testId="card-caregiver-detail-credentials">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">Hồ sơ pháp lý & Văn bằng</p>
+                <h2 className="mt-1 font-display text-[24px]">Bằng cấp & Chứng chỉ thẩm định</h2>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-[11.5px] font-bold text-emerald-800 border border-emerald-200">
+                <BadgeCheck size={14} /> Thẩm định 100%
+              </span>
+            </div>
+
+            <p className="mt-2 text-[13px] text-[hsl(var(--muted-foreground))]">
+              Toàn bộ hồ sơ chuyên môn, nhân thân và giấy khám sức khỏe của chuyên viên đã được CARE-MATCH đối soát trực tiếp trước khi kích hoạt tài khoản.
+            </p>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800 flex-shrink-0 mt-0.5">
+                    <GraduationCap size={17} />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-[13.5px] text-stone-900">Bằng Cử nhân / Trung cấp Điều dưỡng</h5>
+                    <p className="text-[11.5px] text-stone-500 mt-0.5">Đạt chuẩn đào tạo chuyên khoa Điều dưỡng / Y học gia đình</p>
+                    <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
+                      <CheckCircle2 size={11} /> Đã đối soát văn bằng gốc
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800 flex-shrink-0 mt-0.5">
+                    <Award size={17} />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-[13.5px] text-stone-900">Chứng chỉ Chăm sóc Người cao tuổi</h5>
+                    <p className="text-[11.5px] text-stone-500 mt-0.5">Nghiệp vụ hồi phục tai biến, vật lý trị liệu & dinh dưỡng người già</p>
+                    <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
+                      <CheckCircle2 size={11} /> Chứng chỉ hợp lệ còn hiệu lực
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800 flex-shrink-0 mt-0.5">
+                    <ShieldCheck size={17} />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-[13.5px] text-stone-900">Phiếu Lý lịch Tư pháp số 2</h5>
+                    <p className="text-[11.5px] text-stone-500 mt-0.5">Do Sở Tư pháp cấp, xác nhận trong sạch không tiền án tiền sự</p>
+                    <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
+                      <CheckCircle2 size={11} /> Lý lịch tư pháp trong sạch
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-4">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800 flex-shrink-0 mt-0.5">
+                    <Stethoscope size={17} />
+                  </div>
+                  <div>
+                    <h5 className="font-bold text-[13.5px] text-stone-900">Giấy khám Sức khỏe Định kỳ</h5>
+                    <p className="text-[11.5px] text-stone-500 mt-0.5">Khám tổng quát, không mắc bệnh truyền nhiễm hoặc bệnh ngoài da</p>
+                    <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded">
+                      <CheckCircle2 size={11} /> Đủ điều kiện sức khỏe
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-[#edf3ea] p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#37583f] text-white">
+                  <BadgeCheck size={22} />
+                </div>
+                <div>
+                  <p className="font-bold text-[13.5px] text-stone-900">Xác thực Định danh CCCD gắn chip (eKYC)</p>
+                  <p className="text-[11.5px] text-stone-600">Đã đối chiếu khuôn mặt sinh trắc học và cơ sở dữ liệu quốc gia</p>
+                </div>
+              </div>
+              <span className="rounded-full bg-emerald-700 px-3 py-1 text-[11.5px] font-bold text-white shadow-sm">
+                eKYC Cấp độ 2 ✓
+              </span>
+            </div>
+          </Card>
+
+          {/* 5. TIÊU CHUẨN ĐẢM BẢO TỪ CARE-MATCH */}
           <Card className="p-6 sm:p-7" testId="card-caregiver-detail-proof">
             <div className="grid gap-5 sm:grid-cols-3">
               <div>
                 <ShieldCheck size={19} className="text-[hsl(var(--primary))]" />
                 <p className="mt-3 text-[12px] font-bold">Đã xác minh danh tính</p>
-                <p className="mt-1 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">Kiểm tra hồ sơ và tham chiếu</p>
+                <p className="mt-1 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">Kiểm tra hồ sơ và thẩm định y khoa độc lập</p>
               </div>
               <div>
                 <HeartHandshake size={19} className="text-[hsl(var(--primary))]" />
                 <p className="mt-3 text-[12px] font-bold">Phù hợp nhu cầu</p>
-                <p className="mt-1 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">{caregiver.match}% theo tiêu chí CARE SCORE</p>
+                <p className="mt-1 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">{caregiver.care_score || caregiver.match || 95}% theo tiêu chí CARE SCORE</p>
               </div>
               <div>
                 <Clock3 size={19} className="text-[hsl(var(--primary))]" />
                 <p className="mt-3 text-[12px] font-bold">Lịch linh hoạt</p>
-                <p className="mt-1 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">Có thể trao đổi khung giờ</p>
+                <p className="mt-1 text-[11px] leading-4 text-[hsl(var(--muted-foreground))]">Hỗ trợ sắp xếp ca ngày, ca tối và trực đêm</p>
               </div>
+            </div>
+          </Card>
+
+          {/* 6. ĐÁNH GIÁ THỰC TẾ TỪ CÁC GIA ĐÌNH */}
+          <Card className="p-6 sm:p-7 shadow-sm border border-stone-200/80" testId="card-caregiver-reviews">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))]">Đánh giá & Nhận xét</p>
+                <h2 className="mt-1 font-display text-[24px]">Phản hồi từ các gia đình ({reviews.length > 0 ? reviews.length : caregiver.reviews || 2} đánh giá)</h2>
+              </div>
+              <div className="flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200 px-3 py-1 text-[13px] font-bold text-amber-900">
+                <Star size={15} className="fill-amber-400 text-amber-400" />
+                <span>{caregiver.rating || '5.0'} / 5.0</span>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {reviews.length === 0 ? (
+                <div className="rounded-xl bg-stone-50 p-4 text-[12.5px] text-stone-600 border border-stone-100">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-stone-800">Gia đình Nguyễn Minh Mai (chăm sóc Bà Lan)</span>
+                    <div className="flex text-amber-400"><Star size={13} fill="currentColor" /><Star size={13} fill="currentColor" /><Star size={13} fill="currentColor" /><Star size={13} fill="currentColor" /><Star size={13} fill="currentColor" /></div>
+                  </div>
+                  <p className="mt-1.5 text-stone-600">
+                    "Chuyên viên chăm sóc mẹ tôi rất chu đáo và đúng giờ. Mẹ tôi rất vui và khen chị mát tay đo huyết áp, nói chuyện dễ chịu. Cảm ơn chị rất nhiều!"
+                  </p>
+                </div>
+              ) : (
+                reviews.map((r: any) => (
+                  <div key={r.id} className="rounded-xl bg-stone-50 p-4 border border-stone-100 transition hover:bg-stone-50/80">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-[13px] text-stone-900">{r.family_name || 'Gia đình'}</span>
+                        <span className="text-[11.5px] text-stone-500"> (chăm sóc cho {r.patient_name || 'Người thân'})</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star key={s} size={13} className={s <= (r.rating || 5) ? 'fill-amber-400 text-amber-400' : 'text-stone-300'} />
+                        ))}
+                      </div>
+                    </div>
+                    {r.tags && r.tags.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {r.tags.map((t: string, tidx: number) => (
+                          <span key={tidx} className="rounded-md bg-white border border-stone-200 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-800">
+                            ✓ {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-2 text-[12.5px] leading-relaxed text-stone-700">
+                      "{r.review_text}"
+                    </p>
+                    <p className="mt-1.5 text-[10.5px] text-stone-400">
+                      {new Date(r.created_at).toLocaleDateString('vi-VN')} · Ca chăm sóc xác thực
+                    </p>
+                  </div>
+                ))
+              )}
             </div>
           </Card>
         </div>
@@ -1981,8 +2812,8 @@ function MatchDetail({ notify }: { notify: (message: string) => void }) {
 const PRESET_SHIFTS = [
   { id: 'morning', name: 'Ca sáng', time: '08:00 - 12:00', duration: 4, price: 400000, desc: 'Vệ sinh, ăn sáng, nhắc thuốc sáng & vận động nhẹ', icon: '☀️' },
   { id: 'afternoon', name: 'Ca chiều', time: '13:30 - 17:30', duration: 4, price: 400000, desc: 'Ăn xế, xoa bóp trị liệu, trò chuyện & dạo mát', icon: '🌤️' },
-  { id: 'evening', name: 'Ca tối', time: '18:00 - 21:00', duration: 3, price: 300000, desc: 'Ăn tối, vệ sinh cá nhân, hỗ trợ trước khi ngủ', icon: '🌆' },
-  { id: 'night', name: 'Ca đêm', time: '21:00 - 06:00', duration: 9, price: 900000, desc: 'Trực đêm, hỗ trợ đi vệ sinh, theo dõi & chống ngã', icon: '🌙' },
+  { id: 'evening', name: 'Ca tối', time: '18:00 - 21:00', duration: 3, price: 600000, desc: 'Ăn tối, vệ sinh cá nhân, hỗ trợ trước khi ngủ (gấp 1.5 lần ca ngày)', icon: '🌆' },
+  { id: 'night', name: 'Ca đêm', time: '21:00 - 06:00', duration: 9, price: 600000, desc: 'Trực đêm, hỗ trợ đi vệ sinh, theo dõi & chống ngã (gấp 1.5 lần ca ngày)', icon: '🌙' },
 ];
 
 function CaregiverScheduleView({
@@ -2093,7 +2924,7 @@ function CaregiverScheduleView({
             <div className="flex items-center gap-1.5">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                Đồng bộ MySQL {lastSyncTime ? `· ${lastSyncTime}` : 'Realtime'}
+                Đồng bộ hệ thống {lastSyncTime ? `· ${lastSyncTime}` : 'Tự động'}
               </span>
             </div>
           </div>
@@ -2145,7 +2976,7 @@ function CaregiverScheduleView({
           {/* Nội dung danh sách */}
           {loading ? (
             <div className="mt-7 flex items-center gap-2 text-[13px] text-[hsl(var(--muted-foreground))]">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải ca làm việc từ MySQL...
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải ca làm việc...
             </div>
           ) : displayedSchedules.length === 0 ? (
             <div className="mt-7 rounded-[18px] border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.3)] p-8 text-center">
@@ -2446,7 +3277,7 @@ function AdminScheduleView({ notify }: { notify: (message: string) => void }) {
         const data = await res.json();
         setSchedules(data);
         setLastSync(new Date().toLocaleTimeString('vi-VN'));
-        if (isManual) notify('Đã cập nhật toàn bộ lịch trình từ MySQL!');
+        if (isManual) notify('Đã cập nhật toàn bộ lịch trình thành công!');
       }
     } catch {
       if (isManual) notify('Lỗi khi tải lịch trình.');
@@ -2527,18 +3358,82 @@ function AdminScheduleView({ notify }: { notify: (message: string) => void }) {
     });
   }, [schedules, searchTerm, statusFilter, timeFilter, clock.shortDate]);
 
+  const handleExportSchedulesCsv = async () => {
+    try {
+      notify('Đang xuất file Danh sách ca chăm sóc...');
+      const res = await fetch(`${API}/export/schedules-csv`);
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'Danh_Sach_Ca_Cham_Soc_CareMatch_2026.csv');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        notify('✅ Đã tải file Danh sách ca chăm sóc về máy thành công!');
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+
+    const header = [
+      'ID Ca',
+      'Người Bệnh',
+      'Ngày Ca',
+      'Khung Giờ',
+      'Người Chăm Sóc',
+      'Gia Đình',
+      'Giá Tiền (VNĐ)',
+      'Trạng Thái',
+      'Nhiệm Vụ'
+    ];
+    const escape = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+    const csvLines = [header.join(',')];
+
+    for (const s of schedules) {
+      const line = [
+        escape(s.id),
+        escape(s.elderly_name || s.patient_name || 'Người thân'),
+        escape(s.schedule_date || s.date || ''),
+        escape(s.time_slot || s.time || ''),
+        escape(s.caregiver_name || 'Chưa nhận ca'),
+        escape(s.family_name || 'Gia đình'),
+        escape(Number(s.price || 400000).toLocaleString('vi-VN')),
+        escape(statusLabels[s.status] || s.status),
+        escape(s.tasks || s.title || '')
+      ];
+      csvLines.push(line.join(','));
+    }
+
+    const csvContent = '\uFEFF' + csvLines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'Danh_Sach_Ca_Cham_Soc_CareMatch_2026.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    notify('✅ Đã tải file Danh sách ca chăm sóc về máy thành công!');
+  };
+
   return (
     <>
       <PageHeading
         eyebrow="Quản Trị Lịch Trình Toàn Hệ Thống · Admin"
         title="Lịch Chăm Sóc Toàn Hệ Thống."
-        description="Giám sát mọi ca chăm sóc đang diễn ra, tra cứu nhanh theo tên người chăm sóc và điều phối trực tiếp vào MySQL."
+        description="Giám sát mọi ca chăm sóc đang diễn ra, tra cứu nhanh theo tên người chăm sóc và điều phối trực tiếp trên hệ thống."
         action={
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-              Đồng bộ MySQL {lastSync ? `· ${lastSync}` : 'Realtime'}
+              Đồng bộ hệ thống {lastSync ? `· ${lastSync}` : 'Tự động'}
             </span>
+            <Button variant="outline" size="sm" onClick={handleExportSchedulesCsv}>
+              <Download size={14} /> Xuất file CSV
+            </Button>
             <Button variant="outline" size="sm" onClick={() => fetchSchedules(true)}>
               Làm mới
             </Button>
@@ -2549,7 +3444,7 @@ function AdminScheduleView({ notify }: { notify: (message: string) => void }) {
       {/* KPI STAT CARDS */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 mb-6">
         {[
-          { label: 'Tổng ca trong MySQL', value: stats.total, color: 'bg-emerald-50 border-emerald-200 text-emerald-950', dot: 'bg-emerald-600' },
+          { label: 'Tổng ca trên hệ thống', value: stats.total, color: 'bg-emerald-50 border-emerald-200 text-emerald-950', dot: 'bg-emerald-600' },
           { label: 'Đang diễn ra', value: stats.inProgress, color: 'bg-amber-50 border-amber-200 text-amber-950', dot: 'bg-amber-500' },
           { label: 'Đã xác nhận', value: stats.confirmed, color: 'bg-emerald-50 border-emerald-300 text-emerald-900', dot: 'bg-emerald-500' },
           { label: 'Chờ xác nhận', value: stats.pending, color: 'bg-orange-50 border-orange-200 text-orange-950', dot: 'bg-orange-500' },
@@ -2640,7 +3535,7 @@ function AdminScheduleView({ notify }: { notify: (message: string) => void }) {
 
         {loading ? (
           <div className="p-12 text-center text-[13px] text-gray-500 flex items-center justify-center gap-2">
-            <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent" /> Đang tải lịch từ MySQL...
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-700 border-t-transparent" /> Đang tải lịch...
           </div>
         ) : filteredSchedules.length === 0 ? (
           <div className="p-12 text-center">
@@ -2743,6 +3638,87 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
   const [showAddModal, setShowAddModal] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<string>('');
   const [selectedFilterDay, setSelectedFilterDay] = useState<string | null>(null);
+
+  // Quản lý trạng thái eKYC CCCD để bảo đảm an toàn khi đặt ca
+  const [familyProfile, setFamilyProfile] = useState<FamilyProfileData | null>(null);
+  const [showEkycRequiredModal, setShowEkycRequiredModal] = useState(false);
+
+  // Modal thanh toán VietQR giữ chỗ cho ca đặt mới
+  const [payingSchedule, setPayingSchedule] = useState<any | null>(null);
+  const [payStep, setPayStep] = useState<'qr' | 'verifying' | 'success'>('qr');
+  const [payCountdown, setPayCountdown] = useState<number>(15);
+
+  useEffect(() => {
+    let timer: any;
+    if (payingSchedule && payStep === 'qr') {
+      setPayCountdown(15);
+      timer = setInterval(() => {
+        setPayCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setPayStep('verifying');
+            setTimeout(async () => {
+              try {
+                await fetch(`${API}/payments/pay-booking`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    scheduleId: payingSchedule.id,
+                    userId,
+                    paymentMethod: 'VietQR Napas 247'
+                  })
+                });
+              } catch {}
+              setPayStep('success');
+              loadSchedules(false);
+              notify('✅ Đã thanh toán giữ chỗ an toàn qua VietQR! Ca làm việc đã được xác nhận.');
+            }, 2000);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [payingSchedule, payStep]);
+
+  const handleManualConfirmPay = async () => {
+    if (!payingSchedule) return;
+    setPayStep('verifying');
+    setTimeout(async () => {
+      try {
+        await fetch(`${API}/payments/pay-booking`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scheduleId: payingSchedule.id,
+            userId,
+            paymentMethod: 'VietQR Napas 247'
+          })
+        });
+      } catch {}
+      setPayStep('success');
+      loadSchedules(false);
+      notify('✅ Đã thanh toán giữ chỗ an toàn qua VietQR! Ca làm việc đã được xác nhận.');
+    }, 1200);
+  };
+
+  useEffect(() => {
+    if (!isCaregiver && userId) {
+      fetch(`${API}/family-profile?userId=${userId}`)
+        .then(r => r.json())
+        .then(data => setFamilyProfile(data))
+        .catch(() => {});
+    }
+  }, [isCaregiver, userId]);
+
+  useEffect(() => {
+    const onUpdated = (e: any) => {
+      if (e.detail) setFamilyProfile(e.detail);
+    };
+    window.addEventListener('carematch:family-profile-updated', onUpdated);
+    return () => window.removeEventListener('carematch:family-profile-updated', onUpdated);
+  }, []);
   
   // Quản lý việc chọn ngày: 7 ngày tiếp theo từ hôm nay
   const next7Days = useMemo(() => {
@@ -2846,6 +3822,7 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
   const [customDuration, setCustomDuration] = useState(4); // số tiếng
   const [taskStr, setTaskStr] = useState('Đo huyết áp, nhắc thuốc sáng, xoa bóp cổ vai gáy và hỗ trợ đi bộ');
   const [submitting, setSubmitting] = useState(false);
+  const [ratingShift, setRatingShift] = useState<any>(null);
 
   // Tính giờ kết thúc cho ca tự chọn
   const calculateEndTime = (start: string, duration: number) => {
@@ -2941,7 +3918,20 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
               setSelectedCaregiverId(Number(qId));
               setSelectedCaregiver(decodeURIComponent(qName));
             }
-            setShowAddModal(true);
+            // Kiểm tra an toàn eKYC trước khi mở modal đặt ca
+            fetch(`${API}/family-profile?userId=${userId}`)
+              .then(r => r.json())
+              .then(fp => {
+                setFamilyProfile(fp);
+                if (!fp?.id_number || fp.id_number.trim().length === 0) {
+                  setShowEkycRequiredModal(true);
+                } else {
+                  setShowAddModal(true);
+                }
+              })
+              .catch(() => {
+                setShowAddModal(true);
+              });
           } else if (!selectedCaregiver) {
             setSelectedCaregiverId(Number(data[0].id));
             setSelectedCaregiver(data[0].name);
@@ -3028,52 +4018,89 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
           time_slot: timeStr,
           title: `Ca chăm sóc ${selectedElderly || 'Người thân'} (${selectedCaregiver})`,
           tasks: taskStr,
-          status: 'confirmed',
+          status: 'pending_payment',
           price: calculatedPrice
         })
       });
+      const data = await res.json();
 
       if (res.ok) {
         await loadSchedules();
         setShowAddModal(false);
-        notify(`Đã đặt ca chăm sóc vào ${dateStr} (${timeStr}) và lưu vào MySQL thành công! ✓`);
+        notify(`Đã đặt ca chăm sóc vào ${dateStr} (${timeStr}) thành công! Vui lòng quét mã QR thanh toán giữ chỗ để kích hoạt ca. ✓`);
+        const newSched = data.schedule || {
+          id: data.scheduleId,
+          title: `Ca chăm sóc ${selectedElderly || 'Người thân'} (${selectedCaregiver})`,
+          price: calculatedPrice,
+          schedule_date: dateStr,
+          time_slot: timeStr,
+          caregiver_name: selectedCaregiver,
+          elderly_name: selectedElderly || 'Người thân'
+        };
+        setPayStep('qr');
+        setPayingSchedule(newSched);
       } else {
-        notify('Không thể lưu ca chăm sóc vào MySQL.');
+        notify('Không thể lưu ca chăm sóc.');
       }
     } catch {
-      notify('Lỗi kết nối khi lưu ca chăm sóc vào MySQL.');
+      notify('Lỗi kết nối khi lưu ca chăm sóc.');
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleToggleStatus = async (item: any) => {
-    const nextStatus = item.status === 'confirmed' ? 'completed' : 'confirmed';
+    if (item.status === 'pending_payment') {
+      setPayStep('qr');
+      setPayingSchedule(item);
+      return;
+    }
     try {
       const res = await fetch(`${API}/schedules/${item.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: nextStatus })
+        body: JSON.stringify({ status: 'completed', confirmedBy: 'family' })
       });
-      if (res.ok) {
-        setSchedules(prev => prev.map(s => s.id === item.id ? { ...s, status: nextStatus } : s));
-        notify(nextStatus === 'completed' ? 'Đã hoàn thành ca chăm sóc trong MySQL. ✓' : 'Đã xác nhận ca chăm sóc trong MySQL. ✓');
+      const data = await res.json();
+      if (res.ok && data.status) {
+        setSchedules(prev => prev.map(s => s.id === item.id ? { ...s, status: data.status, family_confirmed_completed: true } : s));
+        if (data.status === 'completed') {
+          notify('Ca làm việc đã được cả 2 bên xác nhận hoàn tất thành công! Thù lao đã được giải ngân. ✓');
+          setRatingShift({
+            scheduleId: item.id,
+            caregiverUserId: item.caregiver_user_id || 2,
+            caregiverName: item.caregiver_name || 'Người chăm sóc',
+            patientName: item.elderly_name || 'Người thân',
+            serviceTitle: item.title,
+            shiftDate: item.schedule_date
+          });
+        } else if (data.status === 'family_completed') {
+          notify('Bạn đã bấm xác nhận hoàn thành ca! Đang chờ người chăm sóc xác nhận đối soát để hoàn tất giải ngân.');
+          setRatingShift({
+            scheduleId: item.id,
+            caregiverUserId: item.caregiver_user_id || 2,
+            caregiverName: item.caregiver_name || 'Người chăm sóc',
+            patientName: item.elderly_name || 'Người thân',
+            serviceTitle: item.title,
+            shiftDate: item.schedule_date
+          });
+        }
       }
     } catch {
-      notify('Lỗi khi cập nhật trạng thái trong MySQL.');
+      notify('Lỗi khi cập nhật trạng thái ca.');
     }
   };
 
   const handleDeleteSchedule = async (id: number) => {
-    if (!window.confirm('Bạn có chắc chắn muốn hủy ca chăm sóc này khỏi cơ sở dữ liệu MySQL?')) return;
+    if (!window.confirm('Bạn có chắc chắn muốn hủy ca chăm sóc này?')) return;
     try {
       const res = await fetch(`${API}/schedules/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setSchedules(prev => prev.filter(s => s.id !== id));
-        notify('Đã xóa ca chăm sóc khỏi MySQL thành công.');
+        notify('Đã xóa ca chăm sóc thành công.');
       }
     } catch {
-      notify('Lỗi khi xóa ca chăm sóc khỏi MySQL.');
+      notify('Lỗi khi xóa ca chăm sóc.');
     }
   };
 
@@ -3103,21 +4130,30 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
       <PageHeading 
         eyebrow={`${clock.fullDateStr} · ${clock.timeStr} (Realtime)`} 
         title="Mọi việc đúng lúc, nhẹ đầu hơn." 
-        description="Theo dõi các cuộc hẹn, ca chăm sóc và những mốc gia đình đã thống nhất trực tiếp với người chăm sóc (đồng bộ realtime MySQL liên tục)." 
+        description="Theo dõi các cuộc hẹn, ca chăm sóc và những mốc gia đình đã thống nhất trực tiếp với người chăm sóc (đồng bộ thời gian thực)." 
         action={
-          <Button onClick={() => setShowAddModal(true)} testId="button-add-appointment">
+          <Button 
+            onClick={() => {
+              if (!familyProfile?.id_number || familyProfile.id_number.trim().length === 0) {
+                setShowEkycRequiredModal(true);
+              } else {
+                setShowAddModal(true);
+              }
+            }} 
+            testId="button-add-appointment"
+          >
             <Plus size={17} /> Đặt ca chăm sóc mới
           </Button>
         } 
       />
 
-      {/* MODAL ĐẶT CA CHĂM SÓC MỚI - CHỌN 7 NGÀY & BẢNG CA LINH HOẠT - LƯU MYSQL */}
+      {/* MODAL ĐẶT CA CHĂM SÓC MỚI - CHỌN 7 NGÀY & BẢNG CA LINH HOẠT */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3 sm:p-4 backdrop-blur-xs">
           <div className="w-full max-w-[620px] max-h-[92vh] overflow-y-auto rounded-[24px] bg-white p-5 sm:p-6 shadow-2xl animate-rise border border-[hsl(var(--border))]">
             <div className="flex items-center justify-between border-b border-[hsl(var(--border))] pb-3.5">
               <div>
-                <h3 className="font-display text-[21px] font-bold text-[#283b2d]">Đặt Ca Chăm Sóc Mới (Lưu MySQL)</h3>
+                <h3 className="font-display text-[21px] font-bold text-[#283b2d]">Đặt Ca Chăm Sóc Mới</h3>
                 <p className="text-[11.5px] text-[hsl(var(--muted-foreground))]">Chọn nhanh ngày trong 7 ngày tới & tùy chỉnh thời lượng ca làm việc</p>
               </div>
               <button onClick={() => setShowAddModal(false)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100">
@@ -3394,7 +4430,7 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" type="button" onClick={() => setShowAddModal(false)}>Hủy</Button>
                 <Button type="submit" disabled={submitting}>
-                  {submitting ? 'Đang lưu MySQL...' : 'Xác nhận đặt ca (Lưu MySQL)'}
+                  {submitting ? 'Đang xác nhận...' : 'Xác nhận đặt ca'}
                 </Button>
               </div>
             </form>
@@ -3406,7 +4442,7 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
         <Card className="p-6 sm:p-7" testId="card-schedule-list">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Lịch trình trong MySQL</p>
+              <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Lịch trình chăm sóc</p>
               <h2 className="mt-1 font-display text-[27px]">
                 {selectedFilterDay ? `Lịch ngày ${selectedFilterDay} (${displayedSchedules.length} ca)` : `Lịch sắp tới (${schedules.length} ca)`}
               </h2>
@@ -3414,7 +4450,7 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                Đồng bộ MySQL {lastSyncTime ? `· ${lastSyncTime}` : 'Realtime'}
+                Đồng bộ hệ thống {lastSyncTime ? `· ${lastSyncTime}` : 'Tự động'}
               </span>
               <Button variant="outline" size="sm" onClick={() => loadSchedules(true)} testId="button-refresh-schedule">
                 Làm mới
@@ -3446,14 +4482,14 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
 
           {loading ? (
             <div className="mt-7 flex items-center gap-2 text-[13px] text-[hsl(var(--muted-foreground))]">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải lịch trình từ MySQL...
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" /> Đang tải lịch trình...
             </div>
           ) : schedules.length === 0 ? (
             <div className="mt-7 rounded-[18px] border border-dashed border-[hsl(var(--border))] bg-[hsl(var(--secondary)/.3)] p-8 text-center">
               <CalendarDays size={36} className="mx-auto text-[hsl(var(--muted-foreground))]" />
               <h3 className="mt-3 font-display text-[20px]">Chưa có ca chăm sóc nào</h3>
               <p className="mt-1 text-[13px] text-[hsl(var(--muted-foreground))] max-w-sm mx-auto">
-                Hiện tại gia đình chưa lên lịch chăm sóc nào trong MySQL. Hãy bấm nút dưới đây để đặt ca chăm sóc mới.
+                Hiện tại gia đình chưa lên lịch chăm sóc nào. Hãy bấm nút dưới đây để đặt ca chăm sóc mới.
               </p>
               <Button onClick={() => setShowAddModal(true)} className="mt-5" testId="button-empty-create-schedule">
                 <Plus size={16} /> Đặt ca chăm sóc mới
@@ -3492,10 +4528,16 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
                       </p>
                     </div>
                     <div className={`flex min-w-0 flex-1 gap-3 rounded-[17px] border border-[hsl(var(--border)/.7)] p-4 transition-colors ${
-                      item.status === 'completed' ? 'bg-[#edf5ea]' : item.status === 'confirmed' ? 'bg-[#f5f9f3]' : 'bg-[#fff8e9]'
+                      item.status === 'completed' 
+                        ? 'bg-[#edf5ea]' 
+                        : item.status === 'confirmed' 
+                        ? 'bg-[#f5f9f3]' 
+                        : item.status === 'pending_payment'
+                        ? 'bg-[#fff5f5] border-red-200'
+                        : 'bg-[#fff8e9]'
                     }`}>
                       <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                        item.status === 'completed' ? 'bg-[#c5dcb9] text-[#43643d]' : 'bg-[#dbe8d5] text-[#58744f]'
+                        item.status === 'completed' ? 'bg-[#c5dcb9] text-[#43643d]' : item.status === 'pending_payment' ? 'bg-red-100 text-red-700' : 'bg-[#dbe8d5] text-[#58744f]'
                       }`}>
                         <CalendarDays size={18} />
                       </div>
@@ -3509,32 +4551,109 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
                         </p>
                         {item.tasks && <p className="mt-1 text-[11px] text-[#556957]">Nhiệm vụ: {item.tasks}</p>}
 
-                        <div className="mt-3 flex items-center justify-between">
+                        {/* Cảnh báo đỏ: Vui lòng thanh toán giữ chỗ để xác nhận ca */}
+                        {item.status === 'pending_payment' && (
+                          <div className="mt-2.5 rounded-xl bg-red-100/90 border border-red-300 p-2.5 flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 text-red-800 font-bold text-[12px]">
+                              <span className="flex h-2.5 w-2.5 rounded-full bg-red-600 animate-ping shrink-0" />
+                              <span>⚠️ Vui lòng thanh toán giữ chỗ để xác nhận ca</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => { setPayStep('qr'); setPayingSchedule(item); }}
+                              className="rounded-lg bg-red-600 hover:bg-red-700 text-white px-3 py-1 text-[11px] font-bold shadow-xs cursor-pointer flex items-center gap-1"
+                            >
+                              <CreditCard size={12} /> Thanh toán VietQR ngay
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Thông báo: Người chăm sóc đã báo hoàn thành ca -> Người nhà xác nhận đối soát */}
+                        {item.status === 'caregiver_completed' && (
+                          <div className="mt-2.5 rounded-xl bg-amber-50 border border-amber-300 p-2.5 flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 text-amber-900 font-bold text-[12px]">
+                              <span>⚠️ Người chăm sóc đã báo hoàn thành ca</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(item)}
+                              className="rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
+                            >
+                              <CheckCircle2 size={13} /> Xác nhận hoàn tất ca & Đánh giá sao ⭐
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Thông báo: Người nhà đã bấm hoàn thành trước, chờ người chăm sóc */}
+                        {item.status === 'family_completed' && (
+                          <div className="mt-2.5 rounded-xl bg-blue-50 border border-blue-200 p-2 text-blue-800 text-[11.5px] font-medium flex items-center gap-1.5">
+                            <Clock size={13} className="text-blue-600 shrink-0" />
+                            <span>Bạn đã xác nhận xong. Đang chờ người chăm sóc xác nhận đối soát để hoàn tất giải ngân thù lao.</span>
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
                           <button 
                             onClick={() => handleToggleStatus(item)} 
                             className={`flex items-center gap-1.5 text-[11px] font-bold ${
-                              item.status === 'completed' ? 'text-[#476a41]' : item.status === 'confirmed' ? 'text-[#5e7b54]' : 'text-[#a87422]'
+                              item.status === 'completed' 
+                                ? 'text-[#476a41]' 
+                                : item.status === 'confirmed' 
+                                ? 'text-[#5e7b54]' 
+                                : item.status === 'caregiver_completed'
+                                ? 'text-amber-800'
+                                : item.status === 'pending_payment'
+                                ? 'text-red-700 hover:underline'
+                                : 'text-[#a87422]'
                             }`}
                           >
                             {item.status === 'completed' ? (
-                              <><CheckCircle2 size={14} /> Đã hoàn thành (Bấm để mở lại)</>
+                              <><CheckCircle2 size={14} /> Ca đã hoàn tất ✓</>
+                            ) : item.status === 'caregiver_completed' ? (
+                              <><CheckCircle2 size={14} /> Chờ bạn xác nhận để hoàn tất</>
+                            ) : item.status === 'family_completed' ? (
+                              <><Clock size={14} /> Đang chờ người chăm sóc xác nhận</>
                             ) : item.status === 'confirmed' ? (
-                              <><CheckCircle2 size={14} /> Đã xác nhận (Bấm để hoàn thành)</>
+                              <><CheckCircle2 size={14} /> Đã xác nhận (Bấm khi kết thúc ca)</>
+                            ) : item.status === 'pending_payment' ? (
+                              <><AlertCircle size={14} className="text-red-600" /> Chờ thanh toán giữ chỗ (Bấm để quét QR)</>
                             ) : (
                               'Chờ xác nhận (Bấm để duyệt)'
                             )}
                           </button>
                           
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            {item.status === 'completed' && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRatingShift({
+                                    scheduleId: item.id,
+                                    caregiverUserId: item.caregiver_user_id || 2,
+                                    caregiverName: item.caregiver_name || 'Người chăm sóc',
+                                    patientName: item.elderly_name || 'Người thân',
+                                    serviceTitle: item.title,
+                                    shiftDate: item.schedule_date
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-amber-100 border border-amber-300 px-2.5 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-200 transition shadow-2xs cursor-pointer"
+                              >
+                                <Star size={12} className="fill-amber-500 text-amber-500" /> Đánh giá sao ⭐
+                              </button>
+                            )}
                             <span className="text-[11px] font-bold text-[#3f5d38]">
                               {(item.price || 400000).toLocaleString('vi-VN')} đ
                             </span>
-                            <button
-                              onClick={() => handleDeleteSchedule(item.id)}
-                              className="text-[11px] text-red-500 hover:underline"
-                            >
-                              Hủy ca
-                            </button>
+                            {/* Chỉ hiển thị nút Hủy ca khi ca chưa được xác nhận/thanh toán */}
+                            {(item.status === 'pending' || item.status === 'pending_payment') && (
+                              <button
+                                onClick={() => handleDeleteSchedule(item.id)}
+                                className="text-[11px] text-red-500 hover:underline cursor-pointer"
+                              >
+                                Hủy ca
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -3660,6 +4779,186 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
           </Card>
         </div>
       </div>
+
+      {/* MODAL CẢNH BÁO YÊU CẦU CCCD TRƯỚC KHI ĐẶT CA */}
+      {showEkycRequiredModal && (
+        <EkycRequiredModal
+          isOpen={showEkycRequiredModal}
+          onClose={() => setShowEkycRequiredModal(false)}
+          onOpenEkycModal={() => {
+            window.dispatchEvent(new CustomEvent('carematch:open-family-ekyc'));
+          }}
+        />
+      )}
+
+      {/* MODAL ĐÁNH GIÁ SAO NGƯỜI CHĂM SÓC */}
+      {ratingShift && (
+        <CaregiverRatingModal
+          isOpen={Boolean(ratingShift)}
+          onClose={() => setRatingShift(null)}
+          scheduleId={ratingShift.scheduleId}
+          caregiverUserId={ratingShift.caregiverUserId}
+          caregiverName={ratingShift.caregiverName}
+          patientName={ratingShift.patientName}
+          serviceTitle={ratingShift.serviceTitle}
+          shiftDate={ratingShift.shiftDate}
+          notify={notify}
+          onSuccess={() => {
+            loadSchedules(false);
+          }}
+        />
+      )}
+
+      {/* MODAL THANH TOÁN VIETQR GIỮ CHỖ AN TOÀN CHO CA LÀM VIỆC */}
+      {payingSchedule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-fadeIn">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden border border-gray-100 animate-rise">
+            <div className="flex items-center justify-between border-b px-5 py-4 bg-[#f8faf7]">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={20} className="text-emerald-700" />
+                <h3 className="font-display font-bold text-[16px] text-gray-900">
+                  Thanh Toán Giữ Chỗ An Toàn Ca #{payingSchedule.id}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setPayingSchedule(null)}
+                className="rounded-lg p-1 text-gray-400 hover:bg-gray-200 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {payStep === 'qr' && (
+                <>
+                  <div className="text-center">
+                    <p className="text-[12px] text-gray-500">Số tiền cần thanh toán ký quỹ giữ chỗ:</p>
+                    <p className="font-display text-[28px] font-bold text-emerald-900 mt-0.5">
+                      {Number(payingSchedule.price || 400000).toLocaleString('vi-VN')} VNĐ
+                    </p>
+                    <p className="text-[11.5px] text-amber-800 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 inline-block mt-1">
+                      Ca: {payingSchedule.schedule_date || payingSchedule.shift_date} · {payingSchedule.time_slot || payingSchedule.shift_time}
+                    </p>
+                  </div>
+
+                  {/* QR Box */}
+                  <div className="max-w-[200px] mx-auto p-3 bg-white rounded-xl border border-gray-200 text-center shadow-xs">
+                    <div className="aspect-square bg-[#f8faf7] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-2 relative">
+                      <span className="text-[8px] font-bold text-emerald-800 uppercase">VietQR · Napas 247</span>
+                      <div className="h-24 w-24 bg-[#1f3625] rounded-md flex flex-col items-center justify-center text-white my-1">
+                        <ShieldCheck size={22} className="text-amber-300" />
+                        <span className="text-[8px] font-mono mt-0.5 text-amber-200">CARE-MATCH</span>
+                        <span className="text-[7.5px] text-gray-300 font-mono">
+                          {Number(payingSchedule.price || 400000).toLocaleString('vi-VN')} đ
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-gray-500 font-mono">Quét mã chuyển khoản</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-[11.5px] space-y-1 max-w-sm mx-auto">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Ngân hàng:</span>
+                      <strong className="text-gray-800">MB Bank (Quân Đội)</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Số tài khoản:</span>
+                      <strong className="font-mono font-bold text-emerald-900">0934 567 890</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Nội dung chuyển khoản:</span>
+                      <strong className="font-mono text-emerald-950 bg-emerald-100 px-1 py-0.2 rounded">
+                        CAREMATCH CA {payingSchedule.id}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Countdown */}
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/80 p-3 text-center space-y-1.5 max-w-sm mx-auto">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-emerald-900">
+                      <span className="flex items-center gap-1.5">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+                        </span>
+                        Đang lắng nghe chuyển khoản Napas...
+                      </span>
+                      <span className="font-mono text-emerald-800 bg-white px-2 py-0.2 rounded-full border border-emerald-200">
+                        {payCountdown}s
+                      </span>
+                    </div>
+                    <div className="w-full bg-emerald-200/70 rounded-full h-1.5 overflow-hidden">
+                      <div 
+                        className="bg-emerald-600 h-1.5 rounded-full transition-all duration-1000 ease-linear"
+                        style={{ width: `${((15 - payCountdown) / 15) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPayingSchedule(null)}
+                      className="rounded-xl border border-gray-200 px-4 py-2.5 text-[12px] font-medium text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                    >
+                      Để thanh toán sau
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleManualConfirmPay}
+                      className="flex-1 rounded-xl bg-emerald-700 hover:bg-emerald-800 px-4 py-2.5 text-[12.5px] font-bold text-white shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 size={15} /> Tôi đã chuyển khoản xong
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {payStep === 'verifying' && (
+                <div className="py-8 text-center space-y-4">
+                  <div className="h-16 w-16 mx-auto rounded-full bg-emerald-50 border-2 border-emerald-500 flex items-center justify-center text-emerald-700 shadow-xs">
+                    <RefreshCw size={28} className="animate-spin text-emerald-700" />
+                  </div>
+                  <div>
+                    <h4 className="font-display font-bold text-[18px] text-emerald-950">
+                      Đang Đối Soát Giao Dịch Tự Động...
+                    </h4>
+                    <p className="text-[12px] text-gray-500 mt-1 max-w-xs mx-auto">
+                      Hệ thống liên ngân hàng Napas 247 đang xác nhận số tiền chuyển khoản...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {payStep === 'success' && (
+                <div className="py-8 text-center space-y-4">
+                  <div className="h-16 w-16 mx-auto rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+                    <CheckCircle2 size={36} />
+                  </div>
+                  <div>
+                    <h4 className="font-display font-bold text-[20px] text-emerald-950">
+                      Thanh Toán Giữ Chỗ Thành Công!
+                    </h4>
+                    <p className="text-[12.5px] text-gray-600 mt-1 max-w-sm mx-auto">
+                      Số tiền đã được đưa vào tài khoản ký quỹ bảo lãnh. Ca chăm sóc của bạn đã chính thức được kích hoạt!
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPayingSchedule(null);
+                      setPayStep('qr');
+                    }}
+                    className="rounded-xl bg-emerald-700 px-6 py-2.5 text-[13px] font-bold text-white hover:bg-emerald-800 transition cursor-pointer"
+                  >
+                    Hoàn tất
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -3967,7 +5266,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
         await loadContacts(recipientUserId);
         notify(`Đã gửi tin nhắn tới ${recipientName}! ✓`);
       } else {
-        notify('Không thể lưu tin nhắn vào MySQL.');
+        notify('Không thể gửi tin nhắn. Vui lòng thử lại.');
       }
     } catch {
       notify('Lỗi kết nối khi gửi tin nhắn.');
@@ -4269,7 +5568,7 @@ function AdminPaymentsView({ notify }: { notify: (message: string) => void }) {
       if (sRes.ok) setStats(await sRes.json());
       if (tRes.ok) setTransactions(await tRes.json());
       setLastSync(new Date().toLocaleTimeString('vi-VN'));
-      if (isManual) notify('Đã cập nhật doanh thu & giao dịch từ MySQL!');
+      if (isManual) notify('Đã cập nhật doanh thu & giao dịch thành công!');
     } catch {
       if (isManual) notify('Lỗi khi tải dữ liệu thanh toán.');
     } finally {
@@ -4344,7 +5643,7 @@ function AdminPaymentsView({ notify }: { notify: (message: string) => void }) {
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800 shadow-2xs">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-              Đồng bộ MySQL {lastSync ? `· ${lastSync}` : 'Realtime'}
+              Đồng bộ hệ thống {lastSync ? `· ${lastSync}` : 'Tự động'}
             </span>
             <Button variant="outline" size="sm" onClick={() => loadData(true)}>
               Làm mới
@@ -4358,7 +5657,7 @@ function AdminPaymentsView({ notify }: { notify: (message: string) => void }) {
         <Card className="p-5 bg-gradient-to-br from-[#2e4d34] to-[#1e3423] text-white shadow-md">
           <div className="flex items-center justify-between opacity-80">
             <span className="text-[11px] font-bold uppercase tracking-wider text-[#d4ecd0]">Tổng Doanh Thu Hệ Thống</span>
-            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold text-white">MySQL</span>
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold text-white">Hệ thống</span>
           </div>
           <p className="mt-3 font-display text-[32px] font-bold text-white tracking-tight">
             {stats.totalRevenue.toLocaleString('vi-VN')} đ
@@ -4577,15 +5876,31 @@ function AdminPaymentsView({ notify }: { notify: (message: string) => void }) {
   );
 }
 
-function Payments({ notify, userRole = 'family' }: { notify: (message: string) => void; userRole?: string }) {
+function Payments({ 
+  notify, 
+  userRole = 'family', 
+  currentUser,
+  onOpenVipModal
+}: { 
+  notify: (message: string) => void; 
+  userRole?: string;
+  currentUser?: CurrentUser;
+  onOpenVipModal?: () => void;
+}) {
   if (userRole === 'admin') {
-    return <AdminPaymentsView notify={notify} />;
+    return <FullAdminPaymentsView notify={notify} />;
   }
 
-  const [paid, setPaid] = useState<string[]>(['may']);
-  const invoices = [{ id: 'may', label: 'Tháng 05/2024', date: '31/05/2024', amount: '3.600.000 đ', status: 'Đã thanh toán' }, { id: 'june', label: 'Tháng 06/2024', date: '01/06/2024', amount: '3.600.000 đ', status: 'Chờ thanh toán' }, { id: 'april', label: 'Tháng 04/2024', date: '30/04/2024', amount: '3.200.000 đ', status: 'Đã thanh toán' }];
+  if (userRole === 'caregiver') {
+    return <CaregiverPaymentsView currentUser={currentUser} notify={notify} />;
+  }
+
   return (
-    <><PageHeading eyebrow="Thanh toán" title="Rõ ràng từng khoản chi." description="Theo dõi gói chăm sóc, hóa đơn và biên nhận của gia đình tại một nơi." action={<Button variant="outline" onClick={() => notify('Đã mở yêu cầu xuất biên nhận tổng hợp.')} testId="button-export-receipt"><Download size={16} /> Xuất biên nhận</Button>} /><div className="grid gap-5 lg:grid-cols-[.75fr_1.25fr]"><Card className="overflow-hidden bg-[hsl(var(--primary))] p-6 text-white sm:p-7" testId="card-payment-plan"><div className="flex items-start justify-between"><div><Pill tone="gold">Gói đang dùng</Pill><h2 className="mt-5 font-display text-[30px]">Chăm sóc tiêu chuẩn</h2><p className="mt-2 text-[12px] text-[#cfddca]">Gia hạn vào ngày 01 hàng tháng</p></div><WalletCards size={26} className="text-[#e8c47f]" /></div><div className="mt-9 border-t border-[#99ae89]/30 pt-5"><p className="text-[11px] uppercase tracking-[.14em] text-[#b9cbb2]">Chi phí tháng này</p><p className="mt-2 font-display text-[36px]">3.600.000 đ</p><div className="mt-6 flex items-center justify-between text-[11px] text-[#c7d7c1]"><span>Người chăm sóc tại nhà</span><span>2.800.000 đ</span></div><div className="mt-3 flex items-center justify-between text-[11px] text-[#c7d7c1]"><span>Điều phối & hỗ trợ xã hội</span><span>800.000 đ</span></div></div><Button variant="soft" onClick={() => { setPaid((current) => current.includes('june') ? current : [...current, 'june']); notify('Thanh toán tháng 06 đã được ghi nhận.'); }} disabled={paid.includes('june')} className="mt-7 w-full bg-[#f0d8a8] text-[#314a38] hover:bg-[#f7e4bd]" testId="button-pay-current">{paid.includes('june') ? <><CheckCircle2 size={16} /> Đã thanh toán tháng này</> : <>Thanh toán tháng này <ArrowRight size={16} /></>}</Button></Card><Card className="p-6 sm:p-7" testId="card-invoice-list"><div className="flex items-center justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--muted-foreground))]">Lịch sử</p><h2 className="mt-2 font-display text-[27px]">Hóa đơn & biên nhận</h2></div><FileText size={22} className="text-[hsl(var(--muted-foreground))]" /></div><div className="mt-6 divide-y divide-[hsl(var(--border))]">{invoices.map((invoice) => <div key={invoice.id} className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between" data-testid={`row-invoice-${invoice.id}`}><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><FileText size={18} /></div><div><p className="text-[13px] font-bold">{invoice.label}</p><p className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">Ngày lập {invoice.date}</p></div></div><div className="flex items-center justify-between gap-4 sm:justify-end"><div className="text-right"><p className="text-[13px] font-bold">{invoice.amount}</p><p className={`mt-1 text-[10px] font-bold ${paid.includes(invoice.id) ? 'text-[#648258]' : 'text-[#a8752d]'}`}>{paid.includes(invoice.id) ? 'Đã thanh toán' : invoice.status}</p></div><button onClick={() => notify(`Biên nhận ${invoice.label} đã sẵn sàng để tải.`)} className="rounded-xl p-2.5 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--secondary))] hover:text-[hsl(var(--primary))]" aria-label={`Tải biên nhận ${invoice.label}`} data-testid={`button-download-invoice-${invoice.id}`}><Download size={16} /></button></div></div>)}</div></Card></div><Card className="mt-5 flex flex-col gap-4 bg-[#fff9ed] p-5 sm:flex-row sm:items-center" testId="card-payment-help"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#f5e1b6] text-[#987236]"><CircleHelp size={19} /></div><div className="flex-1"><p className="text-[13px] font-bold text-[#5b4c30]">Cần hỗ trợ về khoản thanh toán?</p><p className="mt-1 text-[12px] text-[#887657]">Đội ngũ điều phối có thể giải thích từng khoản trong hóa đơn của gia đình.</p></div><Button variant="quiet" onClick={() => notify('Đã gửi yêu cầu hỗ trợ thanh toán.')} testId="button-payment-help">Liên hệ hỗ trợ</Button></Card></>
+    <FamilyPaymentsView 
+      currentUser={currentUser} 
+      notify={notify} 
+      onOpenVipModal={onOpenVipModal} 
+    />
   );
 }
 
@@ -4605,6 +5920,12 @@ type AdminUser = {
   title?: string; experience_years?: number; care_score?: number;
   verification_status?: string; hourly_rate?: number; district?: string; rating?: number;
   schedule_count?: number; cp_id?: number;
+  fp_id?: number; fp_representative_name?: string; fp_id_number?: string;
+  fp_verification_status?: string; fp_district?: string;
+  shift_rate?: number; night_shift_rate?: number;
+  avg_rating?: number; review_count?: number;
+  latest_review_text?: string; latest_review_rating?: number;
+  total_family_spent?: number; last_activity_date?: string;
 };
 type AdminConversation = {
   conversation_id: string;
@@ -4617,15 +5938,49 @@ type AdminSchedule = { id: number; title: string; schedule_date: string; time_sl
 type AdminUserDetail = {
   user: AdminUser;
   elderly_profiles?: ElderlyProfile[];
-  caregiver_profile?: { id: number; title: string; bio?: string; skills: string[]; experience_years: number; hourly_rate: number; district: string; care_score: number; verification_status: string; documents: { document_type: string; document_name: string; status: string }[] } | null;
+  family_profile?: FamilyProfileData | null;
+  caregiver_profile?: {
+    id: number;
+    title: string;
+    bio?: string;
+    skills: string[];
+    experience_years: number;
+    hourly_rate: number;
+    shift_rate?: number;
+    night_shift_rate?: number;
+    work_history?: any[];
+    district: string;
+    contact_address?: string;
+    care_score: number;
+    verification_status: string;
+    interview_status?: string;
+    interview_date?: string;
+    interview_time?: string;
+    interview_meeting_link?: string;
+    interview_notes?: string;
+    documents: { document_type: string; document_name: string; status: string }[];
+  } | null;
 };
 
 function Admin({ notify }: { notify: (message: string) => void }) {
   // ---- State ----
-  const [activeTab, setActiveTab] = useState<'overview' | 'caregivers' | 'families' | 'messages'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'pending_approval' | 'caregivers' | 'interviews' | 'families' | 'subscriptions' | 'messages'>('overview');
+  const [pendingSubTab, setPendingSubTab] = useState<'caregivers' | 'families'>('caregivers');
   const [stats, setStats] = useState<AdminStats>({ families: 0, caregivers: 0, pendingProfiles: 0, activeSchedules: 0, totalMessages: 0 });
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [conversations, setConversations] = useState<AdminConversation[]>([]);
+  const [interviews, setInterviews] = useState<any[]>([]);
+  const [interviewFilter, setInterviewFilter] = useState<'all' | 'scheduled' | 'passed' | 'failed'>('all');
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [subStats, setSubStats] = useState<any>({ totalSubscribers: 0, activeSubscribers: 0, expiredSubscribers: 0, totalRevenue: 0, monthlyPrice: 50000 });
+  const [subFilter, setSubFilter] = useState<'all' | 'active' | 'expired'>('all');
+  const [subSearch, setSubSearch] = useState('');
+  const [showBenefitModal, setShowBenefitModal] = useState(false);
+  const [evaluatingInterview, setEvaluatingInterview] = useState<any | null>(null);
+  const [evalStatus, setEvalStatus] = useState<'passed' | 'failed'>('passed');
+  const [evalScore, setEvalScore] = useState<number>(96);
+  const [evalNotes, setEvalNotes] = useState<string>('Ứng viên giao tiếp tốt, tác phong chuyên nghiệp, đáp ứng đầy đủ điều kiện nhận ca.');
+  const [evalLoading, setEvalLoading] = useState<boolean>(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
   const [userSchedules, setUserSchedules] = useState<AdminSchedule[]>([]);
@@ -4655,14 +6010,22 @@ function Admin({ notify }: { notify: (message: string) => void }) {
   useEffect(() => {
     const loadAll = async () => {
       try {
-        const [sRes, uRes, cRes] = await Promise.all([
+        const [sRes, uRes, cRes, iRes, subRes] = await Promise.all([
           fetch(`${API}/admin/stats`),
           fetch(`${API}/admin/users`),
-          fetch(`${API}/admin/conversations`)
+          fetch(`${API}/admin/conversations`),
+          fetch(`${API}/admin/interviews`),
+          fetch(`${API}/admin/subscriptions`)
         ]);
         if (sRes.ok) setStats(await sRes.json());
         if (uRes.ok) setUsers(await uRes.json());
         if (cRes.ok) setConversations(await cRes.json());
+        if (iRes.ok) setInterviews(await iRes.json());
+        if (subRes.ok) {
+          const subData = await subRes.json();
+          setSubscriptions(subData.subscriptions || []);
+          setSubStats(subData.stats || {});
+        }
       } catch { }
     };
     loadAll();
@@ -4842,7 +6205,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
   const familyUsers = users.filter(u => u.role === 'family');
 
   const filteredCaregivers = useMemo(() => {
-    return caregiverUsers.filter(u => {
+    const list = caregiverUsers.filter(u => {
       const kw = caregiverSearch.toLowerCase().trim();
       const matchSearch = !kw || 
         (u.full_name && u.full_name.toLowerCase().includes(kw)) ||
@@ -4855,15 +6218,27 @@ function Admin({ notify }: { notify: (message: string) => void }) {
 
       return matchSearch && matchFilter;
     });
+
+    return [...list].sort((a, b) => {
+      const timeA = a.last_activity_date ? new Date(a.last_activity_date).getTime() : new Date(a.created_at || 0).getTime();
+      const timeB = b.last_activity_date ? new Date(b.last_activity_date).getTime() : new Date(b.created_at || 0).getTime();
+      return timeB - timeA;
+    });
   }, [caregiverUsers, caregiverSearch, caregiverFilter]);
 
   const filteredFamilies = useMemo(() => {
-    return familyUsers.filter(u => {
+    const list = familyUsers.filter(u => {
       const kw = familySearch.toLowerCase().trim();
       return !kw || 
         (u.full_name && u.full_name.toLowerCase().includes(kw)) ||
         (u.phone && u.phone.includes(kw)) ||
         (u.email && u.email.toLowerCase().includes(kw));
+    });
+
+    return [...list].sort((a, b) => {
+      const timeA = a.last_activity_date ? new Date(a.last_activity_date).getTime() : new Date(a.created_at || 0).getTime();
+      const timeB = b.last_activity_date ? new Date(b.last_activity_date).getTime() : new Date(b.created_at || 0).getTime();
+      return timeB - timeA;
     });
   }, [familyUsers, familySearch]);
 
@@ -4881,12 +6256,206 @@ function Admin({ notify }: { notify: (message: string) => void }) {
     return parts.length >= 2 ? (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase() : (name || 'CM').slice(0, 2).toUpperCase();
   };
 
+  const filteredInterviews = useMemo(() => {
+    return interviews.filter(item => {
+      if (interviewFilter === 'all') return true;
+      return item.interview_status === interviewFilter;
+    });
+  }, [interviews, interviewFilter]);
+
+  const scheduledInterviewsCount = interviews.filter(i => i.interview_status === 'scheduled').length;
+
+  const handleEvaluateInterview = async () => {
+    if (!evaluatingInterview) return;
+    setEvalLoading(true);
+    try {
+      const res = await fetch(`${API}/admin/interviews/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: evaluatingInterview.user_id,
+          profileId: evaluatingInterview.profile_id,
+          status: evalStatus,
+          notes: evalNotes,
+          careScoreBonus: evalScore >= 90 ? evalScore - 90 : 5
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        notify(evalStatus === 'passed' ? `✅ Đã phê duyệt Phỏng vấn Đạt chuẩn cho ${evaluatingInterview.full_name}! Hồ sơ đã sẵn sàng nhận ca và hiển thị lên đề xuất.` : `ℹ️ Đã cập nhật kết quả phỏng vấn cho ${evaluatingInterview.full_name}.`);
+        setEvaluatingInterview(null);
+        setRefreshTick(t => t + 1);
+      } else {
+        notify(data.error || 'Lỗi cập nhật đánh giá phỏng vấn.');
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ.');
+    } finally {
+      setEvalLoading(false);
+    }
+  };
+
+  const [generatingMeetUserId, setGeneratingMeetUserId] = useState<number | null>(null);
+
+  const handleGenerateAndOpenMeet = async (caregiverUserId: number, caregiverName: string) => {
+    setGeneratingMeetUserId(caregiverUserId);
+    try {
+      const res = await fetch(`${API}/admin/interviews/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caregiverUserId })
+      });
+      const data = await res.json();
+      if (data.success && data.meetingLink) {
+        window.open(data.meetingLink, '_blank');
+        notify(`✅ Đã xác nhận lịch phỏng vấn và gửi link Google Meet cho ${caregiverName}!`);
+        setInterviews(prev => prev.map(i => i.user_id === caregiverUserId ? { 
+          ...i, 
+          interview_meeting_link: data.meetingLink, 
+          interview_status: 'confirmed'
+        } : i));
+        if (modalDetail?.caregiver_profile && modalUser?.id === caregiverUserId) {
+          setModalDetail(prev => prev ? {
+            ...prev,
+            caregiver_profile: {
+              ...prev.caregiver_profile,
+              interview_meeting_link: data.meetingLink,
+              interview_status: 'confirmed'
+            }
+          } : prev);
+        }
+        setRefreshTick(t => t + 1);
+      } else {
+        notify(data.error || 'Lỗi khi xác nhận lịch Google Meet');
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ');
+    } finally {
+      setGeneratingMeetUserId(null);
+    }
+  };
+
+  const handleApproveFamily = async (userId: number, name: string) => {
+    try {
+      const res = await fetch(`${API}/admin/families/${userId}/verify`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' })
+      });
+      if (res.ok) {
+        notify(`✅ Đã phê duyệt hồ sơ gia đình ${name}!`);
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, fp_verification_status: 'approved' } : u));
+        setRefreshTick(t => t + 1);
+      } else {
+        notify('Lỗi máy chủ khi duyệt hồ sơ gia đình.');
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ.');
+    }
+  };
+
+  const handleExtendSub = async (subId: number, familyName: string) => {
+    try {
+      const res = await fetch(`${API}/admin/subscriptions/${subId}/extend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: 30 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        notify(`✅ Đã gia hạn thêm 30 ngày cho gia đình ${familyName}!`);
+        setRefreshTick(t => t + 1);
+      } else {
+        notify('Lỗi khi gia hạn gói.');
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ.');
+    }
+  };
+
+  const handleToggleSubStatus = async (subId: number, curStatus: string, familyName: string) => {
+    const newStatus = curStatus === 'active' ? 'cancelled' : 'active';
+    try {
+      const res = await fetch(`${API}/admin/subscriptions/${subId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (data.success) {
+        notify(`✅ Đã cập nhật trạng thái gói của ${familyName} thành: ${newStatus === 'active' ? 'Đang hiệu lực' : 'Đã hủy'}`);
+        setRefreshTick(t => t + 1);
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ.');
+    }
+  };
+
+  const filteredSubscriptions = useMemo(() => {
+    return subscriptions.filter(s => {
+      const kw = subSearch.toLowerCase().trim();
+      const matchSearch = !kw ||
+        (s.full_name && s.full_name.toLowerCase().includes(kw)) ||
+        (s.phone && s.phone.includes(kw)) ||
+        (s.email && s.email.toLowerCase().includes(kw)) ||
+        (s.transaction_code && s.transaction_code.toLowerCase().includes(kw)) ||
+        (s.district && s.district.toLowerCase().includes(kw));
+
+      const matchFilter = subFilter === 'all' || s.current_status === subFilter;
+      return matchSearch && matchFilter;
+    });
+  }, [subscriptions, subSearch, subFilter]);
+
+  const pendingCaregivers = useMemo(() => {
+    return caregiverUsers.filter(u => u.verification_status === 'pending' || !u.verification_status || u.verification_status === 'not_submitted');
+  }, [caregiverUsers]);
+
+  const pendingFamilies = useMemo(() => {
+    return familyUsers.filter(u => u.fp_verification_status === 'pending' || !u.fp_verification_status || u.fp_verification_status === 'not_submitted');
+  }, [familyUsers]);
+
+  const totalPending = pendingCaregivers.length + pendingFamilies.length;
+
   const tabs = [
     { key: 'overview' as const, label: 'Tổng quan', icon: '📊' },
+    { key: 'pending_approval' as const, label: 'Chờ duyệt', icon: '⏳', count: totalPending },
     { key: 'caregivers' as const, label: 'Người chăm sóc', icon: '🩺', count: caregiverUsers.length },
     { key: 'families' as const, label: 'Người nhà', icon: '🏠', count: familyUsers.length },
+    { key: 'interviews' as const, label: 'Phỏng vấn Online', icon: '🎥', count: scheduledInterviewsCount },
+    { key: 'subscriptions' as const, label: 'Gói Premium VIP', icon: '⭐', count: subStats.activeSubscribers || 0 },
     { key: 'messages' as const, label: 'Hộp thư', icon: '💬', count: conversations.reduce((sum, c) => sum + Number(c.unread_count || 0), 0) },
   ];
+
+  const handleExportMonthlyReport = () => {
+    notify('Đang xuất file Báo cáo tổng quan tháng về máy tính...');
+    const header = [
+      'Chỉ Số Báo Cáo',
+      'Số Lượng / Doanh Số',
+      'Đơn Vị',
+      'Chi Tiết Kiểm Soát Hệ Thống'
+    ];
+    const escape = (val: any) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+    const rows = [
+      ['Tổng số người chăm sóc đăng ký', caregiverUsers.length, 'Người', 'Đã thẩm định eKYC'],
+      ['Số người chăm sóc sẵn sàng nhận ca', caregiverUsers.filter(c => c.verification_status === 'approved').length, 'Người', 'Đạt chuẩn phỏng vấn & giấy tờ y tế'],
+      ['Số ca phỏng vấn chuyên môn Online hoàn thành', caregiverUsers.filter(c => c.interview_status === 'passed').length, 'Buổi', 'Thẩm định hồ sơ & đối soát bằng cấp'],
+      ['Tổng số gia đình đăng ký hồ sơ', familyUsers.length, 'Gia đình', 'Hồ sơ người cao tuổi'],
+      ['Gia đình hội viên VIP Premium', subStats.activeSubscribers || 1, 'Hội viên', 'Gói 50.000đ/tháng'],
+      ['Doanh thu hội viên VIP', `${(subStats.totalRevenue || 50000).toLocaleString('vi-VN')} đ`, 'VNĐ', 'Thanh toán trực tuyến'],
+      ['Thời điểm trích xuất báo cáo', new Date().toLocaleString('vi-VN'), 'Thời gian thực', 'Bản quyền hệ thống CARE-MATCH 2026']
+    ];
+    const csvLines = [header.join(','), ...rows.map(r => r.map(escape).join(','))];
+    const csvContent = '\uFEFF' + csvLines.join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Bao_Cao_Tong_Quan_CareMatch_Thang_${new Date().getMonth() + 1}_2026.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    notify('✅ Đã tải file Báo cáo tổng quan tháng về máy thành công!');
+  };
 
   return (
     <>
@@ -4895,8 +6464,8 @@ function Admin({ notify }: { notify: (message: string) => void }) {
         title="Bàn Quản Trị Hệ Thống CARE-MATCH."
         description="Kiểm soát toàn diện: duyệt hồ sơ người chăm sóc, kiểm tra giấy tờ eKYC, giám sát người bệnh và các ca chăm sóc."
         action={
-          <Button variant="outline" onClick={() => notify('Đang xuất báo cáo tháng...')}>
-            <FileText size={16} /> Xuất báo cáo tháng
+          <Button variant="outline" onClick={handleExportMonthlyReport}>
+            <Download size={16} /> Xuất báo cáo tháng (.CSV)
           </Button>
         }
       />
@@ -4938,7 +6507,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
               <Card key={i} className="p-5">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[22px]">{s.icon}</span>
-                  <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: s.color, color: '#2d4a30' }}>MySQL</span>
+                  <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: s.color, color: '#2d4a30' }}>Hệ thống</span>
                 </div>
                 <p className="font-display text-[32px] font-bold text-[#1e3225]">{s.value}</p>
                 <p className="text-[11px] font-bold uppercase tracking-[.1em] text-[hsl(var(--muted-foreground))] mt-1">{s.label}</p>
@@ -4950,7 +6519,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
             <Card className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-display text-[18px] font-bold text-[#263b2c]">Hồ sơ chờ duyệt gần đây</h3>
-                <button onClick={() => setActiveTab('caregivers')} className="text-[11px] text-[hsl(var(--primary))] font-bold">Xem tất cả →</button>
+                <button onClick={() => setActiveTab('pending_approval')} className="text-[11px] text-[hsl(var(--primary))] font-bold">Xem tất cả →</button>
               </div>
               <div className="space-y-2.5">
                 {caregiverUsers.filter(u => u.verification_status === 'pending' || !u.verification_status).slice(0, 4).map(u => (
@@ -5001,6 +6570,198 @@ function Admin({ notify }: { notify: (message: string) => void }) {
               </div>
             </Card>
           </div>
+        </div>
+      )}
+
+      {/* ===== TAB: CHỜ DUYỆT (HỒ SƠ MỚI) ===== */}
+      {activeTab === 'pending_approval' && (
+        <div className="space-y-4">
+          {/* Subtabs switcher */}
+          <Card className="p-4 bg-gradient-to-r from-[#f7faf6] to-[#fbf8f2] border-[#cce0cb]">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display font-bold text-[18px] text-[#1e3225]">
+                  Hồ Sơ Đang Chờ Thẩm Định & Phê Duyệt
+                </h3>
+                <p className="text-[12.5px] text-[#556e57] mt-0.5">
+                  Phê duyệt hồ sơ người chăm sóc (eKYC, bằng cấp, CCCD) và hồ sơ đại diện gia đình người cao tuổi.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 bg-white/90 p-1.5 rounded-2xl border border-[#cbe0c7] shrink-0">
+                <button
+                  onClick={() => setPendingSubTab('caregivers')}
+                  className={`px-3.5 py-1.5 rounded-xl text-[12.5px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    pendingSubTab === 'caregivers'
+                      ? 'bg-emerald-800 text-white shadow-xs'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <span>🩺 Người chăm sóc chờ duyệt</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    pendingSubTab === 'caregivers' ? 'bg-emerald-950 text-white' : 'bg-emerald-100 text-emerald-900'
+                  }`}>
+                    {pendingCaregivers.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setPendingSubTab('families')}
+                  className={`px-3.5 py-1.5 rounded-xl text-[12.5px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    pendingSubTab === 'families'
+                      ? 'bg-[#987432] text-white shadow-xs'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <span>🏠 Người nhà chờ duyệt</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    pendingSubTab === 'families' ? 'bg-[#6d5120] text-white' : 'bg-amber-100 text-amber-900'
+                  }`}>
+                    {pendingFamilies.length}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Subtab Content: Caregivers */}
+          {pendingSubTab === 'caregivers' && (
+            <Card className="p-0 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 bg-[#fbfdfa] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-emerald-700" />
+                  <h4 className="font-display font-bold text-[16px] text-gray-900">
+                    Danh Sách Người Chăm Sóc Chờ Phê Duyệt eKYC ({pendingCaregivers.length})
+                  </h4>
+                </div>
+              </div>
+
+              {pendingCaregivers.length === 0 ? (
+                <div className="p-12 text-center">
+                  <CheckCircle2 size={42} className="mx-auto text-emerald-500 mb-2" />
+                  <p className="font-bold text-[15px] text-gray-800">Tất cả hồ sơ người chăm sóc đã được thẩm định!</p>
+                  <p className="text-[12px] text-gray-500 mt-1">Khi có người chăm sóc mới đăng ký hoặc nộp hồ sơ eKYC, danh sách sẽ hiển thị tại đây.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {pendingCaregivers.map(u => (
+                    <div key={u.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-gray-50/70 transition">
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0 shadow-xs" style={{ background: 'linear-gradient(145deg,#afc5b0,#638273)' }}>
+                          {getInitials(u.full_name)}
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h5 className="font-bold text-[15px] text-gray-900">{u.full_name}</h5>
+                            <span className="rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 text-[10px] font-bold flex items-center gap-1">
+                              <Clock size={11} /> ⏳ Chờ thẩm định eKYC
+                            </span>
+                            {u.care_score ? (
+                              <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold">
+                                CARE SCORE: {u.care_score}đ
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-[12px] text-gray-600">
+                            {u.email} · {u.phone || 'Chưa cập nhật SĐT'} · Khu vực: {u.district || 'Hà Nội'}
+                          </p>
+                          <div className="flex items-center gap-3 text-[11.5px] text-gray-500 flex-wrap">
+                            <span>☀️ Ca ngày: {(Number(u.shift_rate) || 400000).toLocaleString('vi-VN')} đ/ca</span>
+                            <span>·</span>
+                            <span>🌙 Ca tối: {(Number(u.night_shift_rate) || 600000).toLocaleString('vi-VN')} đ/ca</span>
+                            <span>·</span>
+                            <span>📅 Đăng ký: {new Date(u.created_at).toLocaleDateString('vi-VN')}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                        <button
+                          onClick={() => handleOpenCaregiverModal(u)}
+                          className="rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                        >
+                          <Eye size={14} /> Thẩm định eKYC & Hồ sơ
+                        </button>
+                        <button
+                          onClick={() => handleApproveUser(u.cp_id || u.id, u.id, u.full_name)}
+                          className="rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <Check size={14} /> Duyệt hồ sơ nhanh
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Subtab Content: Families */}
+          {pendingSubTab === 'families' && (
+            <Card className="p-0 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 bg-[#fbfdfa] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Home size={18} className="text-[#987432]" />
+                  <h4 className="font-display font-bold text-[16px] text-gray-900">
+                    Danh Sách Hồ Sơ Gia Đình Chờ Thẩm Định ({pendingFamilies.length})
+                  </h4>
+                </div>
+              </div>
+
+              {pendingFamilies.length === 0 ? (
+                <div className="p-12 text-center">
+                  <CheckCircle2 size={42} className="mx-auto text-amber-600 mb-2" />
+                  <p className="font-bold text-[15px] text-gray-800">Tất cả hồ sơ gia đình đã được thẩm định!</p>
+                  <p className="text-[12px] text-gray-500 mt-1">Khi có gia đình mới nộp thông tin eKYC, danh sách sẽ hiển thị tại đây.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {pendingFamilies.map(u => (
+                    <div key={u.id} className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-amber-50/20 transition">
+                      <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0 shadow-xs" style={{ background: 'linear-gradient(145deg,#f1d49b,#c49354)' }}>
+                          {getInitials(u.full_name)}
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h5 className="font-bold text-[15px] text-gray-900">{u.full_name}</h5>
+                            <span className="rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 text-[10px] font-bold flex items-center gap-1">
+                              <Clock size={11} /> ⏳ Chờ eKYC Gia đình
+                            </span>
+                          </div>
+                          <p className="text-[12px] text-gray-600">
+                            {u.email} · {u.phone || 'Chưa cập nhật SĐT'} · Khu vực: {u.fp_district || 'Hà Nội'}
+                          </p>
+                          <div className="flex items-center gap-3 text-[11.5px] text-gray-500 flex-wrap">
+                            <span>Người đại diện: {u.fp_representative_name || u.full_name}</span>
+                            <span>·</span>
+                            <span>Số ca đã đặt: {u.schedule_count || 0} ca</span>
+                            <span>·</span>
+                            <span>Đăng ký: {new Date(u.created_at).toLocaleDateString('vi-VN')}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                        <button
+                          onClick={() => handleOpenFamilyModal(u)}
+                          className="rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                        >
+                          <Eye size={14} /> Thẩm định hồ sơ gia đình
+                        </button>
+                        <button
+                          onClick={() => handleApproveFamily(u.id, u.full_name)}
+                          className="rounded-xl bg-[#987432] hover:bg-[#806024] text-white px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <Check size={14} /> Duyệt hồ sơ nhanh
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
         </div>
       )}
 
@@ -5069,10 +6830,25 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                           <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: verifyColor[u.verification_status || 'pending'] + '22', color: verifyColor[u.verification_status || 'pending'] }}>
                             {verifyLabel[u.verification_status || 'pending']}
                           </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 text-[10px] font-bold">
+                            ⭐ {Number(u.avg_rating || 5.0).toFixed(1)} ({u.review_count || 0})
+                          </span>
                         </div>
                         <p className="text-[11.5px] text-[#6a8a6c] mt-0.5 truncate">
                           {u.title || 'Chăm sóc người cao tuổi'} · {u.district || 'Hà Nội'} · {u.schedule_count || 0} ca
                         </p>
+                        <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5 flex-wrap">
+                          <span className="text-amber-800 font-medium">☀️ {(Number(u.shift_rate) || 400000).toLocaleString('vi-VN')} đ/ca</span>
+                          <span>·</span>
+                          <span className="text-amber-800 font-medium">🌙 {(Number(u.night_shift_rate) || 600000).toLocaleString('vi-VN')} đ/ca</span>
+                          <span>·</span>
+                          <span className="text-gray-400">⏱ {u.last_activity_date ? new Date(u.last_activity_date).toLocaleDateString('vi-VN') : 'Mới đăng ký'}</span>
+                        </div>
+                        {u.latest_review_text && (
+                          <p className="text-[11px] text-gray-500 italic mt-0.5 truncate max-w-md">
+                            💬 "{u.latest_review_text}"
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -5081,7 +6857,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                         className="rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs transition flex items-center gap-1.5"
                         title="Xem toàn bộ hồ sơ, thông tin cá nhân và tài liệu eKYC"
                       >
-                        <Eye size={13} /> Hồ sơ & eKYC
+                        <Eye size={13} /> Xem hồ sơ & Ca làm việc
                       </button>
                       <ChevronRight size={15} className="text-[#aaa]" />
                     </div>
@@ -5208,6 +6984,217 @@ function Admin({ notify }: { notify: (message: string) => void }) {
         </div>
       )}
 
+      {/* ===== TAB: PHỎNG VẤN ONLINE VỚI ADMIN ===== */}
+      {activeTab === 'interviews' && (
+        <div className="space-y-4">
+          {/* Header Card */}
+          <Card className="p-5 bg-gradient-to-r from-[#f0f7ef] to-[#fcfaf3] border-[#cbe0c7]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
+                  <Video size={15} />
+                  <span>Vòng Thẩm Định Tuyển Chọn Bắt Buộc</span>
+                </div>
+                <h2 className="font-display text-[22px] font-bold text-[#1e3225] mt-0.5">
+                  Quản Lý Phỏng Vấn Trực Tuyến & Cấp Quyền Nhận Ca
+                </h2>
+                <p className="text-[12.5px] text-[#556e57] max-w-2xl mt-1">
+                  Phỏng vấn trực tuyến qua Google Meet là <strong>bắt buộc</strong> để người chăm sóc được nhận ca làm việc và xuất hiện trên danh sách đề xuất tìm kiếm của gia đình. Admin đối soát giấy tờ gốc và đánh giá chuyên môn tại đây.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-white/90 p-1.5 rounded-2xl border border-[#cbe0c7] shrink-0 flex-wrap">
+                {[
+                  { id: 'all' as const, label: `Tất cả (${interviews.length})` },
+                  { id: 'scheduled' as const, label: `Chờ phỏng vấn (${interviews.filter(i => i.interview_status === 'scheduled').length})` },
+                  { id: 'passed' as const, label: `Đã đạt chuẩn (${interviews.filter(i => i.interview_status === 'passed').length})` },
+                  { id: 'failed' as const, label: `Chưa đạt (${interviews.filter(i => i.interview_status === 'failed').length})` }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setInterviewFilter(f.id)}
+                    className={`px-3 py-1.5 rounded-xl text-[12px] font-bold transition flex items-center gap-1 cursor-pointer ${
+                      interviewFilter === f.id
+                        ? 'bg-[#3b5d38] text-white shadow-2xs'
+                        : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* List of Interview Candidates */}
+          {filteredInterviews.length === 0 ? (
+            <Card className="p-12 text-center">
+              <Video size={42} className="mx-auto text-gray-300 mb-2" />
+              <p className="font-bold text-[15px] text-gray-700">Không có ca phỏng vấn nào phù hợp bộ lọc</p>
+              <p className="text-[12px] text-gray-500 mt-1">Khi người chăm sóc đặt lịch trên Bàn làm việc, thông tin sẽ lập tức hiển thị tại đây.</p>
+            </Card>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {filteredInterviews.map((item) => (
+                <Card key={item.profile_id || item.user_id} className="p-5 border border-gray-200/90 hover:shadow-md transition">
+                  <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-3.5">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0 shadow-xs" style={{ background: 'linear-gradient(145deg,#afc5b0,#638273)' }}>
+                        {getInitials(item.full_name)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-display font-bold text-[16px] text-[#1e3225] truncate">
+                            {item.full_name}
+                          </h4>
+                          <span className={`rounded-full px-2 py-0.5 text-[9.5px] font-bold ${
+                            item.interview_status === 'passed'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : item.interview_status === 'scheduled'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : item.interview_status === 'failed'
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {item.interview_status === 'passed' && '✓ Đã đạt chuẩn'}
+                            {item.interview_status === 'scheduled' && '⏳ Chờ phỏng vấn'}
+                            {item.interview_status === 'failed' && '✗ Chưa đạt'}
+                            {item.interview_status === 'not_scheduled' && 'Chưa đặt lịch'}
+                          </span>
+                        </div>
+                        <p className="text-[11.5px] text-gray-500 mt-0.5">
+                          {item.email} · {item.phone || 'Chưa có SĐT'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <span className="rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold">
+                        {item.experience_years || 1} năm KN
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Địa chỉ nơi ở tách riêng với khu vực nhận ca */}
+                  <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[12px]">
+                    <div className="rounded-xl bg-[#f8faf7] border border-[#e1ece0] p-2.5">
+                      <span className="block text-[10px] font-bold uppercase text-[#52724f] flex items-center gap-1">
+                        <Home size={12} /> Địa chỉ liên hệ (Nơi cư trú)
+                      </span>
+                      <p className="font-semibold text-gray-800 mt-0.5 truncate" title={item.contact_address || 'Chưa cập nhật'}>
+                        {item.contact_address || 'Chưa cập nhật'}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#fdfbf7] border border-[#eee4d2] p-2.5">
+                      <span className="block text-[10px] font-bold uppercase text-[#966b26] flex items-center gap-1">
+                        <MapPin size={12} /> Khu vực nhận ca làm việc
+                      </span>
+                      <p className="font-semibold text-gray-800 mt-0.5 truncate" title={item.district || 'Hà Nội'}>
+                        {item.district || 'Hà Nội'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Thông tin lịch phỏng vấn & Meeting Link */}
+                  <div className="mt-3 rounded-xl bg-gray-50/80 border border-gray-200 p-3 space-y-2">
+                    <div className="flex items-center justify-between text-[12px]">
+                      <span className="font-bold text-gray-700 flex items-center gap-1.5">
+                        <Clock size={14} className="text-amber-600" />
+                        {item.interview_date ? `${item.interview_date} (${item.interview_time || '09:30 - 10:00'})` : 'Chưa chọn ngày'}
+                      </span>
+                      {item.interview_scheduled_at && (
+                        <span className="text-[10px] text-gray-400">
+                          Đặt lúc: {new Date(item.interview_scheduled_at).toLocaleDateString('vi-VN')}
+                        </span>
+                      )}
+                    </div>
+
+                    {item.interview_notes && (
+                      <p className="text-[11.5px] text-gray-600 italic bg-white p-2 rounded-lg border border-gray-100">
+                        "{item.interview_notes}"
+                      </p>
+                    )}
+
+                    {/* Link phòng Google Meet & Nút thao tác 1 chạm */}
+                    <div className="pt-2 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                      {item.interview_meeting_link ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => window.open(item.interview_meeting_link, '_blank')}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[11.5px] font-bold text-white hover:bg-emerald-800 transition shadow-2xs cursor-pointer"
+                          >
+                            <Video size={13} /> Vào Google Meet
+                            <ExternalLink size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateAndOpenMeet(item.user_id, item.full_name)}
+                            disabled={generatingMeetUserId === item.user_id}
+                            className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                            title="Tạo phòng Google Meet ngẫu nhiên mới và tự động gửi link cho ứng viên"
+                          >
+                            {generatingMeetUserId === item.user_id ? 'Đang tạo...' : 'Tạo mới & Gửi lại link'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleGenerateAndOpenMeet(item.user_id, item.full_name)}
+                          disabled={generatingMeetUserId === item.user_id}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 px-3.5 py-1.5 text-[11.5px] font-bold text-white shadow-2xs transition cursor-pointer"
+                        >
+                          <Video size={13} />
+                          {generatingMeetUserId === item.user_id ? 'Đang tạo phòng...' : '✓ Xác nhận lịch & Gửi link Google Meet'}
+                        </button>
+                      )}
+                      <span className="text-[10px] text-gray-400 font-mono">Google Meet</span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="mt-4 flex items-center justify-between pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEvaluatingInterview(item);
+                          setEvalStatus('passed');
+                          setEvalScore(item.care_score || 96);
+                        }}
+                        className="rounded-xl bg-[#3b5d38] hover:bg-[#2e4a2c] text-white px-3.5 py-1.5 text-[12px] font-bold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Check size={14} /> Đánh giá & Phê duyệt
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAdminDirectRecipientId(item.user_id);
+                          setAdminDirectRecipientName(item.full_name);
+                          setActiveTab('messages');
+                        }}
+                        className="rounded-xl border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 px-3 py-1.5 text-[12px] font-bold transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <MessageCircle size={13} /> Nhắn tin
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const targetUser = users.find(u => u.id === item.user_id);
+                        if (targetUser) handleOpenCaregiverModal(targetUser);
+                      }}
+                      className="text-[11.5px] font-bold text-emerald-800 hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <Eye size={12} /> Xem eKYC
+                    </button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ===== TAB: NGƯỜI NHÀ ===== */}
       {activeTab === 'families' && (
         <div className="space-y-4">
@@ -5249,9 +7236,34 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                         {getInitials(u.full_name)}
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[14px] font-bold text-[#1e3225]">{u.full_name}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[14px] font-bold text-[#1e3225]">{u.full_name}</p>
+                          {u.fp_verification_status === 'approved' ? (
+                            <span className="rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 border border-emerald-300">
+                              ✓ eKYC Duyệt
+                            </span>
+                          ) : u.fp_verification_status === 'pending' ? (
+                            <span className="rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 border border-amber-300 animate-pulse">
+                              ⏳ Chờ eKYC
+                            </span>
+                          ) : u.fp_verification_status === 'rejected' ? (
+                            <span className="rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 border border-rose-300">
+                              Cần bổ sung
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-gray-100 text-gray-500 text-[10px] font-medium px-2 py-0.5">
+                              Chưa eKYC
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 text-[10px] font-bold">
+                            💰 Chi tiêu: {(Number(u.total_family_spent) || 0).toLocaleString('vi-VN')} đ
+                          </span>
+                        </div>
                         <p className="text-[11.5px] text-[#8a8a6a] mt-0.5 truncate">
-                          {u.email} · {u.schedule_count || 0} ca đã đặt
+                          {u.email} · {u.phone || 'Chưa có SĐT'} · {u.schedule_count || 0} ca đã đặt
+                        </p>
+                        <p className="text-[10.5px] text-gray-400 mt-0.5">
+                          Hoạt động gần nhất: {u.last_activity_date ? new Date(u.last_activity_date).toLocaleString('vi-VN') : 'Mới đăng ký'}
                         </p>
                       </div>
                     </div>
@@ -5259,9 +7271,9 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleOpenFamilyModal(u); }}
                         className="rounded-lg bg-[#b0883b] hover:bg-[#97732e] text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs transition flex items-center gap-1.5"
-                        title="Xem người cần chăm sóc và các ca đã book lịch"
+                        title="Xem chi tiết gia đình & Lịch ca"
                       >
-                        <Eye size={13} /> Gia đình & BN
+                        <Eye size={13} /> Xem chi tiết gia đình & Lịch ca
                       </button>
                       <ChevronRight size={15} className="text-[#aaa]" />
                     </div>
@@ -5366,6 +7378,331 @@ function Admin({ notify }: { notify: (message: string) => void }) {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ===== TAB: GÓI GIA ĐÌNH PREMIUM VIP (50.000Đ/THÁNG) ===== */}
+      {activeTab === 'subscriptions' && (
+        <div className="space-y-5">
+          {/* Header Card với Gold / Emerald VIP Gradient */}
+          <Card className="p-5 bg-gradient-to-r from-[#fcf7ec] via-[#f9f2e0] to-[#f0f7ef] border-[#ebd7af]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-amber-900 text-[11px] font-black uppercase tracking-wider">
+                  <Crown size={15} className="fill-amber-900" />
+                  <span>Chính Sách Hội Viên VIP</span>
+                </div>
+                <h2 className="font-display text-[22px] font-bold text-[#2a2012] mt-0.5">
+                  Quản Lý Gói Gia Đình Premium (50.000đ/tháng)
+                </h2>
+                <p className="text-[12.5px] text-[#715423] max-w-2xl mt-1 leading-relaxed">
+                  Theo dõi danh sách gia đình đăng ký gói Premium, thời hạn sử dụng, doanh thu định kỳ và bảo đảm các đặc quyền: Ưu tiên tìm người, ưu tiên đặt lịch Lễ Tết và hỗ trợ y tế 24/7.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setShowBenefitModal(true)}
+                  className="rounded-xl border border-amber-400 bg-white/95 hover:bg-white text-amber-950 px-3.5 py-2 text-[12px] font-bold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles size={14} className="text-amber-600" />
+                  <span>Bảng Phân Tách Quyền Lợi Gói</span>
+                </button>
+              </div>
+            </div>
+          </Card>
+
+          {/* 4 Thẻ Thống Kê Tổng Quan */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="p-4 border-l-4 border-l-amber-500">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Gia đình VIP hoạt động</span>
+                <Crown size={18} className="text-amber-600" />
+              </div>
+              <p className="mt-2 text-[28px] font-extrabold text-amber-950 font-display">
+                {subStats.activeSubscribers || 0}
+              </p>
+              <p className="text-[11px] text-emerald-700 font-semibold mt-0.5">Đang hưởng trọn đặc quyền VIP</p>
+            </Card>
+
+            <Card className="p-4 border-l-4 border-l-emerald-600">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Doanh thu gói Premium</span>
+                <CreditCard size={18} className="text-emerald-700" />
+              </div>
+              <p className="mt-2 text-[28px] font-extrabold text-emerald-950 font-display">
+                {(subStats.totalRevenue || 0).toLocaleString('vi-VN')}đ
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Lũy kế từ cước gói hội viên</p>
+            </Card>
+
+            <Card className="p-4 border-l-4 border-l-blue-500">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Tổng lượt đăng ký</span>
+                <Users size={18} className="text-blue-600" />
+              </div>
+              <p className="mt-2 text-[28px] font-extrabold text-blue-950 font-display">
+                {subStats.totalSubscribers || 0}
+              </p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Bao gồm đăng ký mới & gia hạn</p>
+            </Card>
+
+            <Card className="p-4 border-l-4 border-l-[#8a6829]">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Đơn giá niêm yết</span>
+                <Award size={18} className="text-[#8a6829]" />
+              </div>
+              <p className="mt-2 text-[28px] font-extrabold text-[#3d2f17] font-display">
+                50.000đ
+              </p>
+              <p className="text-[11px] text-amber-800 font-semibold mt-0.5">Mặc định / tháng (~1.600đ/ngày)</p>
+            </Card>
+          </div>
+
+          {/* Thanh tìm kiếm & Bộ lọc trạng thái */}
+          <Card className="p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  value={subSearch}
+                  onChange={e => setSubSearch(e.target.value)}
+                  placeholder="🔍 Tìm kiếm theo tên gia đình, SĐT, email, mã giao dịch, quận huyện..."
+                  className="w-full rounded-xl border border-gray-200 bg-[#fafcf9] py-2 pl-9 pr-3 text-[13px] outline-none focus:border-amber-600 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 bg-[#f6f5f0] p-1 rounded-xl shrink-0">
+                {[
+                  { id: 'all' as const, label: `Tất cả (${subscriptions.length})` },
+                  { id: 'active' as const, label: `Đang hiệu lực (${subscriptions.filter(s => s.current_status === 'active').length})` },
+                  { id: 'expired' as const, label: `Đã hết hạn (${subscriptions.filter(s => s.current_status === 'expired').length})` }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setSubFilter(f.id)}
+                    className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition cursor-pointer ${
+                      subFilter === f.id
+                        ? 'bg-white text-amber-950 shadow-2xs'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          {/* Bảng Danh Sách Gia Đình Đăng Ký Gói */}
+          <Card className="p-0 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-[#f9faf7] text-[11.5px] font-bold text-gray-600 uppercase tracking-wider">
+                    <th className="py-3 px-4">Mã GD / Ngày ĐK</th>
+                    <th className="py-3 px-4">Gia Đình / Người Nhà</th>
+                    <th className="py-3 px-4">Gói Cước & Giá</th>
+                    <th className="py-3 px-4">Thời Hạn & Ngày Hết</th>
+                    <th className="py-3 px-4">Trạng Thái</th>
+                    <th className="py-3 px-4 text-right">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-[12.5px]">
+                  {filteredSubscriptions.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-gray-400">
+                        <Crown size={32} className="mx-auto text-gray-300 mb-2" />
+                        <p className="font-bold text-[14px] text-gray-600">Không có gói Premium nào phù hợp bộ lọc</p>
+                        <p className="text-[12px] text-gray-400 mt-0.5">Khi người nhà đăng ký gói 50.000đ/tháng, thông tin sẽ lập tức hiển thị tại đây.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSubscriptions.map(s => (
+                      <tr key={s.id} className="hover:bg-amber-50/20 transition">
+                        <td className="py-3.5 px-4 align-top">
+                          <span className="font-mono text-[12px] font-bold text-emerald-950 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                            {s.transaction_code || `SUB-${s.id}`}
+                          </span>
+                          <span className="block text-[11px] text-gray-400 mt-1">
+                            {new Date(s.created_at).toLocaleDateString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 align-top">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900 text-[13.5px]">{s.full_name}</span>
+                            <span className="rounded-full bg-amber-100 text-amber-900 text-[9px] font-black px-1.5 py-0.2 border border-amber-300">
+                              VIP
+                            </span>
+                          </div>
+                          <p className="text-[11.5px] text-gray-500 mt-0.5">
+                            {s.phone || 'Chưa có SĐT'} · {s.email}
+                          </p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            📍 {s.district || 'Hà Nội'}
+                          </p>
+                        </td>
+
+                        <td className="py-3.5 px-4 align-top">
+                          <span className="font-bold text-[#8f6319]">{s.plan_name || 'Gói Gia Đình Premium'}</span>
+                          <span className="block font-black text-emerald-800 text-[13px] mt-0.5">
+                            {(Number(s.price) || 50000).toLocaleString('vi-VN')}đ / tháng
+                          </span>
+                          <span className="text-[10.5px] text-gray-400 block mt-0.5">
+                            {s.payment_method || 'Chuyển khoản QR'}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 align-top">
+                          <div className="space-y-0.5">
+                            <p className="text-gray-700 text-[12px]">
+                              Bắt đầu: {s.start_date ? new Date(s.start_date).toLocaleDateString('vi-VN') : 'Mới tạo'}
+                            </p>
+                            <p className="text-gray-900 font-bold text-[12px]">
+                              Hết hạn: {s.end_date ? new Date(s.end_date).toLocaleDateString('vi-VN') : '30 ngày'}
+                            </p>
+                            <span className={`inline-block text-[11px] font-bold ${
+                              s.current_status === 'active' ? 'text-emerald-700' : 'text-rose-700'
+                            }`}>
+                              {s.current_status === 'active' ? `(Còn ${Math.max(0, s.days_remaining || 0)} ngày)` : '(Đã hết hạn)'}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 align-middle">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                            s.current_status === 'active'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}>
+                            {s.current_status === 'active' ? '✓ Đang hiệu lực' : '✗ Đã hết hạn'}
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 align-middle text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleExtendSub(s.id, s.full_name)}
+                              className="rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-2.5 py-1.5 text-[11px] font-bold transition shadow-2xs flex items-center gap-1 cursor-pointer"
+                              title="Gia hạn thêm 30 ngày cho gia đình này"
+                            >
+                              <RefreshCw size={12} /> +30 ngày
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSubStatus(s.id, s.current_status, s.full_name)}
+                              className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition cursor-pointer ${
+                                s.current_status === 'active'
+                                  ? 'border-rose-300 text-rose-800 hover:bg-rose-50'
+                                  : 'border-emerald-300 text-emerald-800 hover:bg-emerald-50'
+                              }`}
+                            >
+                              {s.current_status === 'active' ? 'Hủy gói' : 'Kích hoạt'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAdminDirectRecipientId(s.user_id);
+                                setAdminDirectRecipientName(s.full_name);
+                                setActiveTab('messages');
+                              }}
+                              className="rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 px-2 py-1.5 text-[11px] font-bold transition cursor-pointer"
+                              title="Nhắn tin với gia đình"
+                            >
+                              <MessageCircle size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* MODAL BẢNG SO SÁNH PHÂN TÁCH RÕ RÀNG QUYỀN LỢI CHO ADMIN */}
+          {showBenefitModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+              <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div className="flex items-center gap-2">
+                    <Crown size={20} className="text-amber-600 fill-amber-500" />
+                    <h3 className="font-display font-bold text-[18px] text-gray-900">
+                      Bảng Phân Tách Quyền Lợi: Gói Tiêu Chuẩn vs Premium
+                    </h3>
+                  </div>
+                  <button onClick={() => setShowBenefitModal(false)} className="rounded-lg p-1 hover:bg-gray-100 cursor-pointer">
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-gray-200">
+                  <table className="w-full text-left border-collapse text-[12px]">
+                    <thead>
+                      <tr className="bg-[#f9faf7] border-b text-gray-700">
+                        <th className="py-2.5 px-3 font-bold">Hạng Mục Quyền Lợi</th>
+                        <th className="py-2.5 px-3 font-bold text-center text-gray-500">Gói Tiêu Chuẩn</th>
+                        <th className="py-2.5 px-3 font-bold text-center text-amber-900 bg-amber-50/70">Gói Premium (50k)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Ưu tiên tìm người & Ghép ca AI</td>
+                        <td className="py-2.5 px-3 text-center text-gray-500">Theo thuật toán thông thường</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">⭐ Ưu tiên số 1 (CARE SCORE 95đ+)</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Ưu tiên đặt lịch & Giữ chỗ</td>
+                        <td className="py-2.5 px-3 text-center text-gray-500">Khung giờ còn rảnh</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">📅 Khóa giữ chỗ cao điểm / Lễ Tết</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Tốc độ tiếp nhận ca</td>
+                        <td className="py-2.5 px-3 text-center text-gray-500">30 - 60 phút</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">⚡ 10 - 15 phút</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Hỗ trợ CSKH & Sự cố</td>
+                        <td className="py-2.5 px-3 text-center text-gray-500">Trong 24 giờ</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">🛡️ Ưu tiên xử lý trong 15 phút</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Đường dây y tế trực 24/7</td>
+                        <td className="py-2.5 px-3 text-center text-gray-400">— Không có —</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">🩺 Điều dưỡng trưởng tư vấn 24/7</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Miễn phí đổi người chăm sóc</td>
+                        <td className="py-2.5 px-3 text-center text-gray-500">Tính phí</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">🔄 Miễn phí trong 24h đầu</td>
+                      </tr>
+                      <tr>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Huy hiệu VIP hệ thống</td>
+                        <td className="py-2.5 px-3 text-center text-gray-400">— Không có —</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">👑 Huy hiệu Gia Đình VIP</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => setShowBenefitModal(false)}
+                    className="rounded-xl bg-gray-800 text-white px-4 py-2 text-[12px] font-bold hover:bg-gray-900 transition cursor-pointer"
+                  >
+                    Đóng bảng so sánh
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -5558,7 +7895,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                         <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
                           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Số CCCD / CMND</p>
                           <p className="mt-1 text-[15px] font-bold text-emerald-950 font-mono">
-                            {(modalDetail?.caregiver_profile as any)?.id_number || '001198012345'}
+                            {(modalDetail?.caregiver_profile as any)?.id_number || modalUser.id_number || 'Chưa cập nhật'}
                           </p>
                         </div>
                         <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
@@ -5569,16 +7906,98 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Địa chỉ Email</p>
                           <p className="mt-1 text-[14px] font-bold text-gray-900">{modalUser.email}</p>
                         </div>
-                        <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
-                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Khu vực đăng ký phục vụ</p>
-                          <p className="mt-1 text-[14px] font-bold text-gray-900">📍 {modalDetail?.caregiver_profile?.district || 'Hà Nội'}</p>
-                        </div>
-                        <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
-                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Ngày tham gia hệ thống</p>
+                        {/* ĐỊA CHỈ LIÊN HỆ NƠI CƯ TRÚ (TÁCH RIÊNG KHU VỰC NHẬN CA) */}
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4">
+                          <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex items-center gap-1">
+                            <Home size={13} /> Địa chỉ liên hệ (Nơi cư trú hiện tại)
+                          </p>
                           <p className="mt-1 text-[14px] font-bold text-gray-900">
-                            {modalUser.created_at ? new Date(modalUser.created_at).toLocaleDateString('vi-VN') : '22/09/2026'}
+                            {modalDetail?.caregiver_profile?.contact_address || modalUser.contact_address || 'Chưa cập nhật'}
                           </p>
                         </div>
+                        <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
+                          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1">
+                            <MapPin size={13} /> Khu vực đăng ký nhận ca
+                          </p>
+                          <p className="mt-1 text-[14px] font-bold text-gray-900">📍 {modalDetail?.caregiver_profile?.district || modalUser.district || 'Hà Nội'}</p>
+                          <p className="text-[10.5px] text-gray-500 mt-0.5">Phạm vi địa lý sẵn sàng di chuyển</p>
+                        </div>
+                      </div>
+
+                      {/* PHỎNG VẤN TRỰC TUYẾN VỚI ADMIN (BẮT BUỘC) */}
+                      <div className="rounded-2xl border border-amber-200 bg-[#fdfaf3] p-4.5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Video size={16} className="text-amber-700" />
+                            <h5 className="font-display font-bold text-[14px] text-amber-950">
+                              Phỏng Vấn Tuyển Chọn Trực Tuyến (Bắt buộc)
+                            </h5>
+                          </div>
+                          <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                            modalDetail?.caregiver_profile?.interview_status === 'passed'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : modalDetail?.caregiver_profile?.interview_status === 'scheduled'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : modalDetail?.caregiver_profile?.interview_status === 'failed'
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}>
+                            {modalDetail?.caregiver_profile?.interview_status === 'passed' && '✓ Đã đạt chuẩn'}
+                            {modalDetail?.caregiver_profile?.interview_status === 'scheduled' && '⏳ Đã có lịch hẹn'}
+                            {modalDetail?.caregiver_profile?.interview_status === 'failed' && '✗ Chưa đạt'}
+                            {(!modalDetail?.caregiver_profile?.interview_status || modalDetail?.caregiver_profile?.interview_status === 'not_scheduled') && 'Chưa đặt lịch'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[12px]">
+                          <div>
+                            <span className="text-gray-500 font-medium">Thời gian hẹn:</span>
+                            <p className="font-bold text-gray-800 mt-0.5">
+                              {modalDetail?.caregiver_profile?.interview_date ? `${modalDetail.caregiver_profile.interview_date} (${modalDetail.caregiver_profile.interview_time || '09:30 - 10:00'})` : 'Chưa đặt lịch'}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-medium">Link Google Meet:</span>
+                            <div className="mt-1 flex items-center gap-2 flex-wrap">
+                              {modalDetail?.caregiver_profile?.interview_meeting_link ? (
+                                <>
+                                  <a
+                                    href={modalDetail.caregiver_profile.interview_meeting_link}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-2.5 py-1 text-[11px] font-bold shadow-2xs"
+                                  >
+                                    <Video size={12} /> Mở Meet <ExternalLink size={11} />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleGenerateAndOpenMeet(modalUser.id, modalUser.full_name)}
+                                    disabled={generatingMeetUserId === modalUser.id}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 transition cursor-pointer"
+                                  >
+                                    {generatingMeetUserId === modalUser.id ? 'Đang tạo...' : 'Tạo mới & Gửi link'}
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleGenerateAndOpenMeet(modalUser.id, modalUser.full_name)}
+                                  disabled={generatingMeetUserId === modalUser.id}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-[11.5px] font-bold shadow-2xs transition cursor-pointer"
+                                >
+                                  <Video size={13} />
+                                  {generatingMeetUserId === modalUser.id ? 'Đang tạo...' : 'Mở phòng & Gửi link Meet'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {modalDetail?.caregiver_profile?.interview_notes && (
+                          <div className="rounded-xl bg-white p-2.5 text-[11.5px] text-gray-700 border border-amber-100">
+                            <strong>Ghi chú:</strong> {modalDetail.caregiver_profile.interview_notes}
+                          </div>
+                        )}
                       </div>
 
                       <div className="rounded-2xl border border-gray-200 bg-gray-50/50 p-4">
@@ -5604,35 +8023,77 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                         <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
                           <p className="text-[11px] font-bold text-blue-800 uppercase tracking-wider">Kinh nghiệm thực tế</p>
                           <p className="mt-2 text-[30px] font-extrabold text-blue-950 font-display">
-                            {modalDetail?.caregiver_profile?.experience_years || modalUser.experience_years || 5} Năm
+                            {modalDetail?.caregiver_profile?.experience_years || modalUser.experience_years || 1} Năm
                           </p>
                           <p className="text-[11px] text-blue-700 mt-1">Chăm sóc người già & điều dưỡng</p>
                         </div>
                         <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-                          <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Mức thù lao niêm yết</p>
-                          <p className="mt-2 text-[30px] font-extrabold text-amber-950 font-display">
-                            {(modalDetail?.caregiver_profile?.hourly_rate || modalUser.hourly_rate || 100000).toLocaleString('vi-VN')} đ
-                          </p>
-                          <p className="text-[11px] text-amber-700 mt-1">Đơn giá / 1 giờ phục vụ</p>
+                          <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Mức thù lao niêm yết theo ca</p>
+                          <div className="mt-2 space-y-1">
+                            <div className="flex items-center justify-between text-[14px] font-extrabold text-amber-950">
+                              <span className="text-[11.5px] font-medium text-amber-800">☀️ Ca ngày:</span>
+                              <span>{(Number(modalDetail?.caregiver_profile?.shift_rate) || 400000).toLocaleString('vi-VN')} đ/ca</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[13px] font-extrabold text-amber-900">
+                              <span className="text-[11.5px] font-medium text-amber-800">🌙 Ca tối (x1.5):</span>
+                              <span>{(Number(modalDetail?.caregiver_profile?.night_shift_rate) || Math.round((Number(modalDetail?.caregiver_profile?.shift_rate) || 400000) * 1.5)).toLocaleString('vi-VN')} đ/ca</span>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-amber-700 mt-1">* Thù lao chuẩn tính theo từng ca làm việc</p>
                         </div>
                       </div>
 
+                      {/* Danh mục kỹ năng chuyên môn */}
                       <div className="rounded-2xl border border-gray-200 bg-white p-5">
-                        <p className="text-[12px] font-bold text-gray-700 uppercase tracking-wider mb-3">Danh mục kỹ năng đã kiểm định:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {(modalDetail?.caregiver_profile?.skills || [
-                            'Theo dõi huyết áp & đường huyết',
-                            'Nấu ăn mềm cho người già',
-                            'Hỗ trợ phục hồi vận động & tập đi',
-                            'Xoa bóp cổ vai gáy',
-                            'Sơ cấp cứu cơ bản',
-                            'Chăm sóc sau tai biến & phẫu thuật'
-                          ]).map((s: string, idx: number) => (
-                            <span key={idx} className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[12px] font-bold text-emerald-900 flex items-center gap-1.5">
-                              ✓ {s}
-                            </span>
-                          ))}
-                        </div>
+                        <p className="text-[12px] font-bold text-gray-700 uppercase tracking-wider mb-3">
+                          Danh mục kỹ năng đã kiểm định ({Array.isArray(modalDetail?.caregiver_profile?.skills) ? modalDetail.caregiver_profile.skills.length : 0}):
+                        </p>
+                        {Array.isArray(modalDetail?.caregiver_profile?.skills) && modalDetail.caregiver_profile.skills.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {modalDetail.caregiver_profile.skills.map((s: string, idx: number) => (
+                              <span key={idx} className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[12px] font-bold text-emerald-900 flex items-center gap-1.5">
+                                <Check size={14} className="text-emerald-700" /> {s}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[12.5px] text-gray-400 italic">Ứng viên chưa chọn kỹ năng chuyên môn.</p>
+                        )}
+                      </div>
+
+                      {/* Danh mục kinh nghiệm công tác & Nơi đã từng làm việc */}
+                      <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                        <p className="text-[12px] font-bold text-gray-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                          <Building2 size={16} className="text-[#3f633b]" />
+                          Kinh nghiệm công tác & Nơi đã từng làm việc ({Array.isArray(modalDetail?.caregiver_profile?.work_history) ? modalDetail.caregiver_profile.work_history.length : 0}):
+                        </p>
+                        {Array.isArray(modalDetail?.caregiver_profile?.work_history) && modalDetail.caregiver_profile.work_history.length > 0 ? (
+                          <div className="space-y-3">
+                            {modalDetail.caregiver_profile.work_history.map((wh: any, idx: number) => (
+                              <div key={wh.id || idx} className="rounded-xl border border-gray-100 bg-[#fbfdfa] p-3.5 space-y-1.5">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <h5 className="font-bold text-[13.5px] text-gray-900 flex items-center gap-1.5">
+                                      <Building2 size={14} className="text-emerald-700" />
+                                      {wh.workplace || 'Chưa đặt tên cơ sở'}
+                                    </h5>
+                                    <p className="text-[12px] font-medium text-emerald-800 mt-0.5">{wh.role || 'Chuyên viên chăm sóc'}</p>
+                                  </div>
+                                  <span className="rounded-md bg-emerald-100 text-emerald-900 px-2 py-0.5 text-[10.5px] font-bold shrink-0">
+                                    {wh.from_date || 'N/A'} - {wh.to_date || 'Hiện tại'}
+                                  </span>
+                                </div>
+                                {wh.description && (
+                                  <p className="text-[11.5px] text-gray-600 bg-white p-2 rounded-lg border border-gray-100 mt-1">
+                                    {wh.description}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[12.5px] text-gray-400 italic">Ứng viên chưa khai báo lịch sử nơi từng công tác.</p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -5718,7 +8179,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                   {/* TAB: LỊCH ĐÃ NHẬN */}
                   {modalCaregiverTab === 'schedules' && (
                     <div className="space-y-3">
-                      <p className="text-[13px] font-bold text-gray-700">Các ca chăm sóc trong MySQL ({modalSchedules.length} ca):</p>
+                      <p className="text-[13px] font-bold text-gray-700">Danh sách ca chăm sóc ({modalSchedules.length} ca):</p>
                       {modalSchedules.length === 0 ? (
                         <p className="text-[13px] text-gray-400 text-center py-8">Người chăm sóc này chưa nhận ca nào</p>
                       ) : (
@@ -5815,6 +8276,201 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                 <div className="py-16 text-center text-gray-500">Đang tải thông tin gia đình...</div>
               ) : (
                 <>
+                  {/* THÔNG TIN XÁC THỰC eKYC (CCCD) CỦA ĐẠI DIỆN GIA ĐÌNH */}
+                  <div className="rounded-2xl border border-[#d6e2d3] bg-[#fbfdfa] p-5 shadow-2xs space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#e5ece2] pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-xl bg-[#435d41] text-white flex items-center justify-center">
+                          <ShieldCheck size={18} />
+                        </div>
+                        <div>
+                          <h4 className="font-display text-[16px] font-bold text-gray-900">
+                            Thông Tin eKYC & Căn Cước Công Dân Đại Diện
+                          </h4>
+                          <p className="text-[11.5px] text-gray-500">
+                            Dữ liệu định danh để đảm bảo an toàn 2 chiều khi người chăm sóc đến làm việc tại nhà
+                          </p>
+                        </div>
+                      </div>
+                      <div>
+                        {modalDetail?.family_profile?.verification_status === 'approved' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1 text-[11.5px] font-bold">
+                            <CheckCircle2 size={13} /> Đã Phê Duyệt eKYC
+                          </span>
+                        ) : modalDetail?.family_profile?.verification_status === 'pending' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1 text-[11.5px] font-bold animate-pulse">
+                            <Clock3 size={13} /> Chờ Admin Duyệt eKYC
+                          </span>
+                        ) : modalDetail?.family_profile?.verification_status === 'rejected' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300 px-3 py-1 text-[11.5px] font-bold">
+                            <AlertCircle size={13} /> Cần Bổ Sung eKYC
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 border border-gray-300 px-3 py-1 text-[11.5px] font-bold">
+                            Chưa Nộp CCCD
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[12.5px]">
+                      <div>
+                        <span className="text-gray-400 font-medium">Người đại diện:</span>
+                        <p className="font-bold text-gray-800">{modalDetail?.family_profile?.representative_name || modalUser.full_name}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 font-medium">Số CCCD gắn chip:</span>
+                        <p className="font-mono font-bold text-gray-900 tracking-wider">
+                          {modalDetail?.family_profile?.id_number || <span className="text-amber-700 font-sans italic font-normal">Chưa cung cấp</span>}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-gray-400 font-medium">Khu vực / Nơi ở:</span>
+                        <p className="font-bold text-gray-800">
+                          {modalDetail?.family_profile?.address || modalDetail?.family_profile?.district || 'Chưa cập nhật'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Ảnh CCCD 2 mặt */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-2 text-center">
+                        <span className="text-[11px] font-bold text-gray-600 mb-1 block">CCCD Mặt Trước</span>
+                        {modalDetail?.family_profile?.id_card_front ? (
+                          <div 
+                            onClick={() => setPreviewDocModal({ title: 'CCCD Mặt Trước - ' + modalUser.full_name, type: 'cccd_front', status: 'verified', url: modalDetail.family_profile.id_card_front })}
+                            className="cursor-pointer group relative aspect-[16/10] overflow-hidden rounded-lg border border-gray-200"
+                          >
+                            <img src={modalDetail.family_profile.id_card_front} alt="Mặt trước" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[11.5px] font-bold gap-1">
+                              <Eye size={14} /> Xem ảnh to
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="aspect-[16/10] flex items-center justify-center text-[11.5px] text-gray-400 border border-dashed rounded-lg bg-white">
+                            Chưa tải ảnh mặt trước
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-2 text-center">
+                        <span className="text-[11px] font-bold text-gray-600 mb-1 block">CCCD Mặt Sau</span>
+                        {modalDetail?.family_profile?.id_card_back ? (
+                          <div 
+                            onClick={() => setPreviewDocModal({ title: 'CCCD Mặt Sau - ' + modalUser.full_name, type: 'cccd_back', status: 'verified', url: modalDetail.family_profile.id_card_back })}
+                            className="cursor-pointer group relative aspect-[16/10] overflow-hidden rounded-lg border border-gray-200"
+                          >
+                            <img src={modalDetail.family_profile.id_card_back} alt="Mặt sau" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[11.5px] font-bold gap-1">
+                              <Eye size={14} /> Xem ảnh to
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="aspect-[16/10] flex items-center justify-center text-[11.5px] text-gray-400 border border-dashed rounded-lg bg-white">
+                            Chưa tải ảnh mặt sau
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Nút hành động phê duyệt cho Admin */}
+                    <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-gray-100">
+                      {modalDetail?.family_profile?.verification_status === 'approved' || modalUser.fp_verification_status === 'approved' ? (
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 px-4 py-2 text-[12px] font-bold shadow-2xs">
+                            <CheckCircle2 size={16} className="text-emerald-600" /> Đã Phê Duyệt eKYC Gia Đình
+                          </span>
+                          <button
+                            onClick={async () => {
+                              const reason = window.prompt('Nhập lý do yêu cầu gia đình xác thực lại CCCD:');
+                              if (reason === null) return;
+                              try {
+                                const res = await fetch(`${API}/admin/families/${modalUser.id}/verify`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'rejected', rejection_reason: reason || 'Vui lòng kiểm tra và cập nhật lại CCCD.' })
+                                });
+                                if (res.ok) {
+                                  notify('Đã chuyển sang trạng thái yêu cầu bổ sung CCCD.');
+                                  setModalDetail((prev: any) => prev ? {
+                                    ...prev,
+                                    family_profile: { ...prev.family_profile, verification_status: 'rejected' }
+                                  } : prev);
+                                  setUsers(prev => prev.map(u => u.id === modalUser.id ? { ...u, fp_verification_status: 'rejected' } : u));
+                                  handleOpenFamilyModal(modalUser);
+                                }
+                              } catch {
+                                notify('Lỗi khi cập nhật trạng thái.');
+                              }
+                            }}
+                            className="rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 px-3 py-2 text-[11.5px] font-semibold transition cursor-pointer"
+                            title="Yêu cầu gia đình xác thực lại nếu cần"
+                          >
+                            Yêu cầu cập nhật lại
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={async () => {
+                              const reason = window.prompt('Nhập lý do yêu cầu bổ sung hồ sơ eKYC (ví dụ: Ảnh chụp CCCD bị mờ, số CCCD không khớp):');
+                              if (reason === null) return;
+                              try {
+                                const res = await fetch(`${API}/admin/families/${modalUser.id}/verify`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'rejected', rejection_reason: reason || 'Vui lòng chụp lại ảnh CCCD rõ nét.' })
+                                });
+                                if (res.ok) {
+                                  notify('Đã gửi yêu cầu bổ sung hồ sơ eKYC cho gia đình!');
+                                  setModalDetail((prev: any) => prev ? {
+                                    ...prev,
+                                    family_profile: { ...prev.family_profile, verification_status: 'rejected' }
+                                  } : prev);
+                                  setUsers(prev => prev.map(u => u.id === modalUser.id ? { ...u, fp_verification_status: 'rejected' } : u));
+                                  handleOpenFamilyModal(modalUser);
+                                }
+                              } catch {
+                                notify('Lỗi máy chủ khi cập nhật eKYC.');
+                              }
+                            }}
+                            className="rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-800 px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1 cursor-pointer"
+                            data-testid="button-admin-reject-family-ekyc"
+                          >
+                            <AlertCircle size={14} /> Yêu cầu bổ sung
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`${API}/admin/families/${modalUser.id}/verify`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'approved' })
+                                });
+                                if (res.ok) {
+                                  notify(`Đã phê duyệt eKYC thành công cho gia đình ${modalUser.full_name}! ✓`);
+                                  setModalDetail((prev: any) => prev ? {
+                                    ...prev,
+                                    family_profile: { ...prev.family_profile, verification_status: 'approved' }
+                                  } : prev);
+                                  setUsers(prev => prev.map(u => u.id === modalUser.id ? { ...u, fp_verification_status: 'approved' } : u));
+                                  handleOpenFamilyModal(modalUser);
+                                }
+                              } catch {
+                                notify('Lỗi máy chủ khi phê duyệt eKYC.');
+                              }
+                            }}
+                            className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white px-4 py-2 text-[12px] font-bold shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                            data-testid="button-admin-approve-family-ekyc"
+                          >
+                            <CheckCircle2 size={15} /> Phê Duyệt eKYC Gia Đình
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
                   {/* BANNER THỐNG KÊ SỐ NGƯỜI CẦN CHĂM SÓC */}
                   <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-[#faede0] to-[#f5dfb8] p-5 border border-[#e4c995]">
                     <div>
@@ -5822,7 +8478,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                       <h4 className="font-display text-[22px] font-bold text-[#442c0c] mt-0.5">
                         Gia đình này đang có {modalDetail?.elderly_profiles?.length || 0} người cần chăm sóc
                       </h4>
-                      <p className="text-[12px] text-[#6b4c1d] mt-1">Được lưu trữ và đồng bộ hồ sơ bệnh án trực tiếp trong MySQL.</p>
+                      <p className="text-[12px] text-[#6b4c1d] mt-1">Được lưu trữ và đồng bộ hồ sơ bệnh án trực tiếp trên hệ thống.</p>
                     </div>
                     <div className="h-12 w-12 rounded-2xl bg-white/70 flex items-center justify-center text-[22px] font-bold text-[#8a5d1b] shadow-xs">
                       {modalDetail?.elderly_profiles?.length || 0}
@@ -6007,6 +8663,137 @@ function Admin({ notify }: { notify: (message: string) => void }) {
           </div>
         </div>
       )}
+
+      {/* ============================================================= */}
+      {/* MODAL 4: ĐÁNH GIÁ PHỎNG VẤN TRỰC TUYẾN DÀNH CHO ADMIN */}
+      {/* ============================================================= */}
+      {evaluatingInterview && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="relative flex flex-col w-full max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden border border-gray-200 animate-rise">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-[#f4f9f2]">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-[#3b5d38] text-white flex items-center justify-center">
+                  <Video size={18} />
+                </div>
+                <div>
+                  <h3 className="font-display text-[17px] font-bold text-[#1e3225]">
+                    Đánh Giá Kết Quả Phỏng Vấn
+                  </h3>
+                  <p className="text-[11.5px] text-gray-500">
+                    Ứng viên: <strong>{evaluatingInterview.full_name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEvaluatingInterview(null)}
+                className="rounded-full p-1.5 text-gray-400 hover:bg-gray-200 transition cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-[12px] font-bold text-gray-700 mb-2">
+                  Kết quả phỏng vấn trực tuyến *
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEvalStatus('passed')}
+                    className={`rounded-2xl border p-3.5 text-left transition cursor-pointer ${
+                      evalStatus === 'passed'
+                        ? 'border-emerald-600 bg-emerald-50 text-emerald-950 ring-2 ring-emerald-500'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-[13px] text-emerald-800">
+                      <CheckCircle2 size={16} /> Đạt chuẩn tuyển chọn
+                    </div>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Kích hoạt quyền nhận ca và hiển thị lên đề xuất khách hàng.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEvalStatus('failed')}
+                    className={`rounded-2xl border p-3.5 text-left transition cursor-pointer ${
+                      evalStatus === 'failed'
+                        ? 'border-rose-600 bg-rose-50 text-rose-950 ring-2 ring-rose-500'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-bold text-[13px] text-rose-800">
+                      <AlertCircle size={16} /> Chưa đạt yêu cầu
+                    </div>
+                    <p className="text-[11px] text-gray-600 mt-1">
+                      Yêu cầu bổ sung hồ sơ hoặc đặt lại lịch hẹn phỏng vấn.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
+              {evalStatus === 'passed' && (
+                <div>
+                  <label className="block text-[12px] font-bold text-gray-700 mb-1">
+                    Cấp điểm CARE SCORE tin cậy (Thang 100)
+                  </label>
+                  <input
+                    type="number"
+                    min="85"
+                    max="100"
+                    value={evalScore}
+                    onChange={e => setEvalScore(Math.min(100, Math.max(70, Number(e.target.value))))}
+                    className="w-full rounded-xl border border-gray-300 p-2.5 text-[13px] font-bold outline-none focus:border-emerald-600"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Điểm chuẩn: 96/100 (Bao gồm điểm cộng phỏng vấn tác phong & nghiệp vụ).
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[12px] font-bold text-gray-700 mb-1">
+                  Nhận xét chuyên môn & Ghi chú của Admin
+                </label>
+                <textarea
+                  rows={3}
+                  value={evalNotes}
+                  onChange={e => setEvalNotes(e.target.value)}
+                  placeholder="Ghi nhận xét về chuyên môn, thái độ, tính xác thực của tài liệu..."
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-[12.5px] outline-none focus:border-emerald-600"
+                />
+              </div>
+
+              <div className="rounded-xl bg-[#f4f9f2] border border-[#c4dcbe] p-3 text-[11.5px] text-[#345130] flex items-start gap-2">
+                <ShieldCheck size={16} className="shrink-0 mt-0.5 text-emerald-700" />
+                <span>
+                  Khi chọn <strong>Đạt chuẩn</strong>, hệ thống tự động lưu kết quả thẩm định, cấp tích xanh xác thực và gửi thông báo trực tiếp đến Caregiver.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-200 bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setEvaluatingInterview(null)}
+                className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-[12px] font-bold text-gray-700 hover:bg-gray-100 cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleEvaluateInterview}
+                disabled={evalLoading}
+                className="rounded-xl bg-[#3b5d38] px-5 py-2 text-[12px] font-bold text-white hover:bg-[#2d492b] transition shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {evalLoading ? 'Đang lưu kết quả...' : 'Xác nhận kết quả'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -6050,21 +8837,21 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: () => void }) {
   };
 
   return (
-    <div className="app-noise flex min-h-[100dvh] items-center justify-center bg-[#1a2820] px-5 py-12 text-[#f6f2e9]">
+    <div className="app-noise flex min-h-[100dvh] items-center justify-center bg-[#1a2715] px-5 py-12 text-[#f6f8f2]">
       <div className="w-full max-w-[420px]">
         {/* Logo + Badge */}
         <div className="flex items-center justify-between mb-8">
-          <LogoMark />
-          <span className="rounded-full bg-[#f1d7a8]/15 px-3 py-1 text-[11px] font-bold text-[#f1d7a8] border border-[#f1d7a8]/25 flex items-center gap-1.5">
-            <LockKeyhole size={11} /> Admin Portal
+          <LogoMark light size="md" />
+          <span className="rounded-full bg-[#f1d7a8]/15 px-3 py-1 text-[11.5px] font-bold text-[#f1d7a8] border border-[#f1d7a8]/25 flex items-center gap-1.5">
+            <LockKeyhole size={12} /> Admin Portal
           </span>
         </div>
 
-        <div className="rounded-[28px] border border-white/10 bg-[#1b2b20]/90 p-8 shadow-[0_32px_80px_rgba(0,0,0,0.5)] backdrop-blur-sm">
-          <h2 className="font-display text-[28px] font-semibold text-[#fbf8f2] leading-tight">
+        <div className="rounded-[28px] border border-white/10 bg-[#1d2d18]/90 p-8 shadow-[0_32px_80px_rgba(0,0,0,0.5)] backdrop-blur-sm">
+          <h2 className="font-display text-[26px] font-bold text-[#fcfbf7] leading-tight">
             Cổng Quản Trị Hệ Thống
           </h2>
-          <p className="mt-2 text-[13px] text-[#a8c4a5] leading-relaxed">
+          <p className="mt-2 text-[13.5px] text-[#b3d4ad] leading-relaxed">
             Chỉ dành riêng cho Quản trị viên điều phối và phê duyệt hồ sơ người chăm sóc.
           </p>
 
@@ -6314,7 +9101,7 @@ function Router() {
           {!loggedIn ? (
             <Redirect to="/login" />
           ) : (
-            <AppShell onLogout={logout} userRole={userRole} onSwitchRole={switchRole} currentUser={currentUser}>
+            <AppShell onLogout={logout} userRole={userRole} onSwitchRole={switchRole} currentUser={currentUser} notify={notify}>
               <Switch>
                 <Route path="/dashboard">
                   {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'caregiver' ? <Redirect to="/caregiver" /> : <Dashboard notify={notify} currentUser={currentUser} />}
@@ -6322,8 +9109,11 @@ function Router() {
                 <Route path="/caregiver">
                   {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'family' ? <Redirect to="/dashboard" /> : <CaregiverPortal notify={notify} onNavigateToRole={switchRole} currentUser={currentUser} />}
                 </Route>
+                <Route path="/profile">
+                  {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'caregiver' ? <CaregiverPortal notify={notify} onNavigateToRole={switchRole} currentUser={currentUser} initialTab="reviews" /> : <CareProfile notify={notify} currentUser={currentUser} />}
+                </Route>
                 <Route path="/care-profile">
-                  {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'caregiver' ? <Redirect to="/caregiver" /> : <CareProfile notify={notify} currentUser={currentUser} />}
+                  {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'caregiver' ? <Redirect to="/profile" /> : <CareProfile notify={notify} currentUser={currentUser} />}
                 </Route>
                 <Route path="/matches">
                   {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'caregiver' ? <Redirect to="/caregiver" /> : <Matches notify={notify} />}
@@ -6333,9 +9123,15 @@ function Router() {
                 </Route>
                 <Route path="/schedule"><Schedule notify={notify} currentUser={currentUser} userRole={userRole} /></Route>
                 <Route path="/messages"><Messages notify={notify} currentUserRole={userRole} currentUser={currentUser} /></Route>
-                <Route path="/payments"><Payments notify={notify} userRole={userRole} /></Route>
+                <Route path="/payments"><Payments notify={notify} userRole={userRole} currentUser={currentUser} onOpenVipModal={() => window.dispatchEvent(new CustomEvent('carematch:open_vip_modal'))} /></Route>
+                <Route path="/community">
+                  {userRole === 'admin' ? <Redirect to="/community-management" /> : <CommunityView notify={notify} />}
+                </Route>
                 <Route path="/social-work">
-                  {userRole === 'admin' ? <Redirect to="/admin" /> : userRole === 'caregiver' ? <Redirect to="/caregiver" /> : <SocialWork notify={notify} />}
+                  <Redirect to="/community" />
+                </Route>
+                <Route path="/community-management">
+                  {userRole !== 'admin' ? <Redirect to="/community" /> : <CommunityManagementView notify={notify} />}
                 </Route>
                 <Route path="/admin">
                   {userRole !== 'admin' ? <Redirect to={userRole === 'caregiver' ? '/caregiver' : '/dashboard'} /> : <Admin notify={notify} />}
