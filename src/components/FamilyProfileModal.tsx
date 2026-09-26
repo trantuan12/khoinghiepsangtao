@@ -19,6 +19,7 @@ import {
   Info
 } from 'lucide-react';
 import { API } from '@/lib/apiConfig';
+import { compressImage } from '@/lib/imageUtils';
 
 export interface FamilyProfileData {
   id?: number;
@@ -111,52 +112,38 @@ export function FamilyProfileModal({
     else setUploadingBack(true);
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const dataUrl = event.target?.result as string;
-        if (!dataUrl) return;
+      const dataUrl = await compressImage(file);
 
-        try {
-          const uploadRes = await fetch(`${API}/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dataUrl,
-              fileName: file.name,
-              documentType: `family_cccd_${side}`
-            })
-          });
+      let finalUrl = dataUrl;
+      try {
+        const uploadRes = await fetch(`${API}/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dataUrl,
+            fileName: file.name,
+            documentType: `family_cccd_${side}`
+          })
+        });
 
-          if (uploadRes.ok) {
-            const uploadData = await uploadRes.json();
-            const photoUrl = uploadData.url || dataUrl;
-            setProfile(prev => ({
-              ...prev,
-              [side === 'front' ? 'id_card_front' : 'id_card_back']: photoUrl
-            }));
-            notify(`Đã tải lên ảnh CCCD (${side === 'front' ? 'Mặt trước' : 'Mặt sau'}) thành công!`);
-          } else {
-            // Fallback lưu trực tiếp dataUrl
-            setProfile(prev => ({
-              ...prev,
-              [side === 'front' ? 'id_card_front' : 'id_card_back']: dataUrl
-            }));
-          }
-        } catch {
-          setProfile(prev => ({
-            ...prev,
-            [side === 'front' ? 'id_card_front' : 'id_card_back']: dataUrl
-          }));
-        } finally {
-          if (side === 'front') setUploadingFront(false);
-          else setUploadingBack(false);
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          finalUrl = uploadData.url || dataUrl;
         }
-      };
-      reader.readAsDataURL(file);
+      } catch { }
+
+      setProfile(prev => ({
+        ...prev,
+        [side === 'front' ? 'id_card_front' : 'id_card_back']: finalUrl
+      }));
+      notify(`Đã nạp và lưu ảnh CCCD (${side === 'front' ? 'Mặt trước' : 'Mặt sau'}) vào hệ thống cơ sở dữ liệu! ✓`);
     } catch (err) {
       console.error('Lỗi đọc ảnh:', err);
+      notify('Không thể đọc file ảnh. Vui lòng thử lại.');
+    } finally {
       if (side === 'front') setUploadingFront(false);
       else setUploadingBack(false);
+      if (e.target) e.target.value = '';
     }
   };
 

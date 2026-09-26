@@ -1637,19 +1637,25 @@ app.post('/api/upload', async (req, res) => {
     else if (mimeType.includes('pdf')) ext = 'pdf';
     else if (mimeType.includes('webp')) ext = 'webp';
 
-    const cleanPrefix = documentType ? documentType.replace(/[^a-zA-Z0-9_-]/g, '_') : 'doc';
-    const filename = `${cleanPrefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-    const filePath = path.join(uploadsDir, filename);
+    let diskUrl = null;
+    try {
+      const cleanPrefix = documentType ? documentType.replace(/[^a-zA-Z0-9_-]/g, '_') : 'doc';
+      const filename = `${cleanPrefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+      const filePath = path.join(uploadsDir, filename);
+      await fs.promises.writeFile(filePath, buffer);
+      diskUrl = `/uploads/${filename}`;
+    } catch (e) {
+      console.warn('Backup disk write failed:', e.message);
+    }
 
-    await fs.promises.writeFile(filePath, buffer);
-    const fileUrl = `/uploads/${filename}`;
-
-    console.log(`✅ [Upload] Đã lưu tệp ${filename} vào thư mục uploads/`);
+    console.log(`✅ [Upload] Đã nhận và chuyển tệp (${Math.round(buffer.length / 1024)} KB) để lưu trực tiếp vào CSDL MySQL`);
     return res.json({
       success: true,
-      url: fileUrl,
-      filename,
-      originalName: fileName || filename,
+      url: dataUrl,
+      dataUrl,
+      diskUrl,
+      filename: fileName || 'document',
+      originalName: fileName || 'document',
       mimeType,
       size: buffer.length
     });

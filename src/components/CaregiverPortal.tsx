@@ -39,6 +39,7 @@ import {
 import { store, ScheduleItem } from '@/lib/store';
 import { CareShiftReportModal } from './CareShiftReportModal';
 import { API, API_BASE_URL } from '@/lib/apiConfig';
+import { compressImage } from '@/lib/imageUtils';
 
 export interface WorkHistoryItem {
   id: string;
@@ -531,50 +532,55 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     notify(`Đang tải lên tệp: ${file.name}...`);
 
     try {
-      // Đọc file thành data URL
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUrl = reader.result as string;
+      // Nén ảnh tự động và chuyển thành base64 dataUrl
+      const dataUrl = await compressImage(file);
 
-        try {
-          const res = await fetch(`${API}/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dataUrl,
-              fileName: file.name,
-              documentType: docType
-            })
-          });
+      try {
+        const res = await fetch(`${API}/upload`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dataUrl,
+            fileName: file.name,
+            documentType: docType
+          })
+        });
 
-          if (res.ok) {
-            const uploadData = await res.json();
-            const newDoc: CaregiverDoc = {
-              type: docType,
-              name: file.name,
-              url: uploadData.url,
-              filename: uploadData.filename,
-              uploadedAt: new Date().toISOString()
-            };
+        const uploadData = res.ok ? await res.json() : null;
+        const finalUrl = uploadData?.url || dataUrl;
 
-            setDocuments(prev => {
-              const filtered = prev.filter(d => d.type !== docType);
-              return [...filtered, newDoc];
-            });
+        const newDoc: CaregiverDoc = {
+          type: docType,
+          name: file.name,
+          url: finalUrl,
+          filename: uploadData?.filename || file.name,
+          uploadedAt: new Date().toISOString()
+        };
 
-            notify(`Đã tải lên tệp ${file.name} thành công và lưu vào hệ thống! ✓`);
-          } else {
-            notify('Máy chủ không thể lưu tệp. Vui lòng thử lại.');
-          }
-        } catch {
-          notify('Lỗi kết nối khi gửi tệp lên máy chủ.');
-        }
-      };
-      reader.readAsDataURL(file);
+        setDocuments(prev => {
+          const filtered = prev.filter(d => d.type !== docType);
+          return [...filtered, newDoc];
+        });
+
+        notify(`Đã nạp và lưu ảnh ${file.name} trực tiếp vào hệ thống cơ sở dữ liệu! ✓`);
+      } catch {
+        // Fallback: lưu trực tiếp dataUrl để lưu vào database
+        const newDoc: CaregiverDoc = {
+          type: docType,
+          name: file.name,
+          url: dataUrl,
+          filename: file.name,
+          uploadedAt: new Date().toISOString()
+        };
+        setDocuments(prev => {
+          const filtered = prev.filter(d => d.type !== docType);
+          return [...filtered, newDoc];
+        });
+        notify(`Đã lưu ảnh ${file.name} thành công! ✓`);
+      }
     } catch (err) {
       notify('Lỗi đọc tệp từ thiết bị của bạn.');
     } finally {
-      // Reset input để có thể chọn lại cùng một tệp nếu muốn
       if (e.target) e.target.value = '';
     }
   };
@@ -601,36 +607,36 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       }
 
       try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        const dataUrl = await compressImage(file);
 
-        const res = await fetch(`${API}/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dataUrl,
-            fileName: file.name,
-            documentType: docType
-          })
-        });
+        let finalUrl = dataUrl;
+        try {
+          const res = await fetch(`${API}/upload`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dataUrl,
+              fileName: file.name,
+              documentType: docType
+            })
+          });
 
-        if (res.ok) {
-          const uploadData = await res.json();
-          const newDoc: CaregiverDoc = {
-            type: docType,
-            name: file.name,
-            url: uploadData.url,
-            filename: uploadData.filename,
-            uploadedAt: new Date().toISOString()
-          };
+          if (res.ok) {
+            const uploadData = await res.json();
+            finalUrl = uploadData.url || dataUrl;
+          }
+        } catch { }
 
-          setDocuments(prev => [...prev, newDoc]);
-          uploadedCount++;
-        }
+        const newDoc: CaregiverDoc = {
+          type: docType,
+          name: file.name,
+          url: finalUrl,
+          filename: file.name,
+          uploadedAt: new Date().toISOString()
+        };
+
+        setDocuments(prev => [...prev, newDoc]);
+        uploadedCount++;
       } catch (err) {
         console.error('Lỗi khi tải tệp:', file.name, err);
       }

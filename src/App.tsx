@@ -10642,18 +10642,36 @@ function Admin({ notify }: { notify: (message: string) => void }) {
               </button>
             </div>
             <div className="p-6 text-center space-y-4">
-              {/* Document Mockup Preview Frame */}
-              <div className="rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-8 relative overflow-hidden">
-                <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none text-[64px] font-extrabold uppercase rotate-[-25deg]">
-                  CARE-MATCH VERIFIED
+              {/* Khung hiển thị ảnh tài liệu / CCCD thực tế từ CSDL MySQL */}
+              {previewDocModal.url ? (
+                <div className="rounded-2xl border border-gray-200 bg-gray-900/5 p-2 overflow-hidden flex flex-col items-center justify-center">
+                  <div className="max-h-[420px] w-full overflow-auto rounded-xl flex items-center justify-center bg-gray-100 p-2">
+                    <img
+                      src={previewDocModal.url}
+                      alt={previewDocModal.title}
+                      className="max-h-[380px] w-auto max-w-full rounded-lg shadow-sm object-contain"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold text-emerald-900 border border-emerald-300">
+                      <CheckCircle2 size={13} /> Tình trạng: {previewDocModal.status === 'verified' ? 'Đã xác thực hợp lệ' : 'Đang chờ thẩm tra'}
+                    </span>
+                    <span className="text-[11px] text-gray-500 font-medium">✓ Lưu trữ trong MySQL Railway</span>
+                  </div>
                 </div>
-                <FileText size={56} className="mx-auto text-emerald-800 mb-2" />
-                <p className="font-display text-[18px] font-bold text-emerald-950">{previewDocModal.title}</p>
-                <p className="text-[12px] text-emerald-700 mt-1">Đã được xác thực mã hóa trong hệ thống cơ sở dữ liệu CARE-MATCH</p>
-                <div className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold text-emerald-900 border border-emerald-300">
-                  <CheckCircle2 size={13} /> Tình trạng: {previewDocModal.status === 'verified' ? 'Đã xác thực hợp lệ' : 'Đang chờ thẩm tra'}
+              ) : (
+                <div className="rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-8 relative overflow-hidden">
+                  <div className="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none text-[64px] font-extrabold uppercase rotate-[-25deg]">
+                    CARE-MATCH VERIFIED
+                  </div>
+                  <FileText size={56} className="mx-auto text-emerald-800 mb-2" />
+                  <p className="font-display text-[18px] font-bold text-emerald-950">{previewDocModal.title}</p>
+                  <p className="text-[12px] text-emerald-700 mt-1">Đã được xác thực mã hóa trong hệ thống cơ sở dữ liệu CARE-MATCH</p>
+                  <div className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-bold text-emerald-900 border border-emerald-300">
+                    <CheckCircle2 size={13} /> Tình trạng: {previewDocModal.status === 'verified' ? 'Đã xác thực hợp lệ' : 'Đang chờ thẩm tra'}
+                  </div>
                 </div>
-              </div>
+              )}
               <p className="text-[11.5px] text-gray-500">Mã định danh bảo mật: SHA256-eKYC-{Math.random().toString(36).substring(2, 10).toUpperCase()}</p>
             </div>
             <div className="border-t border-gray-200 p-4 bg-gray-50 text-right">
