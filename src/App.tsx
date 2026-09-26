@@ -580,7 +580,7 @@ function AppShell({
     return name.substring(0, 2).toUpperCase();
   };
 
-  const displayName = currentUser?.full_name || (userRole === 'admin' ? 'Admin' : userRole === 'caregiver' ? 'Nguyễn Lan Anh' : 'Nguyễn Minh Mai');
+  const displayName = currentUser?.full_name || (userRole === 'admin' ? 'Admin' : userRole === 'caregiver' ? 'Người Chăm Sóc' : 'Gia Đình');
   const initials = userRole === 'admin' ? 'AD' : getInitialsFromName(displayName);
   const sidebarLabel = userRole === 'admin' ? 'Admin' : userRole === 'caregiver' ? displayName : `Gia đình ${displayName}`;
 
@@ -1043,8 +1043,15 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
         setErrorMsg(data.message || 'Thao tác không thành công. Vui lòng kiểm tra lại thông tin.');
       }
     } catch {
-      // Server không chạy → vẫn cho đăng nhập với dữ liệu demo
-      onLogin(selectedRole);
+      // Khi server backend (port 5000) chưa bật: dùng chính thông tin người dùng vừa nhập
+      const fallbackUser = {
+        id: Date.now(),
+        full_name: (!isLogin && fullname.trim()) ? fullname.trim() : (email.trim().split('@')[0] || (selectedRole === 'caregiver' ? 'Người Chăm Sóc' : 'Gia Đình')),
+        email: email.trim(),
+        role: selectedRole,
+        phone: ''
+      };
+      onLogin(selectedRole, fallbackUser);
     } finally {
       setLoading(false);
     }
@@ -1250,8 +1257,8 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
   const [addingPatient, setAddingPatient] = useState(false);
   const [isFamilyPremium, setIsFamilyPremium] = useState(false);
 
-  const userId = currentUser?.id || 5;
-  const userName = currentUser?.full_name || 'Người dùng';
+  const userId = currentUser?.id;
+  const userName = currentUser?.full_name || 'Gia Đình';
 
   // Kiểm tra trạng thái VIP Premium của gia đình
   useEffect(() => {
@@ -1277,6 +1284,11 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
 
   // Tải danh sách hồ sơ người cao tuổi từ MySQL
   const fetchProfiles = async () => {
+    if (!userId) {
+      setElderlyProfiles([]);
+      setLoadingProfiles(false);
+      return;
+    }
     setLoadingProfiles(true);
     try {
       const res = await fetch(`${API}/elderly-profiles?userId=${userId}`);
@@ -1293,6 +1305,11 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
 
   // Tải danh sách ca chăm sóc của gia đình từ MySQL
   const fetchSchedules = async () => {
+    if (!userId) {
+      setSchedules([]);
+      setLoadingSchedules(false);
+      return;
+    }
     setLoadingSchedules(true);
     try {
       const res = await fetch(`${API}/schedules?familyUserId=${userId}`);
@@ -1308,6 +1325,7 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
   };
 
   useEffect(() => {
+    if (!userId) return;
     fetchProfiles();
     fetchSchedules();
 
@@ -8989,13 +9007,13 @@ function Router() {
     if (user) {
       targetUser = { ...user, role: effectiveRole };
     } else {
-      // Fallback demo data khi server không chạy
+      // Fallback khi server không truyền user
       if (effectiveRole === 'caregiver') {
-        targetUser = { id: 2, full_name: 'Nguyễn Lan Anh', email: 'lananh.care@example.com', role: 'caregiver', phone: '0912 345 678' };
+        targetUser = { id: Date.now(), full_name: 'Người Chăm Sóc', email: 'caregiver@carematch.vn', role: 'caregiver', phone: '' };
       } else if (effectiveRole === 'admin') {
         targetUser = { id: 1, full_name: 'Admin Quản Trị', email: 'admin@carematch.vn', role: 'admin' };
       } else {
-        targetUser = { id: 5, full_name: 'Nguyễn Minh Mai', email: 'mai.nguyen@example.com', role: 'family', phone: '0934 567 890' };
+        targetUser = { id: Date.now(), full_name: 'Gia Đình', email: 'family@carematch.vn', role: 'family', phone: '' };
       }
     }
     setCurrentUser(targetUser);

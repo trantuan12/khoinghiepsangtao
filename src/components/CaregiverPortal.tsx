@@ -356,11 +356,12 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     healthCheck: useRef<HTMLInputElement>(null)
   };
 
-  const userId = currentUser?.id || 2;
+  const userId = currentUser?.id;
   const userName = currentUser?.full_name || formData.fullName || 'Người chăm sóc';
 
   // Tải danh sách đánh giá sao & nhận xét thực tế
   const loadCaregiverReviews = async () => {
+    if (!userId) return;
     setLoadingReviews(true);
     try {
       const res = await fetch(`${API}/reviews/caregiver/${userId}`);
@@ -378,11 +379,15 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
   };
 
   useEffect(() => {
-    loadCaregiverReviews();
+    if (userId) loadCaregiverReviews();
   }, [userId]);
 
   // 1. Tải hồ sơ từ cơ sở dữ liệu
   const loadCaregiverProfile = async () => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`${API}/caregiver-profile?userId=${userId}`);
@@ -447,8 +452,11 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
 
   // 2. Tải lịch trình ca làm việc từ MySQL
   const fetchSchedules = async () => {
+    if (!userId) {
+      setSchedules([]);
+      return;
+    }
     try {
-      const nameQuery = currentUser?.full_name ? encodeURIComponent(currentUser.full_name) : 'Lan Anh';
       const res = await fetch(`${API}/schedules?caregiverUserId=${userId}`);
       if (res.ok) {
         const data = await res.json();
@@ -476,6 +484,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
   };
 
   useEffect(() => {
+    if (!userId) return;
     loadCaregiverProfile();
     fetchSchedules();
 
