@@ -5666,10 +5666,14 @@ app.get('/api/export/schedules-csv', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'CARE-MATCH Backend API', timestamp: new Date().toISOString() });
+});
+
 // ========================================================
 // KHỞI ĐỘNG SERVER
 // ========================================================
-app.listen(PORT, async () => {
-  console.log(`🚀 [CARE-MATCH Backend] Server đang chạy tại: http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`🚀 [CARE-MATCH Backend] Server đang chạy tại: http://0.0.0.0:${PORT}`);
   await initMySql();
 });

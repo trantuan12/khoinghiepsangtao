@@ -1,9 +1,17 @@
 const mysql = require('mysql2/promise');
-require('dotenv').config({ path: 'server/.env' });
+const path = require('path');
+const fs = require('fs');
+
+const envPath = fs.existsSync(path.join(__dirname, '.env')) 
+  ? path.join(__dirname, '.env') 
+  : path.join(process.cwd(), 'server', '.env');
+require('dotenv').config({ path: envPath });
 
 async function reseed() {
+  console.log('Connecting to:', process.env.DB_HOST, process.env.DB_PORT, process.env.DB_USER, process.env.DB_NAME);
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST || '127.0.0.1',
+    port: Number(process.env.DB_PORT) || 3306,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'care_match_db'
@@ -13,7 +21,7 @@ async function reseed() {
 
   // Tắt kiểm tra foreign key tạm thời để truncate/clear dữ liệu cũ
   await conn.execute('SET FOREIGN_KEY_CHECKS = 0');
-  
+
   const tablesToClear = [
     'booking_escrow_payments',
     'transactions',
@@ -42,7 +50,7 @@ async function reseed() {
   const users = [
     // Admin
     { id: 1, username: 'admin', email: 'admin@carematch.vn', role: 'admin', full_name: 'Admin Quản Trị', phone: '0901234567' },
-    
+
     // 4 Gia Đình (Không danh xưng)
     { id: 10, username: 'hung_nguyen', email: 'hung.nguyen@carematch.vn', role: 'family', full_name: 'Nguyễn Văn Hùng', phone: '0912345678' },
     { id: 11, username: 'trong_tran', email: 'trong.tran@carematch.vn', role: 'family', full_name: 'Trần Đình Trọng', phone: '0923456789' },
@@ -89,7 +97,15 @@ async function reseed() {
   for (const fp of familyProfiles) {
     await conn.execute(
       `INSERT INTO family_profiles (user_id, representative_name, phone, email, id_number, address, district, verification_status, is_premium)
-       VALUES (?, ?, ?, ?, '001099887766', ?, ?, 'verified', ?)`,
+       VALUES (?, ?, ?, ?, '001099887766', ?, ?, 'approved', ?)
+       ON DUPLICATE KEY UPDATE
+         representative_name = VALUES(representative_name),
+         phone = VALUES(phone),
+         email = VALUES(email),
+         address = VALUES(address),
+         district = VALUES(district),
+         verification_status = 'approved',
+         is_premium = VALUES(is_premium)`,
       [fp.user_id, fp.representative_name, fp.phone, fp.email, fp.address, fp.district, fp.is_premium]
     );
   }
@@ -229,7 +245,18 @@ async function reseed() {
     await conn.execute(
       `INSERT INTO caregiver_profiles (
         user_id, title, id_number, experience_years, hourly_rate, shift_rate, district, bio, care_score, verification_status, rating, reviews_count
-      ) VALUES (?, ?, '001099112233', ?, ?, ?, ?, ?, ?, 'verified', ?, ?)`,
+      ) VALUES (?, ?, '001099112233', ?, ?, ?, ?, ?, ?, 'approved', ?, ?)
+      ON DUPLICATE KEY UPDATE
+        title = VALUES(title),
+        experience_years = VALUES(experience_years),
+        hourly_rate = VALUES(hourly_rate),
+        shift_rate = VALUES(shift_rate),
+        district = VALUES(district),
+        bio = VALUES(bio),
+        care_score = VALUES(care_score),
+        verification_status = 'approved',
+        rating = VALUES(rating),
+        reviews_count = VALUES(reviews_count)`,
       [cp.user_id, cp.title, cp.exp, cp.rate, cp.shift_rate, cp.district, cp.bio, cp.care_score, cp.rating, cp.reviews]
     );
 
@@ -346,7 +373,7 @@ async function reseed() {
 
   for (let i = 0; i < shiftsData.length; i++) {
     const s = shiftsData[i];
-    
+
     // Thêm vào bảng schedules
     const [schedRes] = await conn.execute(
       `INSERT INTO schedules (

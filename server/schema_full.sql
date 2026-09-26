@@ -1,13 +1,12 @@
 -- =========================================================
 -- CARE-MATCH DATABASE - FULL SCHEMA EXPORT
 -- Exported: 2026-09-26T15:25:40.525Z
+-- Dùng cho Railway MySQL (database mặc định: railway)
 -- =========================================================
 
-CREATE DATABASE IF NOT EXISTS care_match_db
-CHARACTER SET utf8mb4
-COLLATE utf8mb4_unicode_ci;
-
-USE care_match_db;
+-- Nếu dùng local XAMPP: bỏ comment 2 dòng dưới
+-- CREATE DATABASE IF NOT EXISTS care_match_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- USE care_match_db;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
