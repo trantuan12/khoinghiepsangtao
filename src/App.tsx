@@ -13,6 +13,7 @@ import { CaregiverRatingModal } from '@/components/CaregiverRatingModal';
 import { CareLogsView } from '@/components/CareLogsView';
 import { FamilyCareHistory3Step } from '@/components/FamilyCareHistory3Step';
 import { CareShiftReportModal } from '@/components/CareShiftReportModal';
+import { PatientMedicalHistoryModal } from '@/components/PatientMedicalHistoryModal';
 import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { store, MessageItem, ScheduleItem, CaregiverItem } from '@/lib/store';
@@ -2976,6 +2977,7 @@ function CaregiverScheduleView({
   const [caregiverStatusFilter, setCaregiverStatusFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed'>('all');
   const [completingShift, setCompletingShift] = useState<any | null>(null);
   const [viewingReportShift, setViewingReportShift] = useState<any | null>(null);
+  const [viewingPatientHistory, setViewingPatientHistory] = useState<any | null>(null);
 
   const pendingCount = schedules.filter(s => s.status === 'pending').length;
   const confirmedCount = schedules.filter(s => s.status === 'confirmed').length;
@@ -3225,21 +3227,73 @@ function CaregiverScheduleView({
                     {/* Hàng hành động */}
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[hsl(var(--border)/.6)] pt-3">
                       <div className="flex items-center gap-2 flex-wrap">
+                        {/* NÚT XEM BỆNH ÁN & LỊCH SỬ ĐO TRƯỚC CHO MỌI CA (CHỜ NHẬN, SẮP DIỄN RA, ĐÃ XONG) */}
+                        <Button
+                          variant="outline"
+                          onClick={() => setViewingPatientHistory({
+                            patientName: item.elderly_name,
+                            elderlyProfileId: item.elderly_profile_id,
+                            familyUserId: item.family_user_id,
+                            id: item.id,
+                            date: item.schedule_date,
+                            time: item.time_slot,
+                            title: item.title,
+                            tasks: item.tasks,
+                            status: item.status,
+                            familyName: item.family_name,
+                            familyPhone: item.family_phone,
+                            address: item.elderly_address,
+                            district: item.elderly_district
+                          })}
+                          className="bg-[#edf6eb] border-[#bcdcb6] text-[#2d5626] hover:bg-[#dfeeda] text-[12px] h-9 px-3 flex items-center gap-1.5 shadow-2xs font-bold"
+                          title="Xem bệnh án và lịch sử đo sinh hiệu các buổi trước của người bệnh"
+                        >
+                          <Stethoscope size={14} className="text-[#3c6b35]" />
+                          <span>Xem bệnh án & Lịch sử đo</span>
+                        </Button>
+
                         {isPending && (
-                          <Button
-                            onClick={() => handleConfirmShift(item.id)}
-                            className="bg-[#385139] text-white hover:bg-[#2c402d] text-[12px] h-9 px-3.5"
-                          >
-                            <CheckCircle2 size={15} /> Xác nhận nhận ca
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={() => handleConfirmShift(item.id)}
+                              className="bg-[#385139] text-white hover:bg-[#2c402d] text-[12px] h-9 px-3.5"
+                            >
+                              <CheckCircle2 size={15} /> Xác nhận nhận ca
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                if (window.confirm(`Bạn có chắc muốn từ chối ca "${item.title || 'Ca chăm sóc'}" này không?`)) {
+                                  notify('Đã từ chối nhận ca. Hệ thống sẽ điều phối người chăm sóc khác.');
+                                }
+                              }}
+                              className="border-gray-200 bg-white hover:bg-gray-100 text-gray-600 text-[11.5px] h-9 px-2.5 transition"
+                            >
+                              Từ chối
+                            </Button>
+                          </div>
                         )}
                         {isConfirmed && (
-                          <Button
-                            onClick={() => setCompletingShift(item)}
-                            className="bg-[#567a4e] text-white hover:bg-[#43643d] text-[12px] h-9 px-3.5 flex items-center gap-1.5 shadow-2xs"
-                          >
-                            <Stethoscope size={15} /> Báo cáo hoàn thành ca
-                          </Button>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Button
+                              onClick={() => setCompletingShift(item)}
+                              className="bg-[#567a4e] text-white hover:bg-[#43643d] text-[12px] h-9 px-3.5 flex items-center gap-1.5 shadow-2xs"
+                            >
+                              <CheckCircle2 size={15} /> Báo cáo hoàn thành ca
+                            </Button>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                if (window.confirm(`Bạn có chắc muốn gửi yêu cầu hủy hoặc đổi ca chăm sóc "${item.title || 'Ca chăm sóc'}" vào ngày ${item.schedule_date} (${item.time_slot}) không? Hệ thống sẽ thông báo đến Admin và Gia đình để sắp xếp điều phối kịp thời.`)) {
+                                  notify(`Đã gửi yêu cầu đổi/hủy ca (${item.schedule_date}) tới Admin & Gia đình.`);
+                                }
+                              }}
+                              className="border-gray-200 bg-white hover:bg-red-50 text-gray-600 hover:text-red-700 text-[11.5px] h-9 px-2.5 transition"
+                              title="Yêu cầu đổi hoặc hủy ca"
+                            >
+                              Yêu cầu hủy/đổi ca
+                            </Button>
+                          </div>
                         )}
                         {isCompleted && (
                           <Button
@@ -3409,6 +3463,18 @@ function CaregiverScheduleView({
           currentUser={currentUser}
           notify={notify}
           onClose={() => setViewingReportShift(null)}
+        />
+      )}
+
+      {/* MODAL XEM BỆNH ÁN & LỊCH SỬ ĐO SINH HIỆU CÁC BUỔI TRƯỚC */}
+      {viewingPatientHistory && (
+        <PatientMedicalHistoryModal
+          isOpen={true}
+          onClose={() => setViewingPatientHistory(null)}
+          patientName={viewingPatientHistory.patientName}
+          elderlyProfileId={viewingPatientHistory.elderlyProfileId}
+          familyUserId={viewingPatientHistory.familyUserId}
+          shiftInfo={viewingPatientHistory}
         />
       )}
     </>
