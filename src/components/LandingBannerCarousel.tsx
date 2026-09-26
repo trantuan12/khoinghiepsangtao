@@ -30,7 +30,7 @@ export function LandingBannerCarousel({ onActionClick }: LandingBannerCarouselPr
       description: "Thuật toán đối soát 5 chiều: Nhu cầu thể trạng (thang ADL), thói quen tính cách, thời gian rảnh, địa bàn gần nhà và chi phí tối ưu.",
       stats: [
         { label: "Độ tương thích", value: "96%" },
-        { label: "Người chăm sóc", value: "420+" },
+        { label: "Người chăm sóc", value: "8" },
         { label: "Thời gian ghép", value: "< 15 phút" }
       ],
       badge: "Ghép đôi thông minh",

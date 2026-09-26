@@ -907,7 +907,7 @@ function Landing() {
               <Initials text="VT" color="#b8ccb7" size="sm" />
               <Initials text="QA" color="#e3b1a0" size="sm" />
             </div>
-            <span><strong className="text-[#2a3f1d]">1.200+ gia đình</strong> đang được đồng hành</span>
+            <span><strong className="text-[#2a3f1d]">80+ gia đình</strong> đang được đồng hành</span>
           </div>
         </div>
 
@@ -919,9 +919,9 @@ function Landing() {
 
       <section id="tin-cay" className="border-y border-[#dce5d4] bg-[#f2f7ec]">
         <div className="mx-auto grid max-w-[1240px] grid-cols-2 gap-7 px-5 py-9 sm:px-8 md:grid-cols-4 lg:px-10">
-          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">1.200<span className="text-[#d29428]">+</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Gia đình đồng hành</p></div>
-          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">420<span className="text-[#d29428]">+</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Người chăm sóc</p></div>
-          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">4,8<span className="text-[20px] text-[#d29428]">/5</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Mức hài lòng</p></div>
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">80<span className="text-[#d29428]">+</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Gia đình đồng hành</p></div>
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">8</p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Người chăm sóc</p></div>
+          <div><p className="font-display text-[34px] font-bold text-[#2e461a]">4,9<span className="text-[20px] text-[#d29428]">/5</span></p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Mức hài lòng</p></div>
           <div><p className="font-display text-[34px] font-bold text-[#2e461a]">24/7</p><p className="mt-1 text-[11.5px] font-bold uppercase tracking-[.12em] text-[#5a7251]">Có người hỗ trợ</p></div>
         </div>
       </section>
@@ -11064,7 +11064,7 @@ function Router() {
     return <AdminLoginPage onAdminLogin={loginAdmin} />;
   }
 
-  const isPublic = location === '/intro' || location === '/login' || location === '/register';
+  const isPublic = location === '/' || location === '/intro' || location === '/login' || location === '/register';
   if (!loggedIn && !isPublic && location !== '/admin') {
     return <Redirect to="/login" />;
   }
@@ -11081,7 +11081,7 @@ function Router() {
           {loggedIn ? (
             <Redirect to={userRole === 'admin' ? '/admin' : userRole === 'caregiver' ? '/caregiver' : '/dashboard'} />
           ) : (
-            <Redirect to="/login" />
+            <Landing />
           )}
         </Route>
         <Route path="/intro" component={Landing} />
