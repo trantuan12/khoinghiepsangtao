@@ -1249,29 +1249,6 @@ app.get('/api/elderly-profiles', async (req, res) => {
   res.json([]);
 });
 
-// 4. Lấy chi tiết 1 hồ sơ theo profileId
-app.get('/api/elderly-profiles/:id', async (req, res) => {
-  const id = Number(req.params.id);
-
-  if (isMySqlConnected) {
-    try {
-      const [rows] = await pool.execute('SELECT * FROM elderly_profiles WHERE id = ? LIMIT 1', [id]);
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Không tìm thấy hồ sơ người bệnh' });
-      }
-      const p = rows[0];
-      return res.json({
-        ...p,
-        care_needs: parseJson(p.care_needs, [])
-      });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  res.status(404).json({ error: 'Chưa kết nối MySQL' });
-});
-
 // 4B. Lấy chi tiết hồ sơ người bệnh theo tên
 app.get('/api/elderly-profiles/by-name/:name', async (req, res) => {
   const rawName = decodeURIComponent(req.params.name).trim();
@@ -1293,6 +1270,29 @@ app.get('/api/elderly-profiles/by-name/:name', async (req, res) => {
       return res.status(500).json({ error: e.message });
     }
   }
+  res.status(404).json({ error: 'Chưa kết nối MySQL' });
+});
+
+// 4. Lấy chi tiết 1 hồ sơ theo profileId
+app.get('/api/elderly-profiles/:id', async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (isMySqlConnected) {
+    try {
+      const [rows] = await pool.execute('SELECT * FROM elderly_profiles WHERE id = ? LIMIT 1', [id]);
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'Không tìm thấy hồ sơ người bệnh' });
+      }
+      const p = rows[0];
+      return res.json({
+        ...p,
+        care_needs: parseJson(p.care_needs, [])
+      });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
   res.status(404).json({ error: 'Chưa kết nối MySQL' });
 });
 

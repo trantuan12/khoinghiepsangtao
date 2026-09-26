@@ -68,19 +68,33 @@ export function PatientMedicalHistoryModal({
         setLoading(true);
 
         // 1. Tải lịch sử đo sinh hiệu & chăm sóc các ca trước
-        const queryParams = new URLSearchParams();
-        if (elderlyProfileId) queryParams.append('elderlyProfileId', String(elderlyProfileId));
-        if (patientName) queryParams.append('elderlyName', patientName);
-        if (familyUserId) queryParams.append('familyUserId', String(familyUserId));
-
-        const logsRes = await fetch(`${API}/care-logs?${queryParams.toString()}`);
-        if (logsRes.ok && isMounted) {
-          const logsData = await logsRes.json();
-          if (Array.isArray(logsData)) {
-            setLogs(logsData);
-            if (logsData.length > 0) {
-              setExpandedLogId(logsData[0].id); // Mở sẵn ca mới nhất
+        let logsData: any[] = [];
+        if (elderlyProfileId) {
+          const res = await fetch(`${API}/care-logs?elderlyProfileId=${elderlyProfileId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+              logsData = data;
             }
+          }
+        }
+
+        if (logsData.length === 0 && patientName) {
+          // Thử tìm theo tên (hỗ trợ bỏ bớt tiền tố Cụ/Bác/Ông/Bà nếu có)
+          const cleanName = patientName.replace(/^(Cụ|Bác|Ông|Bà)\s+/i, '').trim();
+          const res = await fetch(`${API}/care-logs?elderlyName=${encodeURIComponent(cleanName)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              logsData = data;
+            }
+          }
+        }
+
+        if (isMounted) {
+          setLogs(logsData);
+          if (logsData.length > 0) {
+            setExpandedLogId(logsData[0].id); // Mở sẵn ca mới nhất
           }
         }
 
@@ -89,7 +103,8 @@ export function PatientMedicalHistoryModal({
         if (elderlyProfileId) {
           profileUrl = `${API}/elderly-profiles/${elderlyProfileId}`;
         } else if (patientName) {
-          profileUrl = `${API}/elderly-profiles/by-name/${encodeURIComponent(patientName)}`;
+          const cleanName = patientName.replace(/^(Cụ|Bác|Ông|Bà)\s+/i, '').trim();
+          profileUrl = `${API}/elderly-profiles/by-name/${encodeURIComponent(cleanName)}`;
         }
 
         if (profileUrl) {
