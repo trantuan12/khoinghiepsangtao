@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { store, ScheduleItem } from '@/lib/store';
 import { CareShiftReportModal } from './CareShiftReportModal';
+import { PatientMedicalHistoryModal } from './PatientMedicalHistoryModal';
 import { API, API_BASE_URL } from '@/lib/apiConfig';
 import { compressImage } from '@/lib/imageUtils';
 
@@ -264,6 +265,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
   const [scheduleSubFilter, setScheduleSubFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [completingShift, setCompletingShift] = useState<any | null>(null);
   const [viewingReportShift, setViewingReportShift] = useState<any | null>(null);
+  const [viewingPatientHistory, setViewingPatientHistory] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -470,11 +472,18 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          const mapped: ScheduleItem[] = data.map((d: any) => ({
+          const mapped: any[] = data.map((d: any) => ({
             id: String(d.id),
             caregiverId: String(d.caregiver_user_id || userId),
             caregiverName: d.caregiver_name || userName,
             patientName: d.elderly_name || 'Người thân',
+            elderlyProfileId: d.elderly_profile_id,
+            familyUserId: d.family_user_id,
+            familyName: d.family_name,
+            familyPhone: d.family_phone,
+            address: d.elderly_address || d.address,
+            district: d.elderly_district || d.district,
+            notes: d.elderly_notes,
             date: d.schedule_date || 'Hôm nay',
             time: d.time_slot || '08:00 - 12:00',
             title: d.title || 'Ca chăm sóc',
@@ -2579,6 +2588,17 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* NÚT XEM BỆNH ÁN & LỊCH SỬ CÁC BUỔI TRƯỚC */}
+                      <button
+                        type="button"
+                        onClick={() => setViewingPatientHistory(sch)}
+                        className="rounded-xl bg-[#edf6eb] border border-[#bcdcb6] px-3 py-1.5 text-[11.5px] font-bold text-[#2d5626] hover:bg-[#dfeeda] flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                        title="Xem bệnh án và lịch sử đo sinh hiệu các buổi trước của người bệnh"
+                      >
+                        <Stethoscope size={13} className="text-[#3c6b35]" />
+                        <span>Xem bệnh án & Lịch sử đo</span>
+                      </button>
+
                       {sch.status === 'completed' ? (
                         <div className="flex items-center gap-2">
                           <span className="rounded-full bg-[#e3efe0] px-3 py-1 text-[11px] font-bold text-[#3e5f39] flex items-center gap-1">
@@ -2594,33 +2614,62 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                           </button>
                         </div>
                       ) : sch.status === 'confirmed' ? (
-                        <button 
-                          type="button"
-                          onClick={() => setCompletingShift(sch)}
-                          className="rounded-xl bg-[#567a4e] px-3.5 py-2 text-[12px] font-bold text-white hover:bg-[#43643d] transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                        >
-                          <Stethoscope size={13} /> Báo cáo hoàn thành ca
-                        </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button 
+                            type="button"
+                            onClick={() => setCompletingShift(sch)}
+                            className="rounded-xl bg-[#567a4e] px-3.5 py-1.5 text-[12px] font-bold text-white hover:bg-[#43643d] transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                          >
+                            <CheckCircle2 size={13} /> Báo cáo hoàn thành ca
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Bạn có chắc muốn gửi yêu cầu hủy hoặc đổi ca chăm sóc "${sch.title}" vào ngày ${sch.date} (${sch.time}) không? Hệ thống sẽ thông báo đến Admin và Gia đình để sắp xếp điều phối kịp thời.`)) {
+                                notify(`Đã gửi yêu cầu đổi/hủy ca (${sch.date}) tới Admin & Gia đình.`);
+                              }
+                            }}
+                            className="rounded-xl border border-gray-200 bg-white hover:bg-red-50 text-gray-600 hover:text-red-700 px-2.5 py-1.5 text-[11.5px] font-medium transition cursor-pointer"
+                            title="Yêu cầu đổi hoặc hủy ca"
+                          >
+                            Yêu cầu hủy/đổi ca
+                          </button>
+                        </div>
                       ) : (
-                        <button 
-                          type="button"
-                          onClick={() => {
-                            if (interviewStatus !== 'passed') {
-                              notify('Bạn cần hoàn tất phỏng vấn online đạt chuẩn với Admin trước khi được phép nhận ca.');
-                              return;
-                            }
-                            handleUpdateStatus(sch, 'confirmed');
-                          }}
-                          className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 ${
-                            interviewStatus !== 'passed' 
-                              ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-                              : 'bg-[#c98e29] text-white hover:bg-[#b07b22] cursor-pointer'
-                          }`}
-                          title={interviewStatus !== 'passed' ? 'Cần vượt qua phỏng vấn online với Admin để nhận ca' : 'Xác nhận nhận ca'}
-                        >
-                          {interviewStatus !== 'passed' && <Lock size={12} />}
-                          Xác nhận nhận ca
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              if (interviewStatus !== 'passed') {
+                                notify('Bạn cần hoàn tất phỏng vấn online đạt chuẩn với Admin trước khi được phép nhận ca.');
+                                return;
+                              }
+                              handleUpdateStatus(sch, 'confirmed');
+                            }}
+                            className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition flex items-center gap-1.5 ${
+                              interviewStatus !== 'passed' 
+                                ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+                                : 'bg-[#c98e29] text-white hover:bg-[#b07b22] cursor-pointer'
+                            }`}
+                            title={interviewStatus !== 'passed' ? 'Cần vượt qua phỏng vấn online với Admin để nhận ca' : 'Xác nhận nhận ca'}
+                          >
+                            {interviewStatus !== 'passed' && <Lock size={12} />}
+                            Xác nhận nhận ca
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(`Bạn có chắc muốn từ chối ca "${sch.title}" này không?`)) {
+                                notify('Đã từ chối nhận ca. Hệ thống sẽ điều phối người chăm sóc khác.');
+                              }
+                            }}
+                            className="rounded-xl border border-gray-200 bg-white hover:bg-gray-100 text-gray-600 px-2.5 py-1.5 text-[11.5px] font-medium transition cursor-pointer"
+                          >
+                            Từ chối
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -2937,6 +2986,29 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           currentUser={currentUser}
           notify={notify}
           onClose={() => setViewingReportShift(null)}
+        />
+      )}
+
+      {/* MODAL XEM BỆNH ÁN & LỊCH SỬ ĐO SINH HIỆU CÁC BUỔI TRƯỚC */}
+      {viewingPatientHistory && (
+        <PatientMedicalHistoryModal
+          isOpen={true}
+          onClose={() => setViewingPatientHistory(null)}
+          patientName={viewingPatientHistory.patientName}
+          elderlyProfileId={viewingPatientHistory.elderlyProfileId}
+          familyUserId={viewingPatientHistory.familyUserId}
+          shiftInfo={{
+            id: viewingPatientHistory.id,
+            date: viewingPatientHistory.date,
+            time: viewingPatientHistory.time,
+            title: viewingPatientHistory.title,
+            tasks: viewingPatientHistory.tasks,
+            status: viewingPatientHistory.status,
+            familyName: viewingPatientHistory.familyName,
+            familyPhone: viewingPatientHistory.familyPhone,
+            address: viewingPatientHistory.address,
+            district: viewingPatientHistory.district
+          }}
         />
       )}
     </div>
