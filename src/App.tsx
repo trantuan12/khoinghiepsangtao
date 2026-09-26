@@ -14,6 +14,7 @@ import { CareLogsView } from '@/components/CareLogsView';
 import { FamilyCareHistory3Step } from '@/components/FamilyCareHistory3Step';
 import { CareShiftReportModal } from '@/components/CareShiftReportModal';
 import { PatientMedicalHistoryModal } from '@/components/PatientMedicalHistoryModal';
+import { useDeviceDetect } from '@/lib/useDeviceDetect';
 import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { store, MessageItem, ScheduleItem, CaregiverItem } from '@/lib/store';
@@ -453,6 +454,7 @@ function AppShell({
 }) {
   const userRole = (currentUser?.role as 'family' | 'caregiver' | 'admin') || propUserRole;
   const clock = useRealtimeClock();
+  const device = useDeviceDetect();
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notif[]>([]);
@@ -707,13 +709,13 @@ function AppShell({
       {mobileOpen && <button className="fixed inset-0 z-40 bg-[#213329]/40 lg:hidden" aria-label="Đóng menu" onClick={() => setMobileOpen(false)} data-testid="button-overlay-menu" />}
 
       <div className="lg:pl-[260px]">
-        <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.88)] px-5 backdrop-blur-md sm:px-8 lg:px-10">
+        <header className="sticky top-0 z-30 flex h-[70px] sm:h-[76px] items-center justify-between border-b border-[hsl(var(--border)/.75)] bg-[hsl(var(--background)/.88)] px-3.5 sm:px-8 lg:px-10 backdrop-blur-md">
           <div className="flex items-center gap-2">
             <button className="rounded-xl p-2 text-[hsl(var(--foreground))] lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Mở menu" data-testid="button-open-menu"><Menu size={22} /></button>
             <div className="lg:hidden"><LogoMark compact size="sm" /></div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-3">
             {userRole === 'admin' && (
               <span className="rounded-full bg-[#466548] text-white px-3.5 py-1 text-[11px] font-bold shadow-xs">Cổng Quản Trị Hệ Thống (Admin)</span>
             )}
@@ -733,7 +735,7 @@ function AppShell({
             </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-2 sm:gap-4">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-4">
             {/* NÚT QUẢNG CÁO & XEM GÓI GIA ĐÌNH PREMIUM */}
             {userRole === 'family' && (
               <button
@@ -832,7 +834,7 @@ function AppShell({
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-[1440px] px-5 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</main>
+        <main className="mx-auto max-w-[1440px] px-3.5 py-5 sm:px-8 sm:py-8 lg:px-10 lg:py-10">{children}</main>
       </div>
 
       {/* MODAL HỒ SƠ ĐẠI DIỆN GIA ĐÌNH & XÁC THỰC eKYC CCCD */}
@@ -3061,7 +3063,7 @@ function CaregiverScheduleView({
           </div>
 
           {/* Thanh lọc trạng thái */}
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+          <div className="mt-4 flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 sm:flex-wrap">
             {[
               { id: 'all', label: `Tất cả (${schedules.length})` },
               { id: 'pending', label: `Chờ nhận (${pendingCount})` },
@@ -3071,7 +3073,7 @@ function CaregiverScheduleView({
               <button
                 key={tab.id}
                 onClick={() => setCaregiverStatusFilter(tab.id as any)}
-                className={`rounded-xl px-3 py-1.5 text-[12px] font-bold transition border ${caregiverStatusFilter === tab.id
+                className={`rounded-xl px-3 py-1.5 text-[12px] font-bold transition border whitespace-nowrap shrink-0 ${caregiverStatusFilter === tab.id
                     ? 'bg-[#385139] text-white border-[#385139] shadow-xs'
                     : 'bg-[hsl(var(--secondary)/.6)] text-[hsl(var(--muted-foreground))] border-transparent hover:bg-[hsl(var(--secondary))]'
                   }`}
@@ -3177,19 +3179,19 @@ function CaregiverScheduleView({
 
                     {/* Chi tiết người bệnh & gia đình */}
                     <div className="mt-3.5 space-y-2">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[14.5px] font-bold text-[#1f3222] flex items-center gap-1.5">
-                            <UserRound size={16} className="text-[#3c583f]" />
-                            Người được chăm sóc: <span className="text-[#345337] underline decoration-emerald-400">{item.elderly_name || 'Người thân'}</span>
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[14px] sm:text-[14.5px] font-bold text-[#1f3222] flex items-center gap-1.5 flex-wrap">
+                            <UserRound size={16} className="text-[#3c583f] shrink-0" />
+                            <span>Người được chăm sóc: <span className="text-[#345337] underline decoration-emerald-400">{item.elderly_name || 'Người thân'}</span></span>
                           </p>
-                          <p className="mt-1 text-[12px] text-gray-700 flex items-center gap-1.5">
+                          <p className="mt-1 text-[12px] text-gray-700 flex items-center gap-1.5 flex-wrap">
                             <MapPin size={14} className="text-gray-500 shrink-0" />
-                            Địa chỉ chăm sóc: <strong className="text-gray-900">{item.elderly_address ? `${item.elderly_address}, ${item.elderly_district || ''}` : (item.elderly_district || 'Hà Nội')}</strong>
+                            <span>Địa chỉ: <strong className="text-gray-900">{item.elderly_address ? `${item.elderly_address}, ${item.elderly_district || ''}` : (item.elderly_district || 'Hà Nội')}</strong></span>
                           </p>
-                          <p className="mt-1 text-[12px] text-gray-700 flex items-center gap-1.5">
+                          <p className="mt-1 text-[12px] text-gray-700 flex items-center gap-1.5 flex-wrap">
                             <Phone size={14} className="text-gray-500 shrink-0" />
-                            Gia đình đặt ca: <strong className="text-[#2e4731]">{item.family_name || 'Gia đình'}</strong>
+                            <span>Gia đình: <strong className="text-[#2e4731]">{item.family_name || 'Gia đình'}</strong></span>
                             {item.family_phone && (
                               <a href={`tel:${item.family_phone}`} className="ml-1 text-[hsl(var(--primary))] font-bold hover:underline">
                                 ({item.family_phone})
@@ -3199,9 +3201,9 @@ function CaregiverScheduleView({
                         </div>
 
                         {/* Thù lao ca */}
-                        <div className="text-right shrink-0">
-                          <span className="text-[11px] text-gray-500 block">Thu nhập ca</span>
-                          <span className="font-display text-[18px] font-bold text-[#2d472f]">
+                        <div className="flex items-center justify-between sm:flex-col sm:items-end sm:justify-start bg-[#f6f9f5] sm:bg-transparent p-2.5 sm:p-0 rounded-xl shrink-0 border border-[#e4ede2] sm:border-0">
+                          <span className="text-[11px] text-gray-500 block">Thu nhập ca:</span>
+                          <span className="font-display text-[17px] sm:text-[18px] font-bold text-[#2d472f]">
                             {(item.price || 400000).toLocaleString('vi-VN')} đ
                           </span>
                         </div>
@@ -3225,8 +3227,8 @@ function CaregiverScheduleView({
                     </div>
 
                     {/* Hàng hành động */}
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-[hsl(var(--border)/.6)] pt-3">
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-[hsl(var(--border)/.6)] pt-3">
+                      <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                         {/* NÚT XEM BỆNH ÁN & LỊCH SỬ ĐO TRƯỚC CHO MỌI CA (CHỜ NHẬN, SẮP DIỄN RA, ĐÃ XONG) */}
                         <Button
                           variant="outline"
@@ -3245,18 +3247,18 @@ function CaregiverScheduleView({
                             address: item.elderly_address,
                             district: item.elderly_district
                           })}
-                          className="bg-[#edf6eb] border-[#bcdcb6] text-[#2d5626] hover:bg-[#dfeeda] text-[12px] h-9 px-3 flex items-center gap-1.5 shadow-2xs font-bold"
+                          className="bg-[#edf6eb] border-[#bcdcb6] text-[#2d5626] hover:bg-[#dfeeda] text-[12px] h-9 px-3 flex items-center gap-1.5 shadow-2xs font-bold w-full xs:w-auto justify-center"
                           title="Xem bệnh án và lịch sử đo sinh hiệu các buổi trước của người bệnh"
                         >
-                          <Stethoscope size={14} className="text-[#3c6b35]" />
+                          <Stethoscope size={14} className="text-[#3c6b35] shrink-0" />
                           <span>Xem bệnh án & Lịch sử đo</span>
                         </Button>
 
                         {isPending && (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 w-full xs:w-auto">
                             <Button
                               onClick={() => handleConfirmShift(item.id)}
-                              className="bg-[#385139] text-white hover:bg-[#2c402d] text-[12px] h-9 px-3.5"
+                              className="bg-[#385139] text-white hover:bg-[#2c402d] text-[12px] h-9 px-3.5 flex-1 xs:flex-initial justify-center"
                             >
                               <CheckCircle2 size={15} /> Xác nhận nhận ca
                             </Button>
@@ -3274,10 +3276,10 @@ function CaregiverScheduleView({
                           </div>
                         )}
                         {isConfirmed && (
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap w-full xs:w-auto">
                             <Button
                               onClick={() => setCompletingShift(item)}
-                              className="bg-[#567a4e] text-white hover:bg-[#43643d] text-[12px] h-9 px-3.5 flex items-center gap-1.5 shadow-2xs"
+                              className="bg-[#567a4e] text-white hover:bg-[#43643d] text-[12px] h-9 px-3.5 flex items-center gap-1.5 shadow-2xs flex-1 xs:flex-initial justify-center"
                             >
                               <CheckCircle2 size={15} /> Báo cáo hoàn thành ca
                             </Button>
@@ -3299,14 +3301,14 @@ function CaregiverScheduleView({
                           <Button
                             variant="outline"
                             onClick={() => setViewingReportShift(item)}
-                            className="bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100 text-[12px] h-9 px-3.5 flex items-center gap-1.5 shadow-2xs"
+                            className="bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100 text-[12px] h-9 px-3.5 flex items-center gap-1.5 shadow-2xs w-full xs:w-auto justify-center"
                           >
-                            <FileText size={14} className="text-blue-600" /> Xem lại báo cáo & sinh hiệu
+                            <FileText size={14} className="text-blue-600 shrink-0" /> Xem lại báo cáo & sinh hiệu
                           </Button>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
                         <Button
                           variant="outline"
                           size="sm"
@@ -3316,9 +3318,9 @@ function CaregiverScheduleView({
                             setLocation(`/messages?user=${famUserId}&userName=${encodeURIComponent(famName)}`);
                             notify(`Đang mở cuộc trò chuyện với ${famName}...`);
                           }}
-                          className="text-[12px] flex items-center gap-1.5 h-9"
+                          className="text-[12px] flex items-center gap-1.5 h-9 w-full sm:w-auto justify-center"
                         >
-                          <MessageCircle size={15} /> Nhắn tin cho gia đình
+                          <MessageCircle size={15} className="shrink-0" /> Nhắn tin cho gia đình
                         </Button>
                       </div>
                     </div>
@@ -3346,7 +3348,7 @@ function CaregiverScheduleView({
               Tuần từ {currentWeek[0].fullName} ({currentWeek[0].dateFormatted}) đến {currentWeek[6].fullName} ({currentWeek[6].dateFormatted})
             </p>
 
-            <div className="mt-5 grid grid-cols-7 gap-1.5">
+            <div className="mt-5 flex gap-2 overflow-x-auto no-scrollbar pb-2 sm:grid sm:grid-cols-7 sm:gap-1.5">
               {currentWeek.map((day) => {
                 const dayShifts = getSchedulesForDay(day.dateFormatted);
                 const isSelected = selectedFilterDay === day.dateFormatted;
@@ -3362,7 +3364,7 @@ function CaregiverScheduleView({
                         notify(`Đang lọc ca ${day.fullName} (${day.dateFormatted}): ${dayShifts.length} ca.`);
                       }
                     }}
-                    className={`relative flex flex-col items-center justify-between rounded-[12px] py-2.5 px-1 text-center transition-all cursor-pointer ${isSelected
+                    className={`relative flex flex-col items-center justify-between rounded-[12px] py-2.5 px-2 text-center transition-all cursor-pointer min-w-[62px] sm:min-w-0 shrink-0 ${isSelected
                         ? 'bg-[#283b2d] text-white shadow-md ring-2 ring-[#43643d]'
                         : day.isToday
                           ? 'bg-emerald-50 text-emerald-950 border-2 border-emerald-500 font-bold hover:bg-emerald-100'

@@ -140,11 +140,11 @@ export function PatientMedicalHistoryModal({
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-xs overflow-y-auto animate-fade-in">
-      <div className="relative flex flex-col w-full max-w-3xl max-h-[92vh] rounded-3xl bg-white shadow-2xl overflow-hidden border border-gray-200">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-2 sm:p-4 backdrop-blur-xs overflow-y-auto animate-fade-in">
+      <div className="relative flex flex-col w-full max-w-3xl max-h-[94vh] rounded-2xl sm:rounded-3xl bg-white shadow-2xl overflow-hidden border border-gray-200">
         
         {/* HEADER MODAL */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-[#f4f8f3]">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-gray-200 bg-[#f4f8f3]">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[#3f673a] text-white flex items-center justify-center shrink-0 shadow-xs">
               <Stethoscope size={22} />
@@ -195,11 +195,11 @@ export function PatientMedicalHistoryModal({
         )}
 
         {/* TAB CHUYỂN ĐỔI */}
-        <div className="flex border-b border-gray-200 bg-white px-6">
+        <div className="flex border-b border-gray-200 bg-white px-3 sm:px-6 overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => setActiveTab('logs')}
-            className={`py-3 px-4 text-[13px] font-bold flex items-center gap-2 border-b-2 transition ${
+            className={`py-3 px-3 sm:px-4 text-[12.5px] sm:text-[13px] font-bold flex items-center gap-2 border-b-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'logs'
                 ? 'border-[#3f673a] text-[#2f552b]'
                 : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -211,7 +211,7 @@ export function PatientMedicalHistoryModal({
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`py-3 px-4 text-[13px] font-bold flex items-center gap-2 border-b-2 transition ${
+            className={`py-3 px-3 sm:px-4 text-[12.5px] sm:text-[13px] font-bold flex items-center gap-2 border-b-2 transition whitespace-nowrap shrink-0 ${
               activeTab === 'profile'
                 ? 'border-[#3f673a] text-[#2f552b]'
                 : 'border-transparent text-gray-500 hover:text-gray-800'
@@ -223,7 +223,7 @@ export function PatientMedicalHistoryModal({
         </div>
 
         {/* NỘI DUNG CHÍNH (SCROLLABLE) */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 bg-[#f9faf7]">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-4 sm:space-y-5 bg-[#f9faf7]">
           {loading ? (
             <div className="py-16 text-center space-y-3">
               <div className="h-8 w-8 mx-auto animate-spin rounded-full border-3 border-[#3f673a] border-t-transparent" />

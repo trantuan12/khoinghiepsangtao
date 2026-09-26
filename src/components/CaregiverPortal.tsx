@@ -890,10 +890,10 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
         </div>
 
         {/* Nút chuyển tab điều hướng nhanh */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 max-w-full">
           <button
             onClick={() => setActiveTab('profile')}
-            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer ${
+            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'profile' 
                 ? 'bg-[hsl(var(--primary))] text-white shadow-sm' 
                 : 'bg-[hsl(var(--secondary))] text-[#374c39] hover:bg-[#e4ece0]'
@@ -903,7 +903,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           </button>
           <button
             onClick={() => setActiveTab('schedule')}
-            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer ${
+            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'schedule' 
                 ? 'bg-[hsl(var(--primary))] text-white shadow-sm' 
                 : 'bg-[hsl(var(--secondary))] text-[#374c39] hover:bg-[#e4ece0]'
@@ -913,7 +913,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           </button>
           <button
             onClick={() => setActiveTab('earnings')}
-            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer ${
+            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
               activeTab === 'earnings' 
                 ? 'bg-[hsl(var(--primary))] text-white shadow-sm' 
                 : 'bg-[hsl(var(--secondary))] text-[#374c39] hover:bg-[#e4ece0]'
@@ -923,7 +923,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           </button>
           <button
             onClick={() => { setActiveTab('reviews'); loadCaregiverReviews(); }}
-            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer flex items-center gap-1.5 ${
+            className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               activeTab === 'reviews' 
                 ? 'bg-[hsl(var(--primary))] text-white shadow-sm' 
                 : 'bg-[hsl(var(--secondary))] text-[#374c39] hover:bg-[#e4ece0]'

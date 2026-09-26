@@ -296,3 +296,40 @@
   z-index: 100;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.4'/%3E%3C/svg%3E");
 }
+
+/* =================================================================
+   CẦU NỐI ĐIỀU CHỈNH RIÊNG CHO ĐIỆN THOẠI (CARE MATCH MOBILE BRIDGE)
+   Nhận diện qua class .device-mobile hoặc [data-device="mobile"]
+   Đảm bảo không ảnh hưởng đến giao diện PC đã hoàn thiện!
+   ================================================================= */
+html.device-mobile,
+html[data-device="mobile"] {
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (max-width: 767px) {
+  /* Chống thanh cuộn ngang gây vỡ khung */
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Thanh cuộn ngang mượt cho dải tab hoặc ngày trong tuần */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Tự động ngắt dòng và dàn đều khi các nút bị co kéo trên mobile */
+  .mobile-flex-col {
+    flex-direction: column !important;
+  }
+
+  /* Đảm bảo chữ phụ không bị quá bé dưới 11px */
+  .mobile-readable-text {
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+  }
+}
