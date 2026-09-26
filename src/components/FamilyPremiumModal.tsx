@@ -18,8 +18,7 @@ import {
   AlertCircle,
   HelpCircle
 } from 'lucide-react';
-
-const API = 'http://localhost:5000/api';
+import { API } from '@/lib/apiConfig';
 
 interface FamilyPremiumModalProps {
   isOpen: boolean;

@@ -21,8 +21,7 @@ import {
   X,
   Download
 } from 'lucide-react';
-
-const API = 'http://localhost:5000/api';
+import { API } from '@/lib/apiConfig';
 
 interface AdminPaymentsViewProps {
   notify: (msg: string) => void;

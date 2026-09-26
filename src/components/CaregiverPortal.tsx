@@ -33,9 +33,12 @@ import {
   ExternalLink,
   ThumbsUp,
   MessageSquareQuote,
-  RefreshCw
+  RefreshCw,
+  Stethoscope
 } from 'lucide-react';
 import { store, ScheduleItem } from '@/lib/store';
+import { CareShiftReportModal } from './CareShiftReportModal';
+import { API, API_BASE_URL } from '@/lib/apiConfig';
 
 export interface WorkHistoryItem {
   id: string;
@@ -81,7 +84,7 @@ const COMMON_SKILLS = [
   "Trò chuyện & đồng hành tâm lý"
 ];
 
-const API = 'http://localhost:5000/api';
+
 
 // Hàm xử lý hậu kỳ số năm kinh nghiệm: nếu < 10 tự động thêm số 0 ở đầu (VD: '8' -> '08')
 export const formatExperience = (val: string | number | undefined | null) => {
@@ -256,7 +259,10 @@ function MonthYearPicker({
 }
 
 export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initialTab }: CaregiverPortalProps) {
-  const [activeTab, setActiveTab] = useState<'profile' | 'schedule' | 'earnings' | 'reviews'>(initialTab || 'profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'schedule' | 'earnings' | 'reviews'>((initialTab as any) === 'care_logs' ? 'schedule' : (initialTab || 'profile'));
+  const [scheduleSubFilter, setScheduleSubFilter] = useState<'all' | 'active' | 'completed'>('all');
+  const [completingShift, setCompletingShift] = useState<any | null>(null);
+  const [viewingReportShift, setViewingReportShift] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -348,9 +354,11 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
   const [bookingTimeSlot, setBookingTimeSlot] = useState<string>('09:30 - 10:00');
   const [bookingCandidateNotes, setBookingCandidateNotes] = useState<string>('');
 
-  // File input refs cho 4 loại tài liệu
+  // File input refs cho các loại tài liệu
   const fileInputRefs = {
     cccd: useRef<HTMLInputElement>(null),
+    cccdFront: useRef<HTMLInputElement>(null),
+    cccdBack: useRef<HTMLInputElement>(null),
     policeCheck: useRef<HTMLInputElement>(null),
     certificate: useRef<HTMLInputElement>(null),
     healthCheck: useRef<HTMLInputElement>(null)
@@ -488,9 +496,25 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     loadCaregiverProfile();
     fetchSchedules();
 
-    // Polling đồng bộ Realtime mỗi 3 giây
-    const interval = setInterval(fetchSchedules, 3000);
-    return () => clearInterval(interval);
+    const onSync = () => {
+      loadCaregiverProfile();
+      fetchSchedules();
+    };
+
+    window.addEventListener('focus', onSync);
+    window.addEventListener('carematch:interview-updated', onSync);
+    window.addEventListener('carematch:caregiver-status-updated', onSync);
+    window.addEventListener('storage', onSync);
+
+    // Polling đồng bộ Realtime mỗi 4 giây (bao gồm cả trạng thái phỏng vấn và duyệt từ Admin)
+    const interval = setInterval(onSync, 4000);
+    return () => {
+      window.removeEventListener('focus', onSync);
+      window.removeEventListener('carematch:interview-updated', onSync);
+      window.removeEventListener('carematch:caregiver-status-updated', onSync);
+      window.removeEventListener('storage', onSync);
+      clearInterval(interval);
+    };
   }, [userId]);
 
   // 3. Xử lý tải lên tệp ảnh thực tế
@@ -716,7 +740,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           phone: formData.phone.trim(),
           id_number: formData.idNumber.trim(),
           experience_years: numExp,
-          hourly_rate: Number(formData.hourlyRate) || 100000,
+          hourly_rate: Math.round(parsedShiftRate / 4),
           shift_rate: parsedShiftRate,
           night_shift_rate: parsedNightShiftRate,
           work_history: formData.workHistory,
@@ -825,7 +849,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
   const getFullFileUrl = (url: string) => {
     if (!url) return '';
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `http://localhost:5000${url}`;
+    return `${API_BASE_URL}${url}`;
   };
 
   // Lấy tài liệu theo loại
@@ -982,18 +1006,11 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           {/* CỘT TRÁI: FORM THÔNG TIN CÁ NHÂN & KỸ NĂNG (HỖ TRỢ VIEW MODE & EDIT MODE) */}
           <div className="rounded-[24px] border border-[hsl(var(--border))] bg-white p-6 shadow-sm flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between pb-4 border-b border-[hsl(var(--border))]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[hsl(var(--border))]">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-display text-[21px] font-semibold text-[#273a2c]">
-                      {isEditing ? 'Chỉnh Sửa Thông Tin Năng Lực' : 'Thông Tin Năng Lực & Kinh Nghiệm'}
-                    </h3>
-                    {!isEditing && (
-                      <span className="rounded-full bg-[#e8f2e6] text-[#345831] px-2.5 py-0.5 text-[10px] font-bold">
-                        ✓ Đã lưu hệ thống
-                      </span>
-                    )}
-                  </div>
+                  <h3 className="font-display text-[21px] font-semibold text-[#273a2c]">
+                    {isEditing ? 'Chỉnh Sửa Thông Tin Năng Lực' : 'Thông Tin Năng Lực & Kinh Nghiệm'}
+                  </h3>
                   <p className="mt-0.5 text-[12px] text-[hsl(var(--muted-foreground))]">
                     {isEditing 
                       ? 'Cập nhật thông tin chính xác để hệ thống kết nối ca chăm sóc phù hợp.'
@@ -1001,23 +1018,31 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   {loading && (
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-[hsl(var(--primary))] border-t-transparent" />
                   )}
                   {!isEditing ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f2e6] border border-[#c6dfc3] text-[#345831] px-3 py-1.5 text-[11px] font-bold shadow-2xs whitespace-nowrap">
+                        <CheckCircle2 size={13} className="text-[#3b6837]" /> Đã lưu hệ thống
+                      </span>
                       {verificationStatus === 'pending' && (
-                        <span className="rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 text-[10.5px] font-bold flex items-center gap-1">
-                          <Clock size={11} /> Chờ duyệt
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-3 py-1.5 text-[11px] font-bold shadow-2xs whitespace-nowrap">
+                          <Clock size={12} /> Chờ duyệt
+                        </span>
+                      )}
+                      {verificationStatus === 'approved' && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 px-3 py-1.5 text-[11px] font-bold shadow-2xs whitespace-nowrap">
+                          <CheckCircle2 size={12} className="text-emerald-700" /> Đã duyệt
                         </span>
                       )}
                       <button
                         type="button"
                         onClick={() => setIsEditing(true)}
-                        className="flex items-center gap-1.5 rounded-xl bg-[hsl(var(--secondary))] border border-[#c2d7bf] px-3.5 py-1.5 text-[12px] font-bold text-[#2d472f] hover:bg-[#dfebe0] transition cursor-pointer shadow-xs"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-[#f2f7f1] border border-[#bed7bc] px-3.5 py-1.5 text-[11.5px] font-bold text-[#2d472f] hover:bg-[#e4efe2] transition cursor-pointer shadow-xs whitespace-nowrap"
                       >
-                        <Edit3 size={14} />
+                        <Edit3 size={13} />
                         <span>Chỉnh sửa hồ sơ</span>
                       </button>
                     </div>
@@ -1120,6 +1145,10 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                         <div className="flex items-center justify-between text-[12px] font-bold text-[#8a5d1a]">
                           <span className="flex items-center gap-1 font-semibold text-[11px] text-[#8a5d1a]">🌙 Ca tối (x1.5):</span>
                           <span>{(Number(formData.nightShiftRate) || Math.round((Number(formData.shiftRate) || 400000) * 1.5)).toLocaleString('vi-VN')} đ/ca</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11.5px] font-bold text-[#355238] pt-0.5 border-t border-gray-100">
+                          <span className="flex items-center gap-1 font-semibold text-[10.5px] text-[#556e58]">⏱️ Theo giờ (Ca / 4):</span>
+                          <span>{Math.round((Number(formData.shiftRate) || 400000) / 4).toLocaleString('vi-VN')} đ/giờ</span>
                         </div>
                       </div>
                     </div>
@@ -1565,115 +1594,200 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
               )}
 
               <div className="mt-4 space-y-3.5">
-                {/* 1. CCCD gắn chip (Hỗ trợ tải 2 mặt: Mặt trước & Mặt sau) */}
+                {/* 1. CCCD gắn chip (Mặt trước & Mặt sau) - Giao diện 2 thẻ đẹp như bên Người nhà */}
                 {(() => {
-                  const cccdDocs = documents.filter(d => 
-                    d.type === 'cccd' || d.type === 'cccd_front' || d.type === 'cccd_back'
-                  );
+                  const frontDoc = documents.find(d => d.type === 'cccd_front' || (d.type === 'cccd' && (d.name.toLowerCase().includes('truoc') || d.name.toLowerCase().includes('front'))))
+                    || documents.filter(d => d.type === 'cccd')[0];
+                  const backDoc = documents.find(d => d.type === 'cccd_back' || (d.type === 'cccd' && (d.name.toLowerCase().includes('sau') || d.name.toLowerCase().includes('back'))))
+                    || (documents.filter(d => d.type === 'cccd').length > 1 ? documents.filter(d => d.type === 'cccd')[1] : undefined);
+                  
                   const isLocked = verificationStatus === 'pending';
-                  const hasDocs = cccdDocs.length > 0;
+                  const hasBoth = Boolean(frontDoc && backDoc);
+                  const hasOne = Boolean((frontDoc && !backDoc) || (!frontDoc && backDoc));
+
                   return (
-                    <div className={`rounded-[18px] border p-3.5 transition-all ${
-                      hasDocs ? 'bg-[#f4f9f2] border-[#b8d4b3]' : 'bg-[#fafcf9] border-[hsl(var(--border))]'
+                    <div className={`rounded-[20px] border p-4 transition-all ${
+                      hasBoth ? 'bg-[#f4f9f2] border-[#b8d4b3]' : hasOne ? 'bg-[#fffdfa] border-amber-200' : 'bg-[#fafcf9] border-[hsl(var(--border))]'
                     }`}>
-                      <input 
-                        type="file" 
-                        ref={fileInputRefs.cccd}
-                        accept="image/*,.pdf"
-                        multiple
-                        onChange={e => handleMultipleFilesChange('cccd', e)}
-                        className="hidden" 
-                        disabled={verificationStatus === 'approved'}
-                      />
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="flex items-start gap-3 min-w-0">
                           <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                            hasDocs ? 'bg-[#dbebd7] text-[#41683b]' : 'bg-gray-100 text-gray-400'
+                            hasBoth ? 'bg-[#dbebd7] text-[#41683b]' : 'bg-gray-100 text-gray-400'
                           }`}>
                             <FileCheck2 size={18} />
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-[12.5px] font-bold text-[#2a3c2e]">1. Căn cước công dân gắn chip *</p>
-                              {cccdDocs.length === 1 && (
-                                <span className="rounded-full bg-amber-50 text-amber-700 px-2 py-0.2 text-[9.5px] font-bold border border-amber-200">
+                              <p className="text-[13px] font-bold text-[#2a3c2e]">1. Căn cước công dân gắn chip *</p>
+                              {hasBoth ? (
+                                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                                  ✓ Đã đủ 2 mặt
+                                </span>
+                              ) : hasOne ? (
+                                <span className="rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 text-[10px] font-bold border border-amber-300">
                                   Đã tải 1/2 mặt · Cần thêm mặt còn lại
                                 </span>
-                              )}
-                              {cccdDocs.length >= 2 && (
-                                <span className="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.2 text-[9.5px] font-bold border border-emerald-200">
-                                  Đã đủ 2 mặt ✓
+                              ) : (
+                                <span className="rounded-full bg-red-50 text-red-700 px-2.5 py-0.5 text-[10px] font-bold border border-red-200">
+                                  Chưa tải lên
                                 </span>
                               )}
                             </div>
-                            <p className="text-[10.5px] text-[hsl(var(--muted-foreground))]">
-                              Ảnh chụp 2 mặt rõ nét, không lóa (Mặt trước & Mặt sau)
+                            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                              Tải ảnh chụp rõ nét 2 mặt CCCD (Mặt trước & Mặt sau) để Admin đối soát và thẩm định hồ sơ.
                             </p>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {verificationStatus !== 'approved' && (
-                            <button 
-                              type="button" 
-                              onClick={() => fileInputRefs.cccd.current?.click()}
-                              className={`rounded-xl px-3 py-1.5 text-[11.5px] font-bold shadow-2xs transition cursor-pointer flex items-center gap-1 ${
-                                cccdDocs.length === 0
-                                  ? 'bg-[#456740] text-white hover:bg-[#345130]'
-                                  : cccdDocs.length === 1
-                                  ? 'bg-[#3b5d36] text-white hover:bg-[#2c4728]'
-                                  : 'border border-[hsl(var(--border))] bg-white text-[#355238] hover:bg-[#edf4eb]'
-                              }`}
-                              title={cccdDocs.length === 1 ? 'Chọn ảnh tải mặt còn lại' : 'Tải ảnh CCCD (chọn 2 ảnh cùng lúc hoặc tải từng mặt)'}
-                            >
-                              <Upload size={13} /> {cccdDocs.length === 0 ? 'Tải ảnh lên' : cccdDocs.length === 1 ? 'Tải mặt còn lại' : 'Tải thêm ảnh'}
-                            </button>
-                          )}
-                        </div>
                       </div>
 
-                      {/* Danh sách các mặt CCCD đã tải lên */}
-                      {cccdDocs.length > 0 && (
-                        <div className="mt-2.5 space-y-1.5 border-t border-[#b8d4b3]/60 pt-2.5">
-                          {cccdDocs.map((doc, idx) => (
-                            <div key={doc.url || idx} className="flex items-center justify-between gap-2 rounded-lg bg-white/80 border border-[#c4dcbe] px-2.5 py-1.5">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-[9.5px] font-bold text-[#355238] bg-[#dbebd7] px-1.5 py-0.5 rounded shrink-0">
-                                  {idx === 0 ? 'Mặt trước (Mặt 1)' : idx === 1 ? 'Mặt sau (Mặt 2)' : `Ảnh ${idx + 1}`}
-                                </span>
-                                <span className="text-[11px] font-semibold text-[#3e5f39] truncate max-w-[170px]" title={doc.name}>
-                                  📎 {doc.name}
-                                </span>
-                                <span className={`rounded-full px-2 py-0.2 text-[9px] font-bold shrink-0 ${
-                                  isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
-                                }`}>
-                                  {isLocked ? '🔒 Chờ đối soát' : 'Đã tải lên'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
+                      {/* 2 Thẻ Mặt Trước và Mặt Sau */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                        {/* MẶT TRƯỚC */}
+                        <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-3 text-center">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[12px] font-bold text-gray-700">Mặt trước CCCD</span>
+                            {frontDoc && (
+                              <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                                isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
+                              }`}>
+                                {isLocked ? '🔒 Chờ duyệt' : 'Đã tải lên'}
+                              </span>
+                            )}
+                          </div>
+                          
+                          <input 
+                            type="file" 
+                            ref={fileInputRefs.cccdFront}
+                            accept="image/*,.pdf"
+                            onChange={e => handleFileChange('cccd_front', e)}
+                            className="hidden" 
+                            disabled={verificationStatus === 'approved'}
+                          />
+
+                          {frontDoc ? (
+                            <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] flex items-center justify-center">
+                              <img 
+                                src={frontDoc.url} 
+                                alt="CCCD Mặt trước" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => setPreviewDoc(doc)}
-                                  className="flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-white px-2 py-0.5 text-[10.5px] font-bold text-[#3b5938] hover:bg-[#e4efe0] transition cursor-pointer"
-                                  title="Xem trước ảnh"
+                                  onClick={() => setPreviewDoc(frontDoc)}
+                                  className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                 >
-                                  <Eye size={12} /> Xem
+                                  <Eye size={13} /> Xem to
                                 </button>
                                 {verificationStatus !== 'approved' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveSpecificDoc(doc)}
-                                    className="rounded-lg p-1 text-red-500 hover:bg-red-50 transition cursor-pointer"
-                                    title="Gỡ ảnh này"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => fileInputRefs.cccdFront.current?.click()}
+                                      className="rounded-lg bg-white/95 px-2 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                                    >
+                                      Đổi ảnh
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveSpecificDoc(frontDoc)}
+                                      className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                                    >
+                                      <Trash2 size={13} /> Xóa
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </div>
-                          ))}
+                          ) : (
+                            <div 
+                              onClick={() => {
+                                if (verificationStatus !== 'approved') {
+                                  fileInputRefs.cccdFront.current?.click();
+                                }
+                              }}
+                              className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3"
+                            >
+                              <Upload size={22} className="text-[#597855] mb-1.5" />
+                              <span className="text-[12px] font-bold text-[#446240]">Tải ảnh mặt trước</span>
+                              <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG hoặc PDF</span>
+                            </div>
+                          )}
                         </div>
-                      )}
+
+                        {/* MẶT SAU */}
+                        <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-3 text-center">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[12px] font-bold text-gray-700">Mặt sau CCCD</span>
+                            {backDoc && (
+                              <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                                isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
+                              }`}>
+                                {isLocked ? '🔒 Chờ duyệt' : 'Đã tải lên'}
+                              </span>
+                            )}
+                          </div>
+
+                          <input 
+                            type="file" 
+                            ref={fileInputRefs.cccdBack}
+                            accept="image/*,.pdf"
+                            onChange={e => handleFileChange('cccd_back', e)}
+                            className="hidden" 
+                            disabled={verificationStatus === 'approved'}
+                          />
+
+                          {backDoc ? (
+                            <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] flex items-center justify-center">
+                              <img 
+                                src={backDoc.url} 
+                                alt="CCCD Mặt sau" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewDoc(backDoc)}
+                                  className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                                >
+                                  <Eye size={13} /> Xem to
+                                </button>
+                                {verificationStatus !== 'approved' && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => fileInputRefs.cccdBack.current?.click()}
+                                      className="rounded-lg bg-white/95 px-2 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                                    >
+                                      Đổi ảnh
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveSpecificDoc(backDoc)}
+                                      className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                                    >
+                                      <Trash2 size={13} /> Xóa
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div 
+                              onClick={() => {
+                                if (verificationStatus !== 'approved') {
+                                  fileInputRefs.cccdBack.current?.click();
+                                }
+                              }}
+                              className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3"
+                            >
+                              <Upload size={22} className="text-[#597855] mb-1.5" />
+                              <span className="text-[12px] font-bold text-[#446240]">Tải ảnh mặt sau</span>
+                              <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG hoặc PDF</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   );
                 })()}
@@ -1765,7 +1879,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   );
                 })()}
 
-                {/* 3. Các chứng chỉ bổ sung (nếu có) */}
+                {/* 3. Các chứng chỉ bổ sung */}
                 {(() => {
                   const certDocs = documents.filter(d => 
                     d.type === 'certificate' || 
@@ -1795,7 +1909,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                             <FileCheck2 size={18} />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[12.5px] font-bold text-[#2a3c2e]">3. Các chứng chỉ bổ sung (nếu có)</p>
+                            <p className="text-[12.5px] font-bold text-[#2a3c2e]">3. Các chứng chỉ bổ sung</p>
                             <p className="text-[10.5px] text-[hsl(var(--muted-foreground))]">Bằng CĐ Y tế, chứng chỉ Chữ thập đỏ...</p>
                           </div>
                         </div>
@@ -2015,23 +2129,23 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
               </div>
 
               <span className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold shrink-0 ${
-                interviewStatus === 'passed'
+                (interviewStatus === 'passed' || verificationStatus === 'approved')
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                  : interviewStatus === 'scheduled'
+                  : (interviewStatus === 'scheduled' || interviewStatus === 'confirmed')
                   ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                  : interviewStatus === 'failed'
+                  : (interviewStatus === 'failed' || interviewStatus === 'rejected')
                   ? 'bg-rose-100 text-rose-800 border border-rose-300'
                   : 'bg-stone-100 text-stone-700 border border-stone-200'
               }`}>
-                {interviewStatus === 'passed' && '✓ Đã đạt chuẩn'}
-                {interviewStatus === 'scheduled' && (interviewMeetingLink ? '⏳ Đã có link Meet' : '⏳ Chờ Admin xác nhận')}
-                {interviewStatus === 'failed' && '✗ Chưa đạt'}
-                {interviewStatus === 'not_scheduled' && 'Chưa đặt lịch'}
+                {(interviewStatus === 'passed' || verificationStatus === 'approved') && '✓ Đã đạt chuẩn'}
+                {(interviewStatus === 'scheduled' || interviewStatus === 'confirmed') && (interviewMeetingLink ? '⏳ Đã có link Meet' : '⏳ Chờ Admin xác nhận')}
+                {(interviewStatus === 'failed' || interviewStatus === 'rejected') && '✗ Chưa đạt'}
+                {interviewStatus === 'not_scheduled' && !['passed', 'approved', 'scheduled', 'confirmed', 'failed', 'rejected'].includes(interviewStatus) && 'Chưa đặt lịch'}
               </span>
             </div>
 
             <div className="mt-4 space-y-3">
-              {interviewStatus === 'passed' ? (
+              {(interviewStatus === 'passed' || verificationStatus === 'approved') ? (
                 <div className="rounded-2xl bg-white/90 border border-emerald-200 p-4 space-y-2">
                   <div className="flex items-center gap-2 text-emerald-800 font-bold text-[13px]">
                     <CheckCircle2 size={16} className="text-emerald-600" />
@@ -2046,7 +2160,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                     </div>
                   )}
                 </div>
-              ) : interviewStatus === 'scheduled' ? (
+              ) : (interviewStatus === 'scheduled' || interviewStatus === 'confirmed') ? (
                 <div className="rounded-2xl bg-white/90 border border-amber-200 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-[12px] font-bold text-amber-900 flex items-center gap-1.5">
@@ -2060,7 +2174,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   <div className="grid grid-cols-2 gap-2 text-[12.5px] font-semibold text-gray-800">
                     <div className="rounded-xl bg-[#fafcf9] border border-amber-100 p-2.5">
                       <span className="block text-[10px] text-gray-500 uppercase">Ngày phỏng vấn</span>
-                      <span className="font-bold text-[#2a3c2e]">{interviewDate || 'Ngày mai'}</span>
+                      <span className="font-bold text-[#2a3c2e]">{interviewDate || 'Hôm nay'}</span>
                     </div>
                     <div className="rounded-xl bg-[#fafcf9] border border-amber-100 p-2.5">
                       <span className="block text-[10px] text-gray-500 uppercase">Khung giờ</span>
@@ -2069,15 +2183,20 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   </div>
 
                   {interviewMeetingLink ? (
-                    <a
-                      href={interviewMeetingLink}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-[12.5px] font-bold text-white hover:bg-emerald-800 transition shadow-xs cursor-pointer"
-                    >
-                      <Video size={16} /> Vào Phòng Họp Google Meet
-                      <ExternalLink size={13} />
-                    </a>
+                    <div className="space-y-2">
+                      <a
+                        href={interviewMeetingLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-[13px] font-bold text-white hover:bg-emerald-800 transition shadow-sm cursor-pointer"
+                      >
+                        <Video size={16} /> Vào Phòng Họp Google Meet
+                        <ExternalLink size={13} />
+                      </a>
+                      <p className="text-[11px] text-center text-gray-500 font-mono">
+                        {interviewMeetingLink}
+                      </p>
+                    </div>
                   ) : (
                     <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-center">
                       <div className="flex items-center justify-center gap-2 text-amber-800 font-bold text-[12.5px]">
@@ -2105,9 +2224,10 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 </div>
               ) : (
                 <div className="rounded-2xl bg-[#fafcf9] border border-stone-200 p-4 space-y-3">
-                  {interviewStatus === 'failed' && (
+                  {(interviewStatus === 'failed' || interviewStatus === 'rejected') && (
                     <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-[12px] text-rose-800">
-                      <strong>Lưu ý:</strong> {interviewNotes || 'Chưa đạt yêu cầu ở buổi phỏng vấn trước. Vui lòng đặt lại lịch hẹn để trao đổi lại với Admin.'}
+                      <strong className="block mb-0.5">⚠️ Kết quả phỏng vấn trước: Chưa đạt yêu cầu</strong>
+                      <span>{interviewNotes || 'Bạn chưa đáp ứng đủ tiêu chuẩn kỹ năng chuyên môn. Vui lòng ôn tập thêm và bấm nút dưới đây để hẹn lại lịch phỏng vấn mới cùng Admin.'}</span>
                     </div>
                   )}
                   <p className="text-[12px] text-gray-600 leading-relaxed">
@@ -2125,7 +2245,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                     className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#456740] py-3 text-[12.5px] font-bold text-white hover:bg-[#345130] transition shadow-xs cursor-pointer"
                   >
                     <Calendar size={15} />
-                    {interviewStatus === 'failed' ? 'Đặt lại lịch phỏng vấn online' : 'Đặt lịch phỏng vấn online với Admin'}
+                    {(interviewStatus === 'failed' || interviewStatus === 'rejected') ? 'Đặt lại lịch phỏng vấn online với Admin' : 'Đặt lịch phỏng vấn online với Admin'}
                   </button>
                 </div>
               )}
@@ -2372,7 +2492,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
             </div>
           )}
 
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <div>
               <h3 className="font-display text-[22px] font-semibold text-[#273a2c]">
                 Lịch Làm Việc Được Phân Bổ
@@ -2381,78 +2501,127 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 Các ca chăm sóc đang diễn ra và sắp tới được kết nối trực tiếp từ các gia đình.
               </p>
             </div>
-            <span className="rounded-full bg-[#edf5ea] px-3 py-1 text-[11px] font-bold text-[#43643d]">
-              Tổng số ca: {schedules.length}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-[#edf5ea] px-3 py-1 text-[11px] font-bold text-[#43643d]">
+                Tổng số ca: {schedules.length}
+              </span>
+            </div>
           </div>
 
-          {schedules.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[hsl(var(--border))] p-8 text-center bg-[#fafcf9]">
-              <Calendar size={36} className="mx-auto text-gray-400 mb-2" />
-              <p className="font-bold text-[14px] text-gray-700">Chưa có ca chăm sóc nào được chỉ định</p>
-              <p className="text-[12px] text-gray-500 mt-1 max-w-sm mx-auto">
-                Khi gia đình lựa chọn bạn làm người đồng hành và đặt ca, thông tin chi tiết sẽ xuất hiện tại đây.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {schedules.map((sch) => (
-                <div 
-                  key={sch.id} 
-                  className={`rounded-[18px] border-l-4 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-[hsl(var(--border))] ${
-                    sch.status === 'completed' ? 'border-[#8ea48b] bg-[#f2f6f1]' : sch.status === 'confirmed' ? 'border-[#5b7a54] bg-[#f9faf7]' : 'border-[#c98e29] bg-[#faf8f2]'
-                  }`}
-                >
-                  <div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                      sch.status === 'completed' ? 'text-[#617c5d]' : sch.status === 'confirmed' ? 'text-[#688a60]' : 'text-[#a87422]'
-                    }`}>
-                      {sch.date} · {sch.time}
-                    </span>
-                    <h4 className="font-display text-[17px] font-bold text-[#2a3c2e] mt-0.5">{sch.title}</h4>
-                    <p className="text-[12px] text-[hsl(var(--muted-foreground))] flex items-center gap-1.5 mt-0.5">
-                      <MapPin size={13} /> Người cần chăm sóc: <strong>{sch.patientName || 'Người thân'}</strong> • Mức thù lao: {(sch.price || 400000).toLocaleString('vi-VN')} đ
-                    </p>
-                    {sch.tasks && <p className="text-[11px] text-[#556957] mt-1">Nhiệm vụ: {sch.tasks}</p>}
-                  </div>
+          {/* Thanh lọc trạng thái ca */}
+          <div className="flex items-center gap-2 mb-5 flex-wrap">
+            {[
+              { id: 'all', label: `Tất cả (${schedules.length})` },
+              { id: 'active', label: `Sắp tới & Đang nhận (${schedules.filter(s => s.status !== 'completed').length})` },
+              { id: 'completed', label: `Đã xong (${schedules.filter(s => s.status === 'completed').length})` },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setScheduleSubFilter(tab.id as any)}
+                className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition border cursor-pointer ${
+                  scheduleSubFilter === tab.id
+                    ? 'bg-[#385139] text-white border-[#385139] shadow-xs'
+                    : 'bg-[#f4f7f2] text-[#4a6148] border-transparent hover:bg-[#e6efe4]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-                  <div className="flex items-center gap-2">
-                    {sch.status === 'completed' ? (
-                      <span className="rounded-full bg-[#e3efe0] px-3 py-1 text-[11px] font-bold text-[#3e5f39] flex items-center gap-1">
-                        <CheckCircle2 size={13} /> Đã hoàn thành ca
-                      </span>
-                    ) : sch.status === 'confirmed' ? (
-                      <button 
-                        onClick={() => handleUpdateStatus(sch, 'completed')}
-                        className="rounded-xl bg-[#567a4e] px-3.5 py-2 text-[12px] font-bold text-white hover:bg-[#43643d] transition cursor-pointer"
-                      >
-                        Báo cáo hoàn thành ca
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={() => {
-                          if (interviewStatus !== 'passed') {
-                            notify('Bạn cần hoàn tất phỏng vấn online đạt chuẩn với Admin trước khi được phép nhận ca.');
-                            return;
-                          }
-                          handleUpdateStatus(sch, 'confirmed');
-                        }}
-                        className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 ${
-                          interviewStatus !== 'passed' 
-                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
-                            : 'bg-[#c98e29] text-white hover:bg-[#b07b22] cursor-pointer'
-                        }`}
-                        title={interviewStatus !== 'passed' ? 'Cần vượt qua phỏng vấn online với Admin để nhận ca' : 'Xác nhận nhận ca'}
-                      >
-                        {interviewStatus !== 'passed' && <Lock size={12} />}
-                        Xác nhận nhận ca
-                      </button>
-                    )}
-                  </div>
+          {(() => {
+            const displayed = schedules.filter(s => {
+              if (scheduleSubFilter === 'active') return s.status !== 'completed';
+              if (scheduleSubFilter === 'completed') return s.status === 'completed';
+              return true;
+            });
+
+            if (displayed.length === 0) {
+              return (
+                <div className="rounded-2xl border border-dashed border-[hsl(var(--border))] p-8 text-center bg-[#fafcf9]">
+                  <Calendar size={36} className="mx-auto text-gray-400 mb-2" />
+                  <p className="font-bold text-[14px] text-gray-700">Chưa có ca chăm sóc nào trong mục này</p>
+                  <p className="text-[12px] text-gray-500 mt-1 max-w-sm mx-auto">
+                    {scheduleSubFilter === 'completed'
+                      ? 'Chưa có ca nào được hoàn thành. Sau khi kết thúc ca và ghi nhận báo cáo sinh hiệu, ca sẽ hiển thị tại đây.'
+                      : 'Khi gia đình lựa chọn bạn làm người đồng hành và đặt ca, thông tin chi tiết sẽ xuất hiện tại đây.'}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            }
+
+            return (
+              <div className="space-y-3">
+                {displayed.map((sch) => (
+                  <div 
+                    key={sch.id} 
+                    className={`rounded-[18px] border-l-4 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-[hsl(var(--border))] ${
+                      sch.status === 'completed' ? 'border-[#8ea48b] bg-[#f2f6f1]' : sch.status === 'confirmed' ? 'border-[#5b7a54] bg-[#f9faf7]' : 'border-[#c98e29] bg-[#faf8f2]'
+                    }`}
+                  >
+                    <div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                        sch.status === 'completed' ? 'text-[#617c5d]' : sch.status === 'confirmed' ? 'text-[#688a60]' : 'text-[#a87422]'
+                      }`}>
+                        {sch.date} · {sch.time}
+                      </span>
+                      <h4 className="font-display text-[17px] font-bold text-[#2a3c2e] mt-0.5">{sch.title}</h4>
+                      <p className="text-[12px] text-[hsl(var(--muted-foreground))] flex items-center gap-1.5 mt-0.5">
+                        <MapPin size={13} /> Người cần chăm sóc: <strong>{sch.patientName || 'Người thân'}</strong> • Mức thù lao: {(sch.price || 400000).toLocaleString('vi-VN')} đ
+                      </p>
+                      {sch.tasks && <p className="text-[11px] text-[#556957] mt-1">Nhiệm vụ: {sch.tasks}</p>}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {sch.status === 'completed' ? (
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-[#e3efe0] px-3 py-1 text-[11px] font-bold text-[#3e5f39] flex items-center gap-1">
+                            <CheckCircle2 size={13} /> Đã hoàn thành ca
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setViewingReportShift(sch)}
+                            className="rounded-xl bg-blue-50 border border-blue-200 px-3 py-1.5 text-[11.5px] font-bold text-blue-800 hover:bg-blue-100 flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                            title="Xem lại báo cáo sinh hiệu & đánh giá đã nộp"
+                          >
+                            <FileText size={13} className="text-blue-600" /> Xem lại báo cáo & sinh hiệu
+                          </button>
+                        </div>
+                      ) : sch.status === 'confirmed' ? (
+                        <button 
+                          type="button"
+                          onClick={() => setCompletingShift(sch)}
+                          className="rounded-xl bg-[#567a4e] px-3.5 py-2 text-[12px] font-bold text-white hover:bg-[#43643d] transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                        >
+                          <Stethoscope size={13} /> Báo cáo hoàn thành ca
+                        </button>
+                      ) : (
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            if (interviewStatus !== 'passed') {
+                              notify('Bạn cần hoàn tất phỏng vấn online đạt chuẩn với Admin trước khi được phép nhận ca.');
+                              return;
+                            }
+                            handleUpdateStatus(sch, 'confirmed');
+                          }}
+                          className={`rounded-xl px-3.5 py-2 text-[12px] font-bold transition flex items-center gap-1.5 ${
+                            interviewStatus !== 'passed' 
+                              ? 'bg-gray-200 text-gray-500 cursor-not-allowed' 
+                              : 'bg-[#c98e29] text-white hover:bg-[#b07b22] cursor-pointer'
+                          }`}
+                          title={interviewStatus !== 'passed' ? 'Cần vượt qua phỏng vấn online với Admin để nhận ca' : 'Xác nhận nhận ca'}
+                        >
+                          {interviewStatus !== 'passed' && <Lock size={12} />}
+                          Xác nhận nhận ca
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -2735,6 +2904,34 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
             )}
           </div>
         </div>
+      )}
+
+      {/* MODAL BÁO CÁO SINH HIỆU KHI BÁO HOÀN THÀNH CA (BẮT BUỘC) */}
+      {completingShift && (
+        <CareShiftReportModal
+          isOpen={true}
+          mode="create"
+          shift={completingShift}
+          currentUser={currentUser}
+          notify={notify}
+          onClose={() => setCompletingShift(null)}
+          onSuccess={() => {
+            setSchedules(prev => prev.map(s => s.id === completingShift.id ? { ...s, status: 'completed' } : s));
+            setCompletingShift(null);
+          }}
+        />
+      )}
+
+      {/* MODAL XEM LẠI BÁO CÁO & SINH HIỆU TRONG MỤC ĐÃ XONG */}
+      {viewingReportShift && (
+        <CareShiftReportModal
+          isOpen={true}
+          mode="view"
+          shift={viewingReportShift}
+          currentUser={currentUser}
+          notify={notify}
+          onClose={() => setViewingReportShift(null)}
+        />
       )}
     </div>
   );

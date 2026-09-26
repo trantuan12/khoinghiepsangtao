@@ -20,8 +20,7 @@ import {
   ExternalLink,
   X
 } from 'lucide-react';
-
-const API = 'http://localhost:5000/api';
+import { API } from '@/lib/apiConfig';
 
 interface FamilyPaymentsViewProps {
   currentUser?: { id: number; full_name?: string; email?: string; phone?: string };

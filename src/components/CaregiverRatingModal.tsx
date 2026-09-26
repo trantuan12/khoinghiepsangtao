@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Star, X, Check, Heart, Sparkles, MessageSquare, ThumbsUp } from 'lucide-react';
+import { API } from '@/lib/apiConfig';
 
 interface RatingModalProps {
   isOpen: boolean;
@@ -7,6 +8,8 @@ interface RatingModalProps {
   scheduleId?: number | null;
   caregiverUserId: number;
   caregiverName: string;
+  familyUserId?: number | null;
+  familyName?: string;
   patientName?: string;
   serviceTitle?: string;
   shiftDate?: string;
@@ -33,6 +36,8 @@ export function CaregiverRatingModal({
   scheduleId,
   caregiverUserId,
   caregiverName,
+  familyUserId,
+  familyName = 'Gia đình',
   patientName = 'Người thân',
   serviceTitle = 'Ca chăm sóc',
   shiftDate,
@@ -81,13 +86,14 @@ export function CaregiverRatingModal({
 
     try {
       setSubmitting(true);
-      const res = await fetch('http://localhost:5000/api/caregiver-reviews', {
+      const res = await fetch(`${API}/caregiver-reviews`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           schedule_id: scheduleId || null,
           caregiver_user_id: caregiverUserId,
-          family_name: 'Gia đình tuantest15',
+          family_user_id: familyUserId || 5,
+          family_name: familyName || 'Gia đình',
           patient_name: patientName,
           service_title: serviceTitle,
           rating: rating,

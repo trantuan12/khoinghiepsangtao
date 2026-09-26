@@ -18,6 +18,7 @@ import {
   AlertTriangle 
 } from 'lucide-react';
 import { CommunityItem } from './CommunityView';
+import { API } from '@/lib/apiConfig';
 
 const CATEGORIES = [
   'Vận động ngoài trời',
@@ -59,7 +60,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
   const fetchCommunities = async () => {
     try {
       setLoading(true);
-      const res = await fetch('http://localhost:5000/api/admin/communities');
+      const res = await fetch(`${API}/admin/communities`);
       if (res.ok) {
         const data = await res.json();
         setCommunities(data.communities || []);
@@ -127,7 +128,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
 
       if (editingCommunity) {
         // Cập nhật
-        const res = await fetch(`http://localhost:5000/api/communities/${editingCommunity.id}`, {
+        const res = await fetch(`${API}/communities/${editingCommunity.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -139,7 +140,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
         }
       } else {
         // Thêm mới
-        const res = await fetch('http://localhost:5000/api/communities', {
+        const res = await fetch(`${API}/communities`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -158,7 +159,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
   const handleDelete = async (id: number) => {
     if (!confirm('Bạn có chắc chắn muốn xóa cộng đồng này khỏi hệ thống?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/communities/${id}`, {
+      const res = await fetch(`${API}/communities/${id}`, {
         method: 'DELETE'
       });
       if (res.ok) {
@@ -271,7 +272,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
       </div>
 
       {/* Thống kê nhanh */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-[20px] border border-stone-200 bg-white p-5 shadow-xs">
           <p className="text-[12px] font-bold uppercase text-stone-400">Tổng số CLB / Cộng đồng</p>
           <div className="mt-2 flex items-baseline gap-2">
@@ -287,14 +288,6 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
             <span className="text-[12px] text-emerald-700">CLB sẵn sàng</span>
           </div>
         </div>
-
-        <div className="rounded-[20px] border border-stone-200 bg-white p-5 shadow-xs">
-          <p className="text-[12px] font-bold uppercase text-stone-400">Tổng thành viên tham gia</p>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-display text-[32px] font-bold text-stone-800">{totalMembers}</span>
-            <span className="text-[12px] text-stone-500">người cao tuổi & gia đình</span>
-          </div>
-        </div>
       </div>
 
       {/* Bộ Lọc & Tìm Kiếm */}
@@ -303,7 +296,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
           <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
           <input
             type="text"
-            placeholder="Tìm kiếm theo tên CLB, địa chỉ, người phụ trách..."
+            placeholder="Tìm kiếm theo tên CLB, địa chỉ, hoạt động..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-xl border border-stone-200 bg-stone-50/80 py-2 pl-9 pr-3 text-[13px] text-stone-800 focus:border-[#3a5d44] focus:bg-white focus:outline-none"
@@ -337,8 +330,6 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
                 <th className="py-3.5 px-5">Tên CLB & Danh Mục</th>
                 <th className="py-3.5 px-4">Lịch Sinh Hoạt</th>
                 <th className="py-3.5 px-4">Địa Điểm</th>
-                <th className="py-3.5 px-4 text-center">Thành Viên</th>
-                <th className="py-3.5 px-4">Người Phụ Trách</th>
                 <th className="py-3.5 px-4 text-center">Mã QR Zalo</th>
                 <th className="py-3.5 px-4 text-center">Trạng Thái</th>
                 <th className="py-3.5 px-5 text-right">Thao Tác</th>
@@ -347,13 +338,13 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
             <tbody className="divide-y divide-stone-100 text-stone-700">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-stone-400">
+                  <td colSpan={6} className="py-12 text-center text-stone-400">
                     Đang tải dữ liệu cộng đồng...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-stone-400">
+                  <td colSpan={6} className="py-12 text-center text-stone-400">
                     Không có cộng đồng nào phù hợp với bộ lọc.
                   </td>
                 </tr>
@@ -382,16 +373,6 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
                         <MapPin size={13} className="text-amber-600 shrink-0" />
                         <span className="truncate">{c.location}</span>
                       </div>
-                    </td>
-
-                    {/* Thành viên */}
-                    <td className="py-4 px-4 text-center font-bold text-stone-800">
-                      {c.member_count}
-                    </td>
-
-                    {/* Người phụ trách */}
-                    <td className="py-4 px-4 text-stone-600 text-[12px]">
-                      {c.leader_name}
                     </td>
 
                     {/* Mã QR */}
@@ -516,29 +497,7 @@ export function CommunityManagementView({ notify = (_msg: string) => {} }: { not
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-[12px] font-bold text-stone-700">Người Điều Phối / Cố Vấn</label>
-                  <input
-                    type="text"
-                    value={formData.leader_name}
-                    onChange={(e) => setFormData({ ...formData, leader_name: e.target.value })}
-                    placeholder="VD: Bác sĩ Tuấn / NV CTXH Thu Hà"
-                    className="mt-1 w-full rounded-xl border border-stone-200 px-3.5 py-2 text-[13px] focus:border-[#3a5d44] focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[12px] font-bold text-stone-700">Số Lượng Thành Viên Ban Đầu</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={formData.member_count}
-                    onChange={(e) => setFormData({ ...formData, member_count: Number(e.target.value) })}
-                    className="mt-1 w-full rounded-xl border border-stone-200 px-3.5 py-2 text-[13px] focus:border-[#3a5d44] focus:outline-none"
-                  />
-                </div>
-              </div>
+              {/* Người phụ trách & Số thành viên mặc định do CARE-MATCH Admin quản lý */}
 
               <div>
                 <label className="block text-[12px] font-bold text-stone-700">Mô Tả Câu Lạc Bộ</label>

@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Activity
 } from 'lucide-react';
+import { API } from '@/lib/apiConfig';
 
 export interface CommunityItem {
   id: number;
@@ -54,7 +55,7 @@ export function CommunityView({ notify = (_msg: string) => {} }: { notify?: (msg
   const fetchCommunities = async () => {
     try {
       setLoading(true);
-      const res = await fetch('http://localhost:5000/api/communities');
+      const res = await fetch(`${API}/communities`);
       if (res.ok) {
         const data = await res.json();
         setCommunities(data.communities || []);
@@ -216,14 +217,14 @@ export function CommunityView({ notify = (_msg: string) => {} }: { notify?: (msg
                 className="group flex flex-col justify-between rounded-[22px] border border-stone-200 bg-white p-6 shadow-xs transition-all duration-200 hover:-translate-y-1 hover:border-[#3a5d44]/40 hover:shadow-md"
               >
                 <div>
-                  {/* Category & Thành viên */}
+                  {/* Category */}
                   <div className="flex items-center justify-between gap-2">
                     <span className={`rounded-full px-3 py-0.5 text-[11px] font-bold border ${colors.bg}`}>
                       {c.category}
                     </span>
-                    <span className="flex items-center gap-1 text-[12px] font-semibold text-stone-500">
-                      <Users2 size={14} className="text-stone-400" />
-                      {c.member_count} thành viên
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[10.5px] font-bold text-emerald-800 border border-emerald-200">
+                      <ShieldCheck size={12} className="text-emerald-700" />
+                      CARE-MATCH Quản lý
                     </span>
                   </div>
 
@@ -248,11 +249,6 @@ export function CommunityView({ notify = (_msg: string) => {} }: { notify?: (msg
                       <MapPin size={14} className="text-[#3a5d44] shrink-0" />
                       <span className="font-semibold text-stone-700">Tại:</span>
                       <span className="truncate">{c.location}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <UserCheck size={14} className="text-[#3a5d44] shrink-0" />
-                      <span className="font-semibold text-stone-700">Điều phối:</span>
-                      <span className="truncate">{c.leader_name}</span>
                     </div>
                   </div>
 

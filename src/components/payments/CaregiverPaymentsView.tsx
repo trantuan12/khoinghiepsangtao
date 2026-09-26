@@ -18,8 +18,7 @@ import {
   Sparkles,
   Info
 } from 'lucide-react';
-
-const API = 'http://localhost:5000/api';
+import { API } from '@/lib/apiConfig';
 
 interface CaregiverPaymentsViewProps {
   currentUser?: { id: number; full_name?: string; email?: string; phone?: string };
@@ -345,7 +344,19 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
                       </td>
 
                       <td className="py-4 px-4 text-gray-600 font-semibold whitespace-nowrap">
-                        {Number(s.total_amount).toLocaleString('vi-VN')} đ
+                        <div>
+                          <span>{Number(s.original_amount || s.total_amount).toLocaleString('vi-VN')} đ</span>
+                          {s.voucher_code && (
+                            <div className="mt-1">
+                              <span className="inline-block rounded-md bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 text-[10px] font-bold">
+                                🏷️ {s.voucher_code}
+                              </span>
+                              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                                Hệ thống bù {Number(s.system_subsidy || s.voucher_discount || 0).toLocaleString('vi-VN')} đ
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       <td className="py-4 px-4 text-amber-800 font-medium whitespace-nowrap text-[12px]">
@@ -353,7 +364,14 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
                       </td>
 
                       <td className="py-4 px-4 font-bold text-emerald-900 whitespace-nowrap text-[14px]">
-                        +{Number(s.caregiver_earnings).toLocaleString('vi-VN')} đ
+                        <div>
+                          <span>+{Number(s.caregiver_earnings).toLocaleString('vi-VN')} đ</span>
+                          {s.voucher_code && (
+                            <span className="block text-[10px] font-normal text-emerald-600">
+                              ✓ 100% thù lao chuẩn
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td className="py-4 px-4 whitespace-nowrap">

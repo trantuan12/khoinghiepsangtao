@@ -24,6 +24,20 @@ export function DashboardBannerCarousel({ onOpenPremiumModal, isFamilyPremium = 
 
   const allSlides = [
     {
+      id: "voucher_first_order",
+      tag: "🎁 SIÊU ƯU ĐÃI CHÀO MỪNG · DÀNH CHO THÀNH VIÊN MỚI",
+      title: "Ưu Đãi Giảm 50% Lần Đầu Đặt Ca & Miễn Phí 100% Tư Vấn Sức Khỏe, Bữa Ăn",
+      description: "Dành riêng cho gia đình lần đầu đăng ký và sử dụng dịch vụ tại CARE-MATCH: Giảm ngay 50% chi phí ca chăm sóc đầu tiên (Mã: CAREFIRST50) và tặng kèm 01 buổi tư vấn dinh dưỡng, thực đơn bữa ăn khoa học 100% miễn phí cùng Chuyên gia Sức khỏe.",
+      ctaText: "Đặt ca áp mã giảm 50% ngay",
+      ctaLink: "/schedule",
+      icon: Sparkles,
+      gradient: "from-[#fbf3e6] via-[#f7faf2] to-[#eaf5ea]",
+      tagColor: "#9c5717",
+      tagBg: "#fbe4c8",
+      btnBg: "#316839",
+      btnText: "#ffffff"
+    },
+    {
       id: "premium_subscription",
       tag: "⭐ ĐẶC QUYỀN VIP · GÓI GIA ĐÌNH PREMIUM 50.000Đ/THÁNG",
       title: "Ưu Tiên Tìm Người, Giữ Chỗ Đặt Lịch & Hỗ Trợ Y Tế 24/7",
@@ -124,6 +138,15 @@ export function DashboardBannerCarousel({ onOpenPremiumModal, isFamilyPremium = 
       <div className={`relative flex flex-col justify-between bg-gradient-to-r ${slide.gradient} p-6 sm:p-7 transition-all duration-500`}>
         {/* Nền họa tiết elip trang nhã */}
         <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full border-[18px] border-black/5 opacity-50" />
+
+        {/* Hình ảnh AI minh họa mờ mờ ở khoảng trống bên phải */}
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-full sm:w-[50%] md:w-[46%] lg:w-[42%] overflow-hidden flex items-center justify-end select-none">
+          <img 
+            src="/banner_elderly_care.jpg" 
+            alt="Chăm sóc người cao tuổi" 
+            className="h-full w-full object-cover object-left opacity-35 lg:opacity-45 mix-blend-multiply transition-opacity duration-700 [mask-image:linear-gradient(to_right,transparent_0%,black_35%,black_85%,transparent_100%)]"
+          />
+        </div>
 
         {/* Đầu banner: Tag & Nút prev/next */}
         <div className="relative z-10 flex items-center justify-between gap-3">
