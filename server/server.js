@@ -643,6 +643,10 @@ async function initSystemSettingsTable() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    try {
+      await pool.execute('ALTER TABLE system_settings MODIFY COLUMN setting_value LONGTEXT NOT NULL');
+    } catch (_) {}
+
     const defaults = [
       ['cancellation_fee_regular', '10000', 'number', 'fees', 'Phí đổi / hủy ca đối với tài khoản thường (VNĐ)'],
       ['vip_monthly_price', '50000', 'number', 'membership', 'Giá gói Hội viên VIP Gia đình (VNĐ/tháng)'],
@@ -663,7 +667,14 @@ async function initSystemSettingsTable() {
       ['require_daily_care_log', '1', 'boolean', 'quality', 'Bắt buộc điều dưỡng nộp sổ theo dõi sau ca trước khi đối soát thù lao'],
       ['warning_bp_high', '140', 'number', 'medical', 'Ngưỡng cảnh báo huyết áp cao tâm thu (mmHg)'],
       ['warning_spo2_low', '95', 'number', 'medical', 'Ngưỡng cảnh báo oxy trong máu SpO2 ở mức thấp (%)'],
-      ['support_email', 'cskh@carematch.vn', 'string', 'support', 'Email chính thức tiếp nhận phản ánh & CSKH 24/7']
+      ['support_email', 'cskh@carematch.vn', 'string', 'support', 'Email chính thức tiếp nhận phản ánh & CSKH 24/7'],
+      ['admin_bank_name', 'MB Bank (Quân Đội)', 'string', 'payment', 'Tên ngân hàng thụ hưởng nhận thanh toán'],
+      ['admin_bank_account', '0934 567 890', 'string', 'payment', 'Số tài khoản ngân hàng thụ hưởng'],
+      ['admin_bank_owner', 'TỐNG THANH DƯƠNG', 'string', 'payment', 'Tên chủ tài khoản thụ hưởng'],
+      ['admin_qr_image', '', 'string', 'payment', 'Ảnh mã QR VietQR do Admin tải lên'],
+      ['vietqr_client_id', '', 'string', 'payment', 'Client ID cổng thanh toán VietQR thật'],
+      ['vietqr_api_key', '', 'string', 'payment', 'API Key / Secret cổng thanh toán VietQR thật'],
+      ['vietqr_auto_confirm', '1', 'boolean', 'payment', 'Bật xác thực giao dịch chuyển khoản tự động']
     ];
 
     for (const [key, val, type, grp, desc] of defaults) {
@@ -3223,7 +3234,14 @@ app.get('/api/settings', async (req, res) => {
     min_care_score_recommended: 90,
     require_online_interview: 1,
     home_headline: 'Những người chăm sóc phù hợp nhất',
-    hotline_support: '1900 6868'
+    hotline_support: '1900 6868',
+    admin_bank_name: 'MB Bank (Quân Đội)',
+    admin_bank_account: '0934 567 890',
+    admin_bank_owner: 'TỐNG THANH DƯƠNG',
+    admin_qr_image: '',
+    vietqr_client_id: '',
+    vietqr_api_key: '',
+    vietqr_auto_confirm: 1
   };
   if (!isMySqlConnected) {
     return res.json({ success: true, settings: fallback, rows: [] });
@@ -3249,16 +3267,17 @@ app.get('/api/settings', async (req, res) => {
 app.put('/api/settings', async (req, res) => {
   if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
   try {
-    const { settings } = req.body;
+    const settings = (req.body && req.body.settings) ? req.body.settings : req.body;
     if (!settings || typeof settings !== 'object') {
       return res.status(400).json({ error: 'Dữ liệu cấu hình không hợp lệ' });
     }
     for (const [key, val] of Object.entries(settings)) {
+      if (val === undefined) continue;
       await pool.execute(
         `INSERT INTO system_settings (setting_key, setting_value) 
          VALUES (?, ?) 
          ON DUPLICATE KEY UPDATE setting_value = ?`,
-        [key, String(val), String(val)]
+        [key, String(val ?? ''), String(val ?? '')]
       );
     }
     console.log('✅ [Settings] Admin đã cập nhật cấu hình hệ thống:', Object.keys(settings));

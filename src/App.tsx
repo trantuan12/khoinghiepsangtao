@@ -54,10 +54,12 @@ import {
   Paperclip,
   Phone,
   Plus,
+  QrCode,
   Search,
   Send,
   ShieldCheck,
   SlidersHorizontal,
+  UploadCloud,
   Sparkles,
   Star,
   Stethoscope,
@@ -3885,6 +3887,36 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
     }
   }, [userId, currentUser]);
 
+  // Cấu hình ngân hàng & mã VietQR thanh toán do Admin thiết lập
+  const [paymentConfig, setPaymentConfig] = useState<{
+    bank_name: string;
+    bank_account: string;
+    bank_owner: string;
+    qr_image: string;
+  }>({
+    bank_name: 'MB Bank (Quân Đội)',
+    bank_account: '0934 567 890',
+    bank_owner: 'TỐNG THANH DƯƠNG',
+    qr_image: ''
+  });
+
+  useEffect(() => {
+    fetch(`${API}/settings`)
+      .then(r => r.json())
+      .then(data => {
+        const s = data.settings || data;
+        if (s) {
+          setPaymentConfig({
+            bank_name: s.admin_bank_name || 'MB Bank (Quân Đội)',
+            bank_account: s.admin_bank_account || '0934 567 890',
+            bank_owner: s.admin_bank_owner || 'TỐNG THANH DƯƠNG',
+            qr_image: s.admin_qr_image || ''
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Quản lý áp dụng Voucher ưu đãi khi đặt ca (Phong cách Grab / Be)
   const [showVoucherPickerModal, setShowVoucherPickerModal] = useState(false);
   const [availableVouchersList, setAvailableVouchersList] = useState<any[]>([]);
@@ -5960,32 +5992,56 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
                   </div>
 
                   {/* QR Box */}
-                  <div className="max-w-[200px] mx-auto p-3 bg-white rounded-xl border border-gray-200 text-center shadow-xs">
-                    <div className="aspect-square bg-[#f8faf7] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-2 relative">
-                      <span className="text-[8px] font-bold text-emerald-800 uppercase">VietQR · Napas 247</span>
-                      <div className="h-24 w-24 bg-[#1f3625] rounded-md flex flex-col items-center justify-center text-white my-1">
-                        <ShieldCheck size={22} className="text-amber-300" />
-                        <span className="text-[8px] font-mono mt-0.5 text-amber-200">CARE-MATCH</span>
-                        <span className="text-[7.5px] text-gray-300 font-mono">
-                          {Number(payingSchedule.price || 400000).toLocaleString('vi-VN')} đ
-                        </span>
-                      </div>
-                      <span className="text-[9px] text-gray-500 font-mono">Quét mã chuyển khoản</span>
+                  <div className="max-w-[220px] mx-auto p-3 bg-white rounded-xl border border-gray-200 text-center shadow-xs">
+                    <div className="bg-[#f8faf7] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-2 relative overflow-hidden">
+                      <span className="text-[8.5px] font-bold text-emerald-800 uppercase mb-1">VietQR · Napas 247</span>
+                      {paymentConfig.qr_image ? (
+                        <img 
+                          src={paymentConfig.qr_image} 
+                          alt="Mã QR Admin CareMatch" 
+                          className="w-36 h-36 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs" 
+                        />
+                      ) : (
+                        <div className="relative">
+                          <img 
+                            src={`https://img.vietqr.io/image/MB-${paymentConfig.bank_account.replace(/\s+/g, '')}-compact2.png?amount=${payingSchedule.price || 400000}&addInfo=CAREMATCH%20CA%20${payingSchedule.id}&accountName=${encodeURIComponent(paymentConfig.bank_owner)}`}
+                            alt="VietQR Napas 247"
+                            className="w-36 h-36 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                              const fb = document.getElementById('qr-modal-fallback');
+                              if (fb) fb.style.display = 'flex';
+                            }}
+                          />
+                          <div id="qr-modal-fallback" className="hidden h-36 w-36 bg-[#1f3625] rounded-md flex-col items-center justify-center text-white my-1 p-2">
+                            <ShieldCheck size={26} className="text-amber-300" />
+                            <span className="text-[9px] font-mono mt-1 text-amber-200">CARE-MATCH</span>
+                            <span className="text-[8px] text-gray-300 font-mono mt-0.5">
+                              {Number(payingSchedule.price || 400000).toLocaleString('vi-VN')} đ
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <span className="text-[9px] text-gray-500 font-mono mt-1">Quét mã chuyển khoản tức thì</span>
                     </div>
                   </div>
 
-                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-[11.5px] space-y-1 max-w-sm mx-auto">
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-[11.5px] space-y-1.5 max-w-sm mx-auto">
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Ngân hàng:</span>
-                      <strong className="text-gray-800">MB Bank (Quân Đội)</strong>
+                      <span className="text-gray-500">Ngân hàng thụ hưởng:</span>
+                      <strong className="text-gray-800">{paymentConfig.bank_name}</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Số tài khoản:</span>
-                      <strong className="font-mono font-bold text-emerald-900">0934 567 890</strong>
+                      <strong className="font-mono font-bold text-emerald-900">{paymentConfig.bank_account}</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Chủ tài khoản:</span>
+                      <strong className="font-bold text-gray-900">{paymentConfig.bank_owner}</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Nội dung chuyển khoản:</span>
-                      <strong className="font-mono text-emerald-950 bg-emerald-100 px-1 py-0.2 rounded">
+                      <strong className="font-mono text-emerald-950 bg-emerald-100 px-1.5 py-0.5 rounded">
                         CAREMATCH CA {payingSchedule.id}
                       </strong>
                     </div>
@@ -6172,6 +6228,26 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
   const [showMobileChat, setShowMobileChat] = useState<boolean>(() => {
     return Boolean(getUrlTargetUserId());
   });
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Khóa cuộn toàn trang trên mobile khi mở hội thoại để đoạn chat là block cuộn độc lập
+  useEffect(() => {
+    if (showMobileChat && typeof window !== 'undefined' && window.innerWidth < 1024) {
+      document.body.style.overflow = 'hidden';
+    } else if (typeof window !== 'undefined') {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        document.body.style.overflow = '';
+      }
+    };
+  }, [showMobileChat]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   // Modal mở cuộc trò chuyện mới
   const [showNewChatModal, setShowNewChatModal] = useState(false);
@@ -6465,7 +6541,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
 
       <div className="grid min-h-[580px] gap-5 lg:grid-cols-[.38fr_1fr]">
         {/* Danh sách người trò chuyện */}
-        <Card className={`overflow-hidden flex flex-col ${showMobileChat ? 'hidden lg:flex' : 'flex'}`} testId="card-conversation-list">
+        <Card className={`overflow-hidden flex flex-col ${showMobileChat ? 'hidden lg:flex' : 'flex'} lg:h-[650px]`} testId="card-conversation-list">
           <div className="border-b border-[hsl(var(--border))] p-4 sm:p-5">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -6483,7 +6559,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
             </div>
           </div>
 
-          <div className="divide-y divide-[hsl(var(--border))] overflow-y-auto flex-1 max-h-[600px]">
+          <div className="divide-y divide-[hsl(var(--border))] overflow-y-auto flex-1 min-h-0">
             {loadingContacts && contacts.length === 0 ? (
               <div className="p-6 text-center text-[12px] text-gray-500">Đang tải danh bạ...</div>
             ) : contacts.length === 0 ? (
@@ -6523,17 +6599,25 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
           </div>
         </Card>
 
-        {/* Khung chat chi tiết */}
-        <Card className={`min-h-[580px] flex-col overflow-hidden ${showMobileChat ? 'flex' : 'hidden lg:flex'}`} testId="card-active-conversation">
-          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3.5 py-3 sm:px-6 sm:py-4 bg-white">
+        {/* Khung chat chi tiết - Biến thành block độc lập cuộn riêng biệt trên cả điện thoại và máy tính */}
+        <Card 
+          className={`flex-col overflow-hidden bg-white shadow-sm border border-[hsl(var(--border))] ${
+            showMobileChat 
+              ? 'fixed inset-0 z-[100] flex h-[100dvh] w-full rounded-none border-0 lg:static lg:z-auto lg:flex lg:h-[650px] lg:rounded-[24px] lg:border' 
+              : 'hidden lg:flex lg:h-[650px]'
+          }`} 
+          testId="card-active-conversation"
+        >
+          <div className="shrink-0 flex items-center justify-between border-b border-[hsl(var(--border))] px-3.5 py-3 sm:px-6 sm:py-3.5 bg-white z-10 shadow-2xs">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <button
                 type="button"
                 onClick={() => setShowMobileChat(false)}
-                className="lg:hidden flex items-center justify-center p-1.5 -ml-1 text-[#2d4a30] hover:bg-gray-100 rounded-xl transition cursor-pointer shrink-0"
+                className="lg:hidden flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 text-[#2d4a30] hover:bg-gray-100 rounded-xl transition cursor-pointer shrink-0 font-bold text-[12.5px] bg-[#edf4ea]"
                 title="Quay lại danh sách hội thoại"
               >
-                <ArrowLeft size={20} />
+                <ArrowLeft size={18} />
+                <span>Quay lại</span>
               </button>
               <Initials text={currentContact.initials} color={currentContact.color} size="sm" />
               <div className="min-w-0">
@@ -6550,8 +6634,11 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
             )}
           </div>
 
-          {/* Danh sách tin nhắn */}
-          <div className="flex-1 space-y-4 overflow-auto bg-[hsl(var(--background)/.55)] p-5 sm:p-6 max-h-[480px]">
+          {/* Danh sách tin nhắn - cuộn độc lập mượt mà không kéo theo trang web */}
+          <div 
+            className="flex-1 min-h-0 space-y-4 overflow-y-auto overscroll-contain bg-[hsl(var(--background)/.55)] p-4 sm:p-6"
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+          >
             <div className="text-center text-[10.5px] text-[hsl(var(--muted-foreground))] uppercase font-bold tracking-wider">
               Cuộc trò chuyện 1-1 riêng tư · Bảo mật hệ thống CareMatch
             </div>
@@ -6608,10 +6695,11 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
                 );
               })
             )}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Ô nhập tin nhắn */}
-          <div className="border-t border-[hsl(var(--border))] p-4 bg-white">
+          <div className="shrink-0 border-t border-[hsl(var(--border))] p-3 sm:p-4 bg-white z-10 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <div className="flex items-center gap-2 rounded-[14px] bg-[hsl(var(--secondary)/.65)] p-1.5">
               <input
                 value={inputVal}
@@ -7187,6 +7275,20 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
 
+  // Khóa cuộn trang khi Admin mở cuộc hội thoại trên thiết bị di động để chat là block độc lập
+  useEffect(() => {
+    if (selectedConv && typeof window !== 'undefined' && window.innerWidth < 1024) {
+      document.body.style.overflow = 'hidden';
+    } else if (typeof window !== 'undefined') {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        document.body.style.overflow = '';
+      }
+    };
+  }, [selectedConv]);
+
   // Search & Filter state
   const [caregiverSearch, setCaregiverSearch] = useState('');
   const [caregiverFilter, setCaregiverFilter] = useState<'all' | 'pending' | 'approved'>('all');
@@ -7691,12 +7793,29 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
     fetch(`${API}/settings`)
       .then(r => r.json())
       .then(data => {
-        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
-          setSystemSettings(prev => ({ ...prev, ...data }));
+        const s = data.settings || data;
+        if (s && typeof s === 'object' && Object.keys(s).length > 0) {
+          setSystemSettings(prev => ({ ...prev, ...s }));
         }
       })
       .catch(() => { });
   }, [refreshTick]);
+
+  const handleAdminQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      notify('Vui lòng chọn tệp hình ảnh hợp lệ (JPG, PNG, WEBP).');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setSystemSettings(prev => ({ ...prev, admin_qr_image: dataUrl }));
+      notify('✅ Đã nạp ảnh mã QR VietQR của Admin! Bấm "Lưu & Áp Dụng Toàn Hệ Thống" bên dưới để lưu vào CSDL.');
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const onAdminTab = (e: any) => {
@@ -9331,12 +9450,12 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
       {/* ===== TAB: HỘP THƯ ===== */}
       {activeTab === 'messages' && (
         <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-          <Card className={`p-0 overflow-hidden flex flex-col ${selectedConv ? 'hidden lg:flex' : 'flex'}`}>
-            <div className="flex items-center gap-2 p-5 border-b border-[hsl(var(--border))]">
+          <Card className={`p-0 overflow-hidden flex flex-col ${selectedConv ? 'hidden lg:flex' : 'flex'} lg:h-[650px]`}>
+            <div className="flex items-center gap-2 p-5 border-b border-[hsl(var(--border))] shrink-0">
               <MessageCircle size={19} className="text-[#567a4e]" />
               <h2 className="font-display text-[18px] font-bold text-[#263b2c]">Hội thoại ({conversations.length})</h2>
             </div>
-            <div className="divide-y divide-[hsl(var(--border))] max-h-[600px] overflow-y-auto">
+            <div className="divide-y divide-[hsl(var(--border))] overflow-y-auto flex-1 min-h-0">
               {conversations.length === 0 && (
                 <p className="text-[13px] text-[#8a9a8a] text-center py-10">Chưa có hội thoại nào trong hệ thống</p>
               )}
@@ -9370,7 +9489,13 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
             </div>
           </Card>
 
-          <Card className={`p-0 overflow-hidden flex flex-col ${selectedConv ? 'flex' : 'hidden lg:flex'}`}>
+          <Card 
+            className={`p-0 overflow-hidden flex flex-col bg-white shadow-sm border border-[hsl(var(--border))] ${
+              selectedConv 
+                ? 'fixed inset-0 z-[100] flex h-[100dvh] w-full rounded-none border-0 lg:static lg:z-auto lg:flex lg:h-[650px] lg:rounded-[24px] lg:border' 
+                : 'hidden lg:flex lg:h-[650px]'
+            }`}
+          >
             {!selectedConv ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
                 <MessageCircle size={48} className="text-[#c8ddc5]" />
@@ -9378,15 +9503,16 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[hsl(var(--border))] bg-[#fafcf9]">
+                <div className="shrink-0 flex items-center justify-between p-3.5 sm:p-4 border-b border-[hsl(var(--border))] bg-[#fafcf9] z-10 shadow-2xs">
                   <div className="flex items-center gap-2 min-w-0">
                     <button
                       type="button"
                       onClick={() => setSelectedConv(null)}
-                      className="lg:hidden flex items-center justify-center p-1.5 -ml-1 text-[#2d4a30] hover:bg-gray-100 rounded-xl transition cursor-pointer shrink-0"
+                      className="lg:hidden flex items-center gap-1.5 px-2.5 py-1.5 -ml-1 text-[#2d4a30] hover:bg-gray-100 rounded-xl transition cursor-pointer shrink-0 font-bold text-[12.5px] bg-[#edf4ea]"
                       title="Quay lại danh sách hội thoại"
                     >
-                      <ArrowLeft size={19} />
+                      <ArrowLeft size={18} />
+                      <span>Quay lại</span>
                     </button>
                     <div className="min-w-0">
                       <p className="text-[13.5px] sm:text-[14px] font-bold text-[#263b2c] truncate">
@@ -9401,7 +9527,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                   <span className="rounded-full bg-[#edf5ea] px-2.5 py-0.5 text-[10.5px] font-bold text-[#43643d] shrink-0">Đang xem</span>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[420px]">
+                {/* Danh sách tin nhắn cuộn độc lập */}
+                <div 
+                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 space-y-3 bg-[#f8faf7]"
+                  style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                >
                   {convMessages.length === 0 && (
                     <p className="text-[13px] text-[#8a9a8a] text-center py-10">Chưa có tin nhắn nào</p>
                   )}
@@ -9423,7 +9553,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                   ))}
                 </div>
 
-                <div className="p-4 border-t border-[hsl(var(--border))] bg-[#fafcf9]">
+                <div className="shrink-0 p-3 sm:p-4 border-t border-[hsl(var(--border))] bg-[#fafcf9] z-10 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                   <p className="text-[11px] text-[#8a9a8a] mb-2 font-semibold">
                     Trả lời tới: <span className="text-[#263b2c] font-bold">{selectedConv.participants.find(p => p.role !== 'admin')?.full_name || 'Người dùng'}</span>
                   </p>
@@ -9891,6 +10021,290 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                       placeholder="cskh@carematch.vn"
                       className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13px] font-medium text-gray-900 outline-none focus:border-emerald-600"
                     />
+                  </div>
+                </div>
+              </Card>
+
+              {/* Card 7: Cổng Thanh Toán Trực Tuyến & Cấu Hình VietQR Quản Trị (Đường Chờ Sẵn) */}
+              <Card className="p-6 space-y-5 md:col-span-2 border-2 border-emerald-600/30 bg-gradient-to-br from-white via-[#f7faf6] to-white shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-900 flex items-center justify-center font-bold text-[18px] shadow-2xs">
+                      💳
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-display font-bold text-[17px] text-gray-900">
+                          Cổng Thanh Toán Trực Tuyến & Cấu Hình VietQR Quản Trị
+                        </h3>
+                        <span className="rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2.5 py-0.5 border border-emerald-200">
+                          Đường chờ Napas 247
+                        </span>
+                      </div>
+                      <p className="text-[11.5px] text-gray-500 mt-0.5">
+                        Tải lên mã QR của Admin, thiết lập số tài khoản nhận tiền và kết nối API đối soát tự động toàn sàn
+                      </p>
+                    </div>
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-800 border border-emerald-200 shadow-2xs">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+                    Đồng bộ thời gian thực cho Người Nhà & Người Chăm Sóc
+                  </div>
+                </div>
+
+                <div className="grid gap-6 lg:grid-cols-2">
+                  {/* Cột 1: Thông tin Ngân hàng & Tải ảnh QR */}
+                  <div className="space-y-4">
+                    <div className="rounded-2xl bg-white p-4.5 border border-gray-200 space-y-3.5 shadow-2xs">
+                      <p className="text-[12px] font-bold text-[#2d5031] uppercase tracking-wider flex items-center gap-1.5">
+                        <Building2 size={15} /> Thông Tin Ngân Hàng Thụ Hưởng Nhận Tiền
+                      </p>
+
+                      <div>
+                        <label className="block text-[11.5px] font-bold text-gray-700 mb-1">
+                          Tên Ngân Hàng Thụ Hưởng *
+                        </label>
+                        <input
+                          type="text"
+                          value={systemSettings.admin_bank_name || 'MB Bank (Quân Đội)'}
+                          onChange={e => setSystemSettings({ ...systemSettings, admin_bank_name: e.target.value })}
+                          placeholder="VD: MB Bank (Quân Đội) hoặc Vietcombank"
+                          className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13px] font-semibold text-gray-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/10"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11.5px] font-bold text-gray-700 mb-1">
+                            Số Tài Khoản Nhận Tiền *
+                          </label>
+                          <input
+                            type="text"
+                            value={systemSettings.admin_bank_account || '0934 567 890'}
+                            onChange={e => setSystemSettings({ ...systemSettings, admin_bank_account: e.target.value })}
+                            placeholder="Số tài khoản"
+                            className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13px] font-mono font-bold text-emerald-900 outline-none focus:border-emerald-600"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11.5px] font-bold text-gray-700 mb-1">
+                            Tên Chủ Tài Khoản *
+                          </label>
+                          <input
+                            type="text"
+                            value={systemSettings.admin_bank_owner || 'TỐNG THANH DƯƠNG'}
+                            onChange={e => setSystemSettings({ ...systemSettings, admin_bank_owner: e.target.value })}
+                            placeholder="Tên chủ tài khoản"
+                            className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13px] font-bold text-gray-900 outline-none focus:border-emerald-600 uppercase"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Vùng tải lên ảnh Mã QR của Admin */}
+                    <div className="rounded-2xl bg-white p-4.5 border border-gray-200 space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[12px] font-bold text-[#2d5031] uppercase tracking-wider flex items-center gap-1.5">
+                          <QrCode size={15} /> Ảnh Mã QR VietQR Do Admin Tải Lên
+                        </p>
+                        {systemSettings.admin_qr_image && (
+                          <span className="rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5">
+                            ✓ Đã có ảnh tùy chỉnh
+                          </span>
+                        )}
+                      </div>
+
+                      <input
+                        type="file"
+                        accept="image/*"
+                        id="admin-qr-file-input"
+                        className="hidden"
+                        onChange={handleAdminQrUpload}
+                      />
+
+                      {systemSettings.admin_qr_image ? (
+                        <div className="flex flex-col sm:flex-row items-center gap-4 p-3 bg-emerald-50/50 rounded-xl border border-emerald-200">
+                          <img
+                            src={systemSettings.admin_qr_image}
+                            alt="Mã QR Admin đã tải lên"
+                            className="w-28 h-28 object-contain rounded-lg bg-white p-1 border border-emerald-300 shadow-xs cursor-pointer hover:opacity-90 transition"
+                            onClick={() => setPreviewDocModal({
+                              title: 'Mã QR Thanh Toán Quản Trị Viên (VietQR)',
+                              type: 'vietqr',
+                              status: 'approved',
+                              url: systemSettings.admin_qr_image
+                            })}
+                            title="Bấm để xem ảnh to"
+                          />
+                          <div className="flex-1 space-y-2 text-center sm:text-left">
+                            <p className="text-[12.5px] font-bold text-[#203a23]">
+                              Ảnh mã QR Admin đang áp dụng trực tiếp
+                            </p>
+                            <p className="text-[11px] text-gray-500">
+                              Người nhà và người chăm sóc sẽ quét trực tiếp mã QR này khi thực hiện thanh toán.
+                            </p>
+                            <div className="flex flex-wrap gap-2 justify-center sm:justify-start pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewDocModal({
+                                  title: 'Mã QR Thanh Toán Quản Trị Viên (VietQR)',
+                                  type: 'vietqr',
+                                  status: 'approved',
+                                  url: systemSettings.admin_qr_image
+                                })}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-gray-300 text-[11.5px] font-bold text-gray-700 hover:bg-gray-50 transition cursor-pointer shadow-2xs"
+                              >
+                                <Eye size={13} /> Xem to
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => document.getElementById('admin-qr-file-input')?.click()}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-[11.5px] font-bold hover:bg-emerald-800 transition cursor-pointer shadow-2xs"
+                              >
+                                <UploadCloud size={13} /> Đổi ảnh QR khác
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSystemSettings({ ...systemSettings, admin_qr_image: '' });
+                                  notify('Đã gỡ ảnh mã QR tải lên. Hệ thống sẽ tự động tạo mã VietQR theo STK.');
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[11.5px] font-bold hover:bg-rose-100 transition cursor-pointer"
+                              >
+                                <Trash2 size={13} /> Xóa
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => document.getElementById('admin-qr-file-input')?.click()}
+                          className="border-2 border-dashed border-gray-300 hover:border-emerald-500 hover:bg-emerald-50/40 rounded-2xl p-5 text-center transition cursor-pointer group"
+                        >
+                          <div className="mx-auto w-12 h-12 rounded-2xl bg-gray-100 group-hover:bg-emerald-100 text-gray-400 group-hover:text-emerald-700 flex items-center justify-center transition">
+                            <UploadCloud size={24} />
+                          </div>
+                          <p className="mt-2 text-[12.5px] font-bold text-gray-800 group-hover:text-emerald-900">
+                            Bấm để tải lên ảnh Mã QR VietQR của Admin
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-gray-400">
+                            Hỗ trợ tệp hình ảnh định dạng JPG, PNG hoặc WEBP (tối đa 5MB)
+                          </p>
+                          <span className="mt-2 inline-block rounded-full bg-gray-100 px-3 py-1 text-[10.5px] font-medium text-gray-600">
+                            Nếu không tải ảnh, hệ thống tự động sinh mã VietQR Napas chuẩn theo STK
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Cột 2: Xem trước hiển thị & Đường chờ cổng thanh toán thật */}
+                  <div className="space-y-4">
+                    {/* Live Preview Box */}
+                    <div className="rounded-2xl bg-white p-4.5 border border-gray-200 shadow-2xs space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[12px] font-bold text-[#2d5031] uppercase tracking-wider flex items-center gap-1.5">
+                          <Eye size={15} /> Xem Trước Thực Tế (Khách Hàng Thấy)
+                        </p>
+                        <span className="text-[11px] text-gray-400 font-semibold">Live Preview</span>
+                      </div>
+
+                      <div className="p-3.5 rounded-xl bg-gradient-to-b from-[#f9fbf8] to-[#edf4ec] border border-[#d6e5d4] flex flex-col items-center text-center">
+                        <span className="text-[9px] font-bold text-emerald-800 uppercase tracking-wider">VietQR · Napas 247</span>
+                        <div className="my-2 p-2 bg-white rounded-xl shadow-xs border border-gray-200">
+                          {systemSettings.admin_qr_image ? (
+                            <img
+                              src={systemSettings.admin_qr_image}
+                              alt="Xem trước QR"
+                              className="w-36 h-36 object-contain rounded-lg"
+                            />
+                          ) : (
+                            <img
+                              src={`https://img.vietqr.io/image/MB-${(systemSettings.admin_bank_account || '0934567890').replace(/\s+/g, '')}-compact2.png?amount=0&addInfo=CAREMATCH&accountName=${encodeURIComponent(systemSettings.admin_bank_owner || 'TONG THANH DUONG')}`}
+                              alt="VietQR Tự động"
+                              className="w-36 h-36 object-contain rounded-lg"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          )}
+                        </div>
+
+                        <div className="w-full max-w-xs space-y-1 text-[11.5px] text-left bg-white p-2.5 rounded-lg border border-gray-200">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Ngân hàng:</span>
+                            <strong className="text-gray-800">{systemSettings.admin_bank_name || 'MB Bank (Quân Đội)'}</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Số tài khoản:</span>
+                            <strong className="font-mono font-bold text-emerald-900">{systemSettings.admin_bank_account || '0934 567 890'}</strong>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Chủ tài khoản:</span>
+                            <strong className="font-bold text-gray-900">{systemSettings.admin_bank_owner || 'TỐNG THANH DƯƠNG'}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Đường chờ kết nối Cổng thanh toán VietQR thật */}
+                    <div className="rounded-2xl bg-amber-50/60 p-4.5 border border-amber-300/80 space-y-3 shadow-2xs">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[12px] font-bold text-amber-950 uppercase tracking-wider flex items-center gap-1.5">
+                          ⚡ Đường Chờ Kết Nối Cổng Thanh Toán VietQR Thật
+                        </p>
+                        <span className="rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5 border border-amber-300">
+                          Production Ready
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-relaxed">
+                        Hệ thống đã có sẵn đường chờ kỹ thuật (API Slot). Khi bạn đăng ký xong tài khoản cổng thanh toán trực tuyến VietQR thật, chỉ cần điền Client ID & Secret Key vào 2 ô dưới để tự động xác thực số dư thật:
+                      </p>
+
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                            VietQR / Ngân Hàng Client ID
+                          </label>
+                          <input
+                            type="text"
+                            value={systemSettings.vietqr_client_id || ''}
+                            onChange={e => setSystemSettings({ ...systemSettings, vietqr_client_id: e.target.value })}
+                            placeholder="VD: client_id_vietqr_2026_live_..."
+                            className="w-full h-10 rounded-xl border border-amber-300 bg-white px-3 text-[12px] font-mono outline-none focus:border-amber-600"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                            VietQR API Key / Secret Key
+                          </label>
+                          <input
+                            type="password"
+                            value={systemSettings.vietqr_api_key || ''}
+                            onChange={e => setSystemSettings({ ...systemSettings, vietqr_api_key: e.target.value })}
+                            placeholder="••••••••••••••••••••••••"
+                            className="w-full h-10 rounded-xl border border-amber-300 bg-white px-3 text-[12px] font-mono outline-none focus:border-amber-600"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span className="text-[11.5px] font-bold text-amber-900">
+                            Tự động xác nhận giao dịch giữ chỗ ca
+                          </span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={systemSettings.vietqr_auto_confirm !== false && systemSettings.vietqr_auto_confirm !== '0' && systemSettings.vietqr_auto_confirm !== 0}
+                              onChange={e => setSystemSettings({ ...systemSettings, vietqr_auto_confirm: e.target.checked })}
+                              className="sr-only peer"
+                            />
+                            <div className="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </Card>

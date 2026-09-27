@@ -55,6 +55,36 @@ export function FamilyPremiumModal({
   const [scanCountdown, setScanCountdown] = useState(15);
   const [verifyProgress, setVerifyProgress] = useState(0);
 
+  // Cấu hình thanh toán đồng bộ từ CSDL hệ thống của Admin
+  const [paymentConfig, setPaymentConfig] = useState<{
+    bank_name: string;
+    bank_account: string;
+    bank_owner: string;
+    qr_image: string;
+  }>({
+    bank_name: 'MB Bank (Quân Đội)',
+    bank_account: '0934 567 890',
+    bank_owner: 'TỐNG THANH DƯƠNG',
+    qr_image: ''
+  });
+
+  useEffect(() => {
+    fetch(`${API}/settings`)
+      .then(r => r.json())
+      .then(data => {
+        const s = data.settings || data;
+        if (s) {
+          setPaymentConfig({
+            bank_name: s.admin_bank_name || 'MB Bank (Quân Đội)',
+            bank_account: s.admin_bank_account || '0934 567 890',
+            bank_owner: s.admin_bank_owner || 'TỐNG THANH DƯƠNG',
+            qr_image: s.admin_qr_image || ''
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Load current subscription status
   useEffect(() => {
     if (!isOpen || !currentUser?.id) return;
@@ -423,32 +453,50 @@ export function FamilyPremiumModal({
               {/* VietQR Box */}
               <div className="rounded-2xl border border-gray-200 p-5 bg-white text-center space-y-4">
                 <div className="max-w-[220px] mx-auto p-3 bg-white rounded-xl border border-gray-200 shadow-sm">
-                  {/* Mock VietQR Image Canvas */}
-                  <div className="w-full aspect-square bg-[#fbfdfa] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-3 relative overflow-hidden">
+                  {/* VietQR Image */}
+                  <div className="w-full aspect-square bg-[#fbfdfa] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-2 relative overflow-hidden">
                     <div className="absolute top-1 left-2 text-[9px] font-bold text-emerald-800 uppercase tracking-wider">VietQR · Napas247</div>
-                    <div className="h-28 w-28 bg-[#1f3625] rounded-md flex items-center justify-center p-2 text-white">
-                      <div className="w-full h-full border border-amber-300/40 rounded flex flex-col items-center justify-center text-center">
-                        <Crown size={24} className="text-amber-300" />
-                        <span className="text-[9px] font-mono text-amber-200 mt-1">CARE-MATCH</span>
-                        <span className="text-[8px] text-gray-300 font-mono">50.000 VND</span>
+                    {paymentConfig.qr_image ? (
+                      <img 
+                        src={paymentConfig.qr_image} 
+                        alt="Mã QR Admin CareMatch" 
+                        className="w-32 h-32 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs" 
+                      />
+                    ) : (
+                      <div className="relative">
+                        <img 
+                          src={`https://img.vietqr.io/image/MB-${paymentConfig.bank_account.replace(/\s+/g, '')}-compact2.png?amount=50000&addInfo=CAREMATCH%20PREM%20${currentUser?.id || 1}&accountName=${encodeURIComponent(paymentConfig.bank_owner)}`}
+                          alt="VietQR Napas 247"
+                          className="w-32 h-32 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                            const fb = document.getElementById('prem-qr-fallback');
+                            if (fb) fb.style.display = 'flex';
+                          }}
+                        />
+                        <div id="prem-qr-fallback" className="hidden h-28 w-28 bg-[#1f3625] rounded-md flex-col items-center justify-center text-white my-1">
+                          <Crown size={24} className="text-amber-300" />
+                          <span className="text-[9px] font-mono text-amber-200 mt-1">CARE-MATCH</span>
+                          <span className="text-[8px] text-gray-300 font-mono">50.000 VND</span>
+                        </div>
                       </div>
-                    </div>
-                    <span className="text-[9.5px] text-gray-500 mt-2 font-mono">Quét mã chuyển khoản tức thì</span>
+                    )}
+                    <span className="text-[9.5px] text-gray-500 mt-1 font-mono">Quét mã chuyển khoản tức thì</span>
                   </div>
                 </div>
 
                 <div className="rounded-xl bg-[#fafcf9] border border-[#e1ede0] p-3 text-[12px] space-y-1.5 text-left max-w-md mx-auto">
                   <div className="flex justify-between">
                     <span className="text-gray-500">Ngân hàng thụ hưởng:</span>
-                    <strong className="font-semibold text-gray-800">MB Bank (Quân Đội)</strong>
+                    <strong className="font-semibold text-gray-800">{paymentConfig.bank_name}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Số tài khoản:</span>
-                    <strong className="font-mono font-bold text-emerald-900">0934 567 890</strong>
+                    <strong className="font-mono font-bold text-emerald-900">{paymentConfig.bank_account}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Chủ tài khoản:</span>
-                    <strong className="font-semibold text-gray-800">CARE MATCH PLATFORM</strong>
+                    <strong className="font-semibold text-gray-800">{paymentConfig.bank_owner}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Số tiền:</span>

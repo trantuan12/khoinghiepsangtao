@@ -59,6 +59,36 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
   const [payCountdown, setPayCountdown] = useState(15);
   const [verifyProgress, setVerifyProgress] = useState(0);
 
+  // Cấu hình ngân hàng & mã VietQR thanh toán do Admin thiết lập
+  const [paymentConfig, setPaymentConfig] = useState<{
+    bank_name: string;
+    bank_account: string;
+    bank_owner: string;
+    qr_image: string;
+  }>({
+    bank_name: 'MB Bank (Quân Đội)',
+    bank_account: '0934 567 890',
+    bank_owner: 'TỐNG THANH DƯƠNG',
+    qr_image: ''
+  });
+
+  useEffect(() => {
+    fetch(`${API}/settings`)
+      .then(r => r.json())
+      .then(data => {
+        const s = data.settings || data;
+        if (s) {
+          setPaymentConfig({
+            bank_name: s.admin_bank_name || 'MB Bank (Quân Đội)',
+            bank_account: s.admin_bank_account || '0934 567 890',
+            bank_owner: s.admin_bank_owner || 'TỐNG THANH DƯƠNG',
+            qr_image: s.admin_qr_image || ''
+          });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Modal biên nhận bảo lãnh
   const [viewingReceipt, setViewingReceipt] = useState<any | null>(null);
 
@@ -454,32 +484,56 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
                   </div>
 
                   {/* QR Box */}
-                  <div className="max-w-[200px] mx-auto p-3 bg-white rounded-xl border border-gray-200 text-center shadow-xs">
-                    <div className="aspect-square bg-[#f8faf7] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-2 relative">
-                      <span className="text-[8px] font-bold text-emerald-800 uppercase">VietQR · Napas 247</span>
-                      <div className="h-24 w-24 bg-[#1f3625] rounded-md flex flex-col items-center justify-center text-white my-1">
-                        <ShieldCheck size={22} className="text-amber-300" />
-                        <span className="text-[8px] font-mono mt-0.5 text-amber-200">CARE-MATCH</span>
-                        <span className="text-[7.5px] text-gray-300 font-mono">
-                          {Number(payingBooking.total_amount).toLocaleString('vi-VN')} đ
-                        </span>
-                      </div>
-                      <span className="text-[9px] text-gray-500 font-mono">Quét mã chuyển khoản</span>
+                  <div className="max-w-[220px] mx-auto p-3 bg-white rounded-xl border border-gray-200 text-center shadow-xs">
+                    <div className="bg-[#f8faf7] border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center p-2 relative overflow-hidden">
+                      <span className="text-[8.5px] font-bold text-emerald-800 uppercase mb-1">VietQR · Napas 247</span>
+                      {paymentConfig.qr_image ? (
+                        <img 
+                          src={paymentConfig.qr_image} 
+                          alt="Mã QR Admin CareMatch" 
+                          className="w-36 h-36 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs" 
+                        />
+                      ) : (
+                        <div className="relative">
+                          <img 
+                            src={`https://img.vietqr.io/image/MB-${paymentConfig.bank_account.replace(/\s+/g, '')}-compact2.png?amount=${payingBooking.total_amount}&addInfo=CAREMATCH%20CA%20${payingBooking.id}&accountName=${encodeURIComponent(paymentConfig.bank_owner)}`}
+                            alt="VietQR Napas 247"
+                            className="w-36 h-36 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                              const fb = document.getElementById('family-pay-qr-fallback');
+                              if (fb) fb.style.display = 'flex';
+                            }}
+                          />
+                          <div id="family-pay-qr-fallback" className="hidden h-36 w-36 bg-[#1f3625] rounded-md flex-col items-center justify-center text-white my-1 p-2">
+                            <ShieldCheck size={26} className="text-amber-300" />
+                            <span className="text-[9px] font-mono mt-1 text-amber-200">CARE-MATCH</span>
+                            <span className="text-[8px] text-gray-300 font-mono mt-0.5">
+                              {Number(payingBooking.total_amount).toLocaleString('vi-VN')} đ
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      <span className="text-[9px] text-gray-500 font-mono mt-1">Quét mã chuyển khoản tức thì</span>
                     </div>
                   </div>
 
-                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-[11.5px] space-y-1 max-w-sm mx-auto">
+                  <div className="rounded-xl bg-gray-50 border border-gray-200 p-3 text-[11.5px] space-y-1.5 max-w-sm mx-auto">
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Ngân hàng:</span>
-                      <strong className="text-gray-800">MB Bank (Quân Đội)</strong>
+                      <span className="text-gray-500">Ngân hàng thụ hưởng:</span>
+                      <strong className="text-gray-800">{paymentConfig.bank_name}</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Số tài khoản:</span>
-                      <strong className="font-mono font-bold text-emerald-900">0934 567 890</strong>
+                      <strong className="font-mono font-bold text-emerald-900">{paymentConfig.bank_account}</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Chủ tài khoản:</span>
+                      <strong className="font-bold text-gray-900">{paymentConfig.bank_owner}</strong>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-500">Nội dung chuyển khoản:</span>
-                      <strong className="font-mono text-emerald-950 bg-emerald-100 px-1 py-0.2 rounded">
+                      <strong className="font-mono text-emerald-950 bg-emerald-100 px-1.5 py-0.5 rounded">
                         CAREMATCH CA {payingBooking.id}
                       </strong>
                     </div>

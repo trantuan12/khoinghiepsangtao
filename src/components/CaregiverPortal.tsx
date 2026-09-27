@@ -90,8 +90,9 @@ const COMMON_SKILLS = [
 
 // Hàm xử lý hậu kỳ số năm kinh nghiệm: nếu < 10 tự động thêm số 0 ở đầu (VD: '8' -> '08')
 export const formatExperience = (val: string | number | undefined | null) => {
-  const digits = String(val ?? '').replace(/\D/g, '');
-  if (!digits) return '00';
+  if (val === undefined || val === null || val === '') return '';
+  const digits = String(val).replace(/\D/g, '');
+  if (!digits) return '';
   const n = parseInt(digits, 10);
   return n < 10 ? `0${n}` : `${n}`;
 };
@@ -428,9 +429,9 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
 
         // CHỈ đồng bộ formData, documents và isEditing nếu người dùng KHÔNG đang chỉnh sửa và KHÔNG có dữ liệu nạp cục bộ chưa lưu
         if (!isEditingRef.current && !hasUnsavedChangesRef.current) {
-          const exp = data.experience_years !== undefined && data.experience_years !== null
-            ? formatExperience(Math.max(1, data.experience_years))
-            : '01';
+          const exp = data.experience_years !== undefined && data.experience_years !== null && Number(data.experience_years) > 0
+            ? String(data.experience_years)
+            : '';
 
           const shiftRate = Number(data.shift_rate) || 400000;
           const nightShiftRate = Number(data.night_shift_rate) || Math.round(shiftRate * 1.5);
@@ -697,10 +698,14 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       setSaving(true);
     }
 
-    // Xử lý hậu kỳ số năm kinh nghiệm: tối thiểu 1 năm
-    const rawExp = String(formData.experienceYears).replace(/\D/g, '');
-    const numExp = rawExp ? Math.max(1, parseInt(rawExp, 10)) : 1;
-    const formattedExp = formatExperience(numExp);
+    // Xử lý hậu kỳ số năm kinh nghiệm: nếu < 10 tự động thêm số 0 ở trước, nếu >= 10 giữ nguyên
+    const rawExp = String(formData.experienceYears || '').replace(/\D/g, '');
+    let numExp = 0;
+    let formattedExp = '';
+    if (rawExp) {
+      numExp = parseInt(rawExp, 10);
+      formattedExp = numExp < 10 ? `0${numExp}` : `${numExp}`;
+    }
     const parsedShiftRate = Math.min(1000000, Math.max(400000, Number(formData.shiftRate) || 400000));
     const parsedNightShiftRate = Math.round(parsedShiftRate * 1.5);
     setFormData(prev => ({ ...prev, experienceYears: formattedExp, shiftRate: parsedShiftRate, nightShiftRate: parsedNightShiftRate }));
@@ -1088,7 +1093,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                       <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#5b735e] block">Số năm kinh nghiệm</span>
                       <p className="mt-1 text-[13.5px] font-bold text-[#2d5229] flex items-center gap-1.5">
                         <Award size={15} className="text-[#51704e]" />
-                        {formatExperience(formData.experienceYears)} năm kinh nghiệm
+                        {formatExperience(formData.experienceYears) ? `${formatExperience(formData.experienceYears)} năm kinh nghiệm` : 'Chưa cập nhật'}
                       </p>
                     </div>
 
@@ -1235,19 +1240,19 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                     <label className="block">
                       <span className="mb-1.5 block text-[11px] font-bold text-[#455b48]">Số năm kinh nghiệm *</span>
                       <input 
-                        type="number"
-                        min={1}
-                        max={40}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={formData.experienceYears} 
                         onChange={e => {
                           const val = e.target.value.replace(/\D/g, '');
                           setFormData({ ...formData, experienceYears: val });
                         }}
-                        placeholder="VD: 5"
+                        placeholder="Nhập số năm kinh nghiệm (VD: 3)"
                         className="h-11 w-full rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-3 text-[13px] outline-none focus:border-[hsl(var(--primary))]" 
                       />
                       <span className="mt-1 block text-[10px] text-[#556e58]">
-                        Tối thiểu 1 năm kinh nghiệm
+                        Mặc định để trống để bạn tự nhập. Khi lưu, số năm dưới 10 sẽ tự động thêm số 0 ở trước (VD: 3 → 03 năm, từ 10 năm giữ nguyên).
                       </span>
                     </label>
                   </div>
@@ -2771,7 +2776,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 <div className="mt-4 space-y-2 text-[12px]">
                   <div className="flex justify-between py-1 border-b border-gray-50">
                     <span className="text-gray-500">Số năm kinh nghiệm:</span>
-                    <strong className="text-gray-800">{formatExperience(formData.experienceYears)} năm</strong>
+                    <strong className="text-gray-800">{formatExperience(formData.experienceYears) ? `${formatExperience(formData.experienceYears)} năm` : 'Chưa cập nhật'}</strong>
                   </div>
                   <div className="flex justify-between py-1 border-b border-gray-50">
                     <span className="text-gray-500">Khu vực phục vụ:</span>
