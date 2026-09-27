@@ -1513,8 +1513,8 @@ app.post('/api/family-profile', async (req, res) => {
             id_number = ?,
             address = ?,
             district = ?,
-            id_card_front = COALESCE(?, id_card_front),
-            id_card_back = COALESCE(?, id_card_back),
+            id_card_front = ?,
+            id_card_back = ?,
             verification_status = ?
           WHERE user_id = ?`,
           [
@@ -1524,8 +1524,8 @@ app.post('/api/family-profile', async (req, res) => {
             id_number !== undefined ? id_number : '',
             address || '',
             district || '',
-            id_card_front || null,
-            id_card_back || null,
+            id_card_front !== undefined ? (id_card_front || null) : existing[0].id_card_front,
+            id_card_back !== undefined ? (id_card_back || null) : existing[0].id_card_back,
             newStatus,
             uid
           ]
@@ -1902,12 +1902,12 @@ app.post('/api/caregiver-profile', async (req, res) => {
         );
         for (const doc of documents) {
           const docType = doc.category || doc.type || 'cccd';
-          const docUrl = doc.fileUrl || doc.url;
+          const docUrl = doc.fileUrl || doc.url || doc.dataUrl || doc.file_url;
           if (docUrl) {
             const docTypeMap = {
               'cccd': 'cccd',
-              'cccd_front': 'cccd',
-              'cccd_back': 'cccd',
+              'cccd_front': 'cccd_front',
+              'cccd_back': 'cccd_back',
               'policeCheck': 'police_check',
               'police_check': 'police_check',
               'judicial_record': 'police_check',
@@ -1919,12 +1919,23 @@ app.post('/api/caregiver-profile', async (req, res) => {
               'health_cert': 'health_check',
               'health_check': 'health_check'
             };
-            const mappedType = docTypeMap[docType] || 'cccd';
+            const mappedType = docTypeMap[docType] || docType;
+            const docNameMap = {
+              'cccd_front': 'Căn cước công dân (Mặt trước)',
+              'cccd_back': 'Căn cước công dân (Mặt sau)',
+              'policeCheck': 'Phiếu lý lịch tư pháp số 2',
+              'police_check': 'Phiếu lý lịch tư pháp số 2',
+              'certificate': 'Chứng chỉ chuyên môn',
+              'medical_certificate': 'Chứng chỉ nghiệp vụ điều dưỡng',
+              'healthCheck': 'Giấy khám sức khỏe định kỳ',
+              'health_check': 'Giấy khám sức khỏe định kỳ'
+            };
+            const docTitle = doc.name && doc.name !== 'cccd' && doc.name !== 'file' ? doc.name : (docNameMap[docType] || mappedType);
 
             await pool.execute(
               `INSERT INTO caregiver_documents (caregiver_id, document_type, document_name, file_url, status)
                VALUES (?, ?, ?, ?, 'pending')`,
-              [profileId, mappedType, doc.name || mappedType, docUrl]
+              [profileId, mappedType, docTitle, docUrl]
             );
           }
         }

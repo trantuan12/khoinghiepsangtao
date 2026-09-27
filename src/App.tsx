@@ -984,7 +984,7 @@ function Landing() {
             <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Kết nối yêu thương – Lan tỏa sự quan tâm</p>
           </div>
         </div>
-        <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH · Sáng lập viên: Tống Thành Đương</span>
+        <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH · Sáng lập viên: Tống Thanh Dương</span>
       </footer>
     </div>
   );
@@ -7777,12 +7777,12 @@ function Admin({ notify }: { notify: (message: string) => void }) {
       />
 
       {/* TAB BAR */}
-      <div className="flex gap-1.5 mb-6 bg-[#f1f5ef] p-1.5 rounded-2xl w-fit flex-wrap">
+      <div className="flex gap-1.5 mb-6 bg-[#f1f5ef] p-1.5 rounded-2xl max-w-full overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap w-full sm:w-fit">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => { setActiveTab(tab.key); setSelectedUser(null); setSelectedConv(null); }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold transition-all ${activeTab === tab.key
+            className={`flex items-center gap-2 px-3.5 sm:px-4 py-2 rounded-xl text-[12.5px] sm:text-[13px] font-semibold transition-all shrink-0 whitespace-nowrap cursor-pointer ${activeTab === tab.key
                 ? 'bg-white text-[#2d4a30] shadow-sm'
                 : 'text-[#5a7a5c] hover:bg-white/60'
               }`}
@@ -8115,7 +8115,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                 {filteredCaregivers.map(u => (
                   <div
                     key={u.id}
-                    className={`w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-[#f5f9f4] transition cursor-pointer ${selectedUser?.id === u.id ? 'bg-[#edf5ea] border-l-4 border-l-[#486842]' : ''
+                    className={`w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-5 py-4 hover:bg-[#f5f9f4] transition cursor-pointer ${selectedUser?.id === u.id ? 'bg-[#edf5ea] border-l-4 border-l-[#486842]' : ''
                       }`}
                     onClick={() => setSelectedUser(u)}
                   >
@@ -8150,15 +8150,15 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleOpenCaregiverModal(u); }}
-                        className="rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs transition flex items-center gap-1.5"
+                        className="w-full sm:w-auto justify-center rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                         title="Xem toàn bộ hồ sơ, thông tin cá nhân và tài liệu eKYC"
                       >
                         <Eye size={13} /> Xem hồ sơ & Ca làm việc
                       </button>
-                      <ChevronRight size={15} className="text-[#aaa]" />
+                      <ChevronRight size={15} className="text-[#aaa] hidden sm:block" />
                     </div>
                   </div>
                 ))}
@@ -8523,7 +8523,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                 {filteredFamilies.map(u => (
                   <div
                     key={u.id}
-                    className={`w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-[#f9f6f0] transition cursor-pointer ${selectedUser?.id === u.id ? 'bg-[#fdf5e6] border-l-4 border-l-[#c09848]' : ''
+                    className={`w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-5 py-4 hover:bg-[#f9f6f0] transition cursor-pointer ${selectedUser?.id === u.id ? 'bg-[#fdf5e6] border-l-4 border-l-[#c09848]' : ''
                       }`}
                     onClick={() => setSelectedUser(u)}
                   >
@@ -8563,15 +8563,15 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-0 border-gray-100">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleOpenFamilyModal(u); }}
-                        className="rounded-lg bg-[#b0883b] hover:bg-[#97732e] text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs transition flex items-center gap-1.5"
+                        className="w-full sm:w-auto justify-center rounded-lg bg-[#b0883b] hover:bg-[#97732e] text-white px-3 py-1.5 text-[11.5px] font-bold shadow-xs transition flex items-center gap-1.5 cursor-pointer"
                         title="Xem chi tiết gia đình & Lịch ca"
                       >
                         <Eye size={13} /> Xem chi tiết gia đình & Lịch ca
                       </button>
-                      <ChevronRight size={15} className="text-[#aaa]" />
+                      <ChevronRight size={15} className="text-[#aaa] hidden sm:block" />
                     </div>
                   </div>
                 ))}
@@ -9932,7 +9932,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
             </div>
 
             {/* Modal Tabs */}
-            <div className="flex border-b border-gray-200 bg-[#fafcf9] px-6 gap-2 pt-2">
+            <div className="flex border-b border-gray-200 bg-[#fafcf9] px-4 sm:px-6 gap-2 pt-2 overflow-x-auto no-scrollbar max-w-full flex-nowrap">
               {[
                 { id: 'personal' as const, label: '👤 Thông tin cá nhân', icon: UserRound },
                 { id: 'skills' as const, label: '🩺 Chuyên môn & CARE SCORE', icon: Star },
@@ -9942,7 +9942,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                 <button
                   key={tab.id}
                   onClick={() => setModalCaregiverTab(tab.id)}
-                  className={`flex items-center gap-2 py-3 px-4 border-b-2 text-[13px] font-bold transition ${modalCaregiverTab === tab.id
+                  className={`flex items-center gap-2 py-3 px-4 border-b-2 text-[13px] font-bold transition shrink-0 whitespace-nowrap ${modalCaregiverTab === tab.id
                       ? 'border-emerald-700 text-emerald-900 bg-white rounded-t-xl shadow-xs'
                       : 'border-transparent text-gray-500 hover:text-gray-800'
                     }`}
@@ -10198,13 +10198,13 @@ function Admin({ notify }: { notify: (message: string) => void }) {
                                 <FileText size={20} />
                               </div>
                               <div>
-                                <p className="text-[13.5px] font-bold text-gray-900">{doc.document_name}</p>
+                                <p className="text-[13.5px] font-bold text-gray-900">{doc.document_name || doc.name || 'Tài liệu eKYC'}</p>
                                 <p className="text-[11px] text-gray-500 mt-0.5">
-                                  Loại: {doc.document_type} · Tải lên ngày {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString('vi-VN') : '22/09/2026'}
+                                  Loại: {doc.document_type || doc.type || 'Tài liệu'} · Tải lên ngày {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString('vi-VN') : '22/09/2026'}
                                 </p>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                               <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${doc.status === 'verified'
                                   ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
                                   : doc.status === 'pending'
@@ -10216,12 +10216,12 @@ function Admin({ notify }: { notify: (message: string) => void }) {
 
                               <button
                                 onClick={() => setPreviewDocModal({
-                                  title: doc.document_name,
-                                  type: doc.document_type,
+                                  title: doc.document_name || doc.name || 'Tài liệu eKYC',
+                                  type: doc.document_type || doc.type || 'ekyc',
                                   status: doc.status || 'verified',
-                                  url: doc.file_url || ''
+                                  url: doc.file_url || doc.url || doc.dataUrl || ''
                                 })}
-                                className="rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1.5 text-[11.5px] font-bold transition flex items-center gap-1"
+                                className="rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1.5 text-[11.5px] font-bold transition flex items-center gap-1 cursor-pointer"
                               >
                                 <Eye size={13} /> Xem file
                               </button>
@@ -10701,8 +10701,8 @@ function Admin({ notify }: { notify: (message: string) => void }) {
       {/* MODAL 3: XEM TRƯỚC TÀI LIỆU eKYC (DOCUMENT PREVIEW) */}
       {/* ============================================================= */}
       {previewDocModal && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
-          <div className="relative flex flex-col w-full max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden border border-gray-200 animate-rise">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-2 sm:p-4 backdrop-blur-xs">
+          <div className="relative flex flex-col w-[94vw] sm:w-full sm:max-w-lg rounded-3xl bg-white shadow-2xl overflow-hidden border border-gray-200 animate-rise">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 bg-gray-50">
               <h4 className="font-display text-[16px] font-bold text-gray-900 truncate">{previewDocModal.title}</h4>
               <button onClick={() => setPreviewDocModal(null)} className="rounded-full p-1.5 text-gray-400 hover:bg-gray-200">

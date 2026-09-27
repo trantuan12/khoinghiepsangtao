@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   ShieldCheck, 
@@ -73,6 +73,9 @@ export function FamilyProfileModal({
   const [uploadingBack, setUploadingBack] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
+  const frontInputRef = useRef<HTMLInputElement>(null);
+  const backInputRef = useRef<HTMLInputElement>(null);
+
   // Load data khi mở modal
   useEffect(() => {
     if (!isOpen || !userId) return;
@@ -103,7 +106,7 @@ export function FamilyProfileModal({
 
   if (!isOpen) return null;
 
-  // Xử lý upload ảnh (chuyển sang base64 và lưu qua /api/upload)
+  // Xử lý nạp ảnh CCCD: Nén ảnh và lưu ngay tại giao diện để xem/đổi, CHƯA gửi lên database
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, side: 'front' | 'back') => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -114,29 +117,12 @@ export function FamilyProfileModal({
     try {
       const dataUrl = await compressImage(file);
 
-      let finalUrl = dataUrl;
-      try {
-        const uploadRes = await fetch(`${API}/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dataUrl,
-            fileName: file.name,
-            documentType: `family_cccd_${side}`
-          })
-        });
-
-        if (uploadRes.ok) {
-          const uploadData = await uploadRes.json();
-          finalUrl = uploadData.url || dataUrl;
-        }
-      } catch { }
-
+      // Lưu trực tiếp vào giao diện người dùng
       setProfile(prev => ({
         ...prev,
-        [side === 'front' ? 'id_card_front' : 'id_card_back']: finalUrl
+        [side === 'front' ? 'id_card_front' : 'id_card_back']: dataUrl
       }));
-      notify(`Đã nạp và lưu ảnh CCCD (${side === 'front' ? 'Mặt trước' : 'Mặt sau'}) vào hệ thống cơ sở dữ liệu! ✓`);
+      notify(`Đã nạp ảnh CCCD (${side === 'front' ? 'Mặt trước' : 'Mặt sau'})! Bấm "Gửi Admin xét duyệt eKYC" để hoàn tất lưu trữ. ✓`);
     } catch (err) {
       console.error('Lỗi đọc ảnh:', err);
       notify('Không thể đọc file ảnh. Vui lòng thử lại.');
@@ -206,45 +192,45 @@ export function FamilyProfileModal({
       <div className="relative flex flex-col w-full max-w-2xl max-h-[92vh] rounded-[28px] bg-white shadow-2xl border border-[hsl(var(--border))] overflow-hidden animate-rise">
         
         {/* HEADER MODAL */}
-        <div className="flex items-center justify-between border-b border-[#e5ece2] bg-[#fbfdfa] px-6 py-4.5">
-          <div className="flex items-center gap-3.5">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#385139] to-[#5a7c5b] text-white shadow-md">
-              <ShieldCheck size={22} />
+        <div className="flex items-center justify-between border-b border-[#e5ece2] bg-[#fbfdfa] px-4 sm:px-6 py-3.5 sm:py-4.5">
+          <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
+            <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#385139] to-[#5a7c5b] text-white shadow-md">
+              <ShieldCheck size={20} className="sm:w-[22px] sm:h-[22px]" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-display text-[20px] font-bold text-[#233526]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h3 className="font-display text-[16px] sm:text-[20px] font-bold text-[#233526] truncate">
                   Hồ Sơ Gia Đình & Xác Thực eKYC
                 </h3>
                 {status === 'approved' && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[11px] font-bold border border-emerald-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold border border-emerald-300">
                     <CheckCircle2 size={12} /> Đã duyệt eKYC
                   </span>
                 )}
                 {status === 'pending' && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2.5 py-0.5 text-[11px] font-bold border border-amber-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold border border-amber-300">
                     <Clock3 size={12} /> Chờ Admin duyệt
                   </span>
                 )}
                 {status === 'rejected' && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 px-2.5 py-0.5 text-[11px] font-bold border border-rose-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold border border-rose-300">
                     <AlertCircle size={12} /> Cần bổ sung
                   </span>
                 )}
                 {status === 'unverified' && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-700 px-2.5 py-0.5 text-[11px] font-bold border border-gray-300">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold border border-gray-300">
                     Chưa xác thực CCCD
                   </span>
                 )}
               </div>
-              <p className="text-[12px] text-[hsl(var(--muted-foreground))]">
+              <p className="text-[11.5px] sm:text-[12px] text-[hsl(var(--muted-foreground))] truncate">
                 Quản lý thông tin người đại diện và định danh CCCD gắn chip (Đồng bộ hệ thống)
               </p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition"
+            className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition shrink-0 ml-2"
             data-testid="button-close-family-modal"
           >
             <X size={20} />
@@ -252,7 +238,7 @@ export function FamilyProfileModal({
         </div>
 
         {/* BODY MODAL */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6">
           {/* BANNER THÔNG BÁO BẢO ĐẢM AN TOÀN */}
           <div className="rounded-2xl border border-[#d6e5d2] bg-[#f4f9f2] p-4 text-[12.5px] leading-relaxed text-[#355337]">
             <div className="flex items-start gap-2.5">
@@ -393,7 +379,23 @@ export function FamilyProfileModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               {/* MẶT TRƯỚC */}
               <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-4 text-center">
-                <p className="text-[12px] font-bold text-gray-700 mb-2.5">Mặt trước CCCD</p>
+                <input 
+                  type="file" 
+                  ref={frontInputRef}
+                  accept="image/*" 
+                  onChange={e => handleFileUpload(e, 'front')} 
+                  className="hidden" 
+                  data-testid="input-family-cccd-front"
+                />
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[12px] font-bold text-gray-700">Mặt trước CCCD</span>
+                  {profile.id_card_front && (
+                    <span className="rounded-full bg-[#dbebd7] text-[#3e5f39] px-2 py-0.5 text-[9px] font-bold">
+                      Đã nạp ảnh
+                    </span>
+                  )}
+                </div>
+
                 {profile.id_card_front ? (
                   <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] flex items-center justify-center">
                     <img 
@@ -401,44 +403,63 @@ export function FamilyProfileModal({
                       alt="CCCD Mặt trước" 
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-2">
                       <button
                         type="button"
                         onClick={() => setPreviewImage(profile.id_card_front)}
-                        className="rounded-lg bg-white/90 p-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow"
+                        className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                       >
                         <Eye size={13} /> Xem to
                       </button>
                       <button
                         type="button"
+                        onClick={() => frontInputRef.current?.click()}
+                        className="rounded-lg bg-white/95 px-2 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                      >
+                        Đổi ảnh
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setProfile({ ...profile, id_card_front: null })}
-                        className="rounded-lg bg-rose-600/90 p-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow"
+                        className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                       >
                         <Trash2 size={13} /> Xóa
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3">
+                  <div 
+                    onClick={() => frontInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3"
+                  >
                     <Upload size={22} className="text-[#597855] mb-1.5" />
                     <span className="text-[12px] font-bold text-[#446240]">
-                      {uploadingFront ? 'Đang tải lên...' : 'Tải ảnh mặt trước'}
+                      {uploadingFront ? 'Đang nạp ảnh...' : 'Tải ảnh mặt trước'}
                     </span>
                     <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG hoặc WebP</span>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={e => handleFileUpload(e, 'front')} 
-                      className="hidden" 
-                      data-testid="input-family-cccd-front"
-                    />
-                  </label>
+                  </div>
                 )}
               </div>
 
               {/* MẶT SAU */}
               <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-4 text-center">
-                <p className="text-[12px] font-bold text-gray-700 mb-2.5">Mặt sau CCCD</p>
+                <input 
+                  type="file" 
+                  ref={backInputRef}
+                  accept="image/*" 
+                  onChange={e => handleFileUpload(e, 'back')} 
+                  className="hidden" 
+                  data-testid="input-family-cccd-back"
+                />
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[12px] font-bold text-gray-700">Mặt sau CCCD</span>
+                  {profile.id_card_back && (
+                    <span className="rounded-full bg-[#dbebd7] text-[#3e5f39] px-2 py-0.5 text-[9px] font-bold">
+                      Đã nạp ảnh
+                    </span>
+                  )}
+                </div>
+
                 {profile.id_card_back ? (
                   <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] flex items-center justify-center">
                     <img 
@@ -446,38 +467,41 @@ export function FamilyProfileModal({
                       alt="CCCD Mặt sau" 
                       className="w-full h-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-2">
                       <button
                         type="button"
                         onClick={() => setPreviewImage(profile.id_card_back)}
-                        className="rounded-lg bg-white/90 p-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow"
+                        className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                       >
                         <Eye size={13} /> Xem to
                       </button>
                       <button
                         type="button"
+                        onClick={() => backInputRef.current?.click()}
+                        className="rounded-lg bg-white/95 px-2 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                      >
+                        Đổi ảnh
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setProfile({ ...profile, id_card_back: null })}
-                        className="rounded-lg bg-rose-600/90 p-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow"
+                        className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                       >
                         <Trash2 size={13} /> Xóa
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <label className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3">
+                  <div 
+                    onClick={() => backInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3"
+                  >
                     <Upload size={22} className="text-[#597855] mb-1.5" />
                     <span className="text-[12px] font-bold text-[#446240]">
-                      {uploadingBack ? 'Đang tải lên...' : 'Tải ảnh mặt sau'}
+                      {uploadingBack ? 'Đang nạp ảnh...' : 'Tải ảnh mặt sau'}
                     </span>
                     <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG hoặc WebP</span>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={e => handleFileUpload(e, 'back')} 
-                      className="hidden" 
-                      data-testid="input-family-cccd-back"
-                    />
-                  </label>
+                  </div>
                 )}
               </div>
             </div>

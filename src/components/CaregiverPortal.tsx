@@ -307,6 +307,12 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
 
   // Chế độ xem (View Mode) vs Chế độ chỉnh sửa (Edit Mode)
   const [isEditing, setIsEditing] = useState<boolean>(false);
+  const isEditingRef = useRef<boolean>(false);
+  const hasUnsavedChangesRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    isEditingRef.current = isEditing;
+  }, [isEditing]);
 
   // Trạng thái hồ sơ: 'not_submitted' | 'pending' | 'approved' | 'rejected'
   const [verificationStatus, setVerificationStatus] = useState<'not_submitted' | 'pending' | 'approved' | 'rejected'>('not_submitted');
@@ -409,50 +415,53 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
         setVerificationStatus(status);
         setCareScore(data.care_score || 0);
 
-        const exp = data.experience_years !== undefined && data.experience_years !== null
-          ? formatExperience(Math.max(1, data.experience_years))
-          : '01';
-
-        const shiftRate = Number(data.shift_rate) || 400000;
-        const nightShiftRate = Number(data.night_shift_rate) || Math.round(shiftRate * 1.5);
-        // Mặc định là mảng rỗng [] nếu chưa có dữ liệu, không tự động điền dữ liệu giả lập
-        const workHistory = Array.isArray(data.work_history) ? data.work_history : [];
-
-        setFormData({
-          fullName: data.full_name || currentUser?.full_name || '',
-          phone: data.phone || currentUser?.phone || '',
-          idNumber: data.id_number || '',
-          contactAddress: data.contact_address || '',
-          experienceYears: exp,
-          district: data.district || '',
-          hourlyRate: data.hourly_rate || 100000,
-          shiftRate,
-          nightShiftRate,
-          workHistory,
-          skills: Array.isArray(data.skills) ? data.skills : [],
-          bio: data.bio || ''
-        });
-
         setInterviewStatus(data.interview_status || 'not_scheduled');
         setInterviewDate(data.interview_date || '');
         setInterviewTime(data.interview_time || '');
         setInterviewMeetingLink(data.interview_meeting_link || '');
         setInterviewNotes(data.interview_notes || '');
 
-        if (Array.isArray(data.documents)) {
-          setDocuments(data.documents);
-        }
-
-        // Tự động xác định chế độ: Nếu là tài khoản mới (chưa nộp hoặc chưa có CCCD/Bio) -> vào Chế độ Chỉnh sửa (isEditing = true)
-        const hasCompletedProfile = Boolean(
-          (status === 'approved' || status === 'pending') && (data.id_number || data.bio)
-        );
-        setIsEditing(!hasCompletedProfile);
-
         // Bắn sự kiện đồng bộ trạng thái thanh sidebar bên trái
         window.dispatchEvent(new CustomEvent('carematch:caregiver-status-updated', {
           detail: { status, care_score: data.care_score }
         }));
+
+        // CHỈ đồng bộ formData, documents và isEditing nếu người dùng KHÔNG đang chỉnh sửa và KHÔNG có dữ liệu nạp cục bộ chưa lưu
+        if (!isEditingRef.current && !hasUnsavedChangesRef.current) {
+          const exp = data.experience_years !== undefined && data.experience_years !== null
+            ? formatExperience(Math.max(1, data.experience_years))
+            : '01';
+
+          const shiftRate = Number(data.shift_rate) || 400000;
+          const nightShiftRate = Number(data.night_shift_rate) || Math.round(shiftRate * 1.5);
+          // Mặc định là mảng rỗng [] nếu chưa có dữ liệu, không tự động điền dữ liệu giả lập
+          const workHistory = Array.isArray(data.work_history) ? data.work_history : [];
+
+          setFormData({
+            fullName: data.full_name || currentUser?.full_name || '',
+            phone: data.phone || currentUser?.phone || '',
+            idNumber: data.id_number || '',
+            contactAddress: data.contact_address || '',
+            experienceYears: exp,
+            district: data.district || '',
+            hourlyRate: data.hourly_rate || 100000,
+            shiftRate,
+            nightShiftRate,
+            workHistory,
+            skills: Array.isArray(data.skills) ? data.skills : [],
+            bio: data.bio || ''
+          });
+
+          if (Array.isArray(data.documents)) {
+            setDocuments(data.documents);
+          }
+
+          // Tự động xác định chế độ: Nếu là tài khoản mới (chưa nộp hoặc chưa có CCCD/Bio) -> vào Chế độ Chỉnh sửa (isEditing = true)
+          const hasCompletedProfile = Boolean(
+            (status === 'approved' || status === 'pending') && (data.id_number || data.bio)
+          );
+          setIsEditing(!hasCompletedProfile);
+        }
       }
     } catch (e) {
       console.error('Lỗi tải hồ sơ người chăm sóc:', e);
@@ -527,7 +536,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     };
   }, [userId]);
 
-  // 3. Xử lý tải lên tệp ảnh thực tế
+  // 3. Xử lý tải lên tệp ảnh thực tế (lưu trực tiếp tại giao diện, CHƯA gửi lên database khi chưa nộp)
   const handleFileChange = async (docType: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -538,55 +547,25 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       return;
     }
 
-    notify(`Đang tải lên tệp: ${file.name}...`);
-
     try {
       // Nén ảnh tự động và chuyển thành base64 dataUrl
       const dataUrl = await compressImage(file);
 
-      try {
-        const res = await fetch(`${API}/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            dataUrl,
-            fileName: file.name,
-            documentType: docType
-          })
-        });
+      const newDoc: CaregiverDoc = {
+        type: docType,
+        name: file.name,
+        url: dataUrl,
+        filename: file.name,
+        uploadedAt: new Date().toISOString()
+      };
 
-        const uploadData = res.ok ? await res.json() : null;
-        const finalUrl = uploadData?.url || dataUrl;
+      setDocuments(prev => {
+        const filtered = prev.filter(d => d.type !== docType);
+        return [...filtered, newDoc];
+      });
 
-        const newDoc: CaregiverDoc = {
-          type: docType,
-          name: file.name,
-          url: finalUrl,
-          filename: uploadData?.filename || file.name,
-          uploadedAt: new Date().toISOString()
-        };
-
-        setDocuments(prev => {
-          const filtered = prev.filter(d => d.type !== docType);
-          return [...filtered, newDoc];
-        });
-
-        notify(`Đã nạp và lưu ảnh ${file.name} trực tiếp vào hệ thống cơ sở dữ liệu! ✓`);
-      } catch {
-        // Fallback: lưu trực tiếp dataUrl để lưu vào database
-        const newDoc: CaregiverDoc = {
-          type: docType,
-          name: file.name,
-          url: dataUrl,
-          filename: file.name,
-          uploadedAt: new Date().toISOString()
-        };
-        setDocuments(prev => {
-          const filtered = prev.filter(d => d.type !== docType);
-          return [...filtered, newDoc];
-        });
-        notify(`Đã lưu ảnh ${file.name} thành công! ✓`);
-      }
+      hasUnsavedChangesRef.current = true;
+      notify(`Đã nạp ảnh ${file.name} vào hồ sơ! Bấm "Lưu thông tin" hoặc "Nộp hồ sơ duyệt ngay" để hoàn tất. ✓`);
     } catch (err) {
       notify('Lỗi đọc tệp từ thiết bị của bạn.');
     } finally {
@@ -597,16 +576,14 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
   // 4. Xóa tài liệu đã tải lên
   const handleRemoveDoc = (docType: string) => {
     setDocuments(prev => prev.filter(d => d.type !== docType));
+    hasUnsavedChangesRef.current = true;
     notify('Đã gỡ tệp tài liệu.');
   };
 
-  // 4.1. Tải lên nhiều tệp (CCCD 2 mặt hoặc chứng chỉ bổ sung)
+  // 4.1. Tải lên nhiều tệp (chứng chỉ bổ sung)
   const handleMultipleFilesChange = async (docType: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-
-    const labelName = docType === 'cccd' ? 'ảnh Căn cước công dân (Mặt trước / Mặt sau)' : 'ảnh chứng chỉ / bằng cấp';
-    notify(`Đang xử lý tải lên ${files.length} ${labelName}...`);
 
     let uploadedCount = 0;
     for (const file of files) {
@@ -617,43 +594,25 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
 
       try {
         const dataUrl = await compressImage(file);
-
-        let finalUrl = dataUrl;
-        try {
-          const res = await fetch(`${API}/upload`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              dataUrl,
-              fileName: file.name,
-              documentType: docType
-            })
-          });
-
-          if (res.ok) {
-            const uploadData = await res.json();
-            finalUrl = uploadData.url || dataUrl;
-          }
-        } catch { }
-
         const newDoc: CaregiverDoc = {
           type: docType,
           name: file.name,
-          url: finalUrl,
+          url: dataUrl,
           filename: file.name,
           uploadedAt: new Date().toISOString()
         };
 
         setDocuments(prev => [...prev, newDoc]);
+        hasUnsavedChangesRef.current = true;
         uploadedCount++;
       } catch (err) {
-        console.error('Lỗi khi tải tệp:', file.name, err);
+        console.error('Lỗi khi nạp tệp:', file.name, err);
       }
     }
 
     if (uploadedCount > 0) {
       const typeLabel = docType === 'cccd' ? 'ảnh CCCD' : 'chứng chỉ bổ sung';
-      notify(`Đã tải lên thành công ${uploadedCount} ${typeLabel}! ✓`);
+      notify(`Đã nạp thành công ${uploadedCount} ${typeLabel}! Bấm "Nộp hồ sơ duyệt ngay" để gửi Admin. ✓`);
     }
     if (e.target) e.target.value = '';
   };
@@ -664,6 +623,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       if (docToRemove.url && d.url) return d.url !== docToRemove.url;
       return d.name !== docToRemove.name;
     }));
+    hasUnsavedChangesRef.current = true;
     notify(`Đã gỡ tệp: ${docToRemove.name}`);
   };
 
@@ -772,6 +732,8 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
         const resData = await res.json();
         if (resData.profileId) setProfileId(resData.profileId);
         setIsEditing(false);
+        isEditingRef.current = false;
+        hasUnsavedChangesRef.current = false;
 
         if (submitForReview) {
           setVerificationStatus('pending');
@@ -1019,7 +981,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       {activeTab === 'profile' && (
         <div className="grid gap-6 lg:grid-cols-[1.15fr_.85fr]">
           {/* CỘT TRÁI: FORM THÔNG TIN CÁ NHÂN & KỸ NĂNG (HỖ TRỢ VIEW MODE & EDIT MODE) */}
-          <div className="rounded-[24px] border border-[hsl(var(--border))] bg-white p-6 shadow-sm flex flex-col justify-between">
+          <div className="rounded-[24px] border border-[hsl(var(--border))] bg-white p-4 sm:p-6 shadow-sm flex flex-col justify-between max-w-full overflow-hidden">
             <div>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[hsl(var(--border))]">
                 <div>
@@ -1054,7 +1016,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                       )}
                       <button
                         type="button"
-                        onClick={() => setIsEditing(true)}
+                        onClick={() => { setIsEditing(true); isEditingRef.current = true; }}
                         className="inline-flex items-center gap-1.5 rounded-full bg-[#f2f7f1] border border-[#bed7bc] px-3.5 py-1.5 text-[11.5px] font-bold text-[#2d472f] hover:bg-[#e4efe2] transition cursor-pointer shadow-xs whitespace-nowrap"
                       >
                         <Edit3 size={13} />
@@ -1065,7 +1027,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                     Boolean(profileId || formData.idNumber || formData.bio) && (
                       <button
                         type="button"
-                        onClick={() => setIsEditing(false)}
+                        onClick={() => { setIsEditing(false); isEditingRef.current = false; hasUnsavedChangesRef.current = false; loadCaregiverProfile(); }}
                         className="flex items-center gap-1 rounded-xl border border-gray-200 px-3 py-1.5 text-[11.5px] font-medium text-gray-600 hover:bg-gray-100 transition cursor-pointer"
                       >
                         <X size={13} /> Hủy
@@ -1530,7 +1492,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   {Boolean(profileId || formData.idNumber || formData.bio) && (
                     <button
                       type="button"
-                      onClick={() => setIsEditing(false)}
+                      onClick={() => { setIsEditing(false); isEditingRef.current = false; hasUnsavedChangesRef.current = false; loadCaregiverProfile(); }}
                       className="rounded-xl border border-gray-200 px-3.5 py-2 text-[12px] font-medium text-gray-600 hover:bg-gray-100 transition cursor-pointer"
                     >
                       Hủy bỏ
@@ -1549,7 +1511,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsEditing(true)}
+                    onClick={() => { setIsEditing(true); isEditingRef.current = true; }}
                     className="rounded-xl border border-[hsl(var(--border))] bg-[#f7faf5] px-4 py-2 text-[12.5px] font-bold text-[#355238] hover:bg-[#edf4eb] transition cursor-pointer flex items-center gap-1.5"
                   >
                     <Edit3 size={14} /> Chỉnh sửa hồ sơ
@@ -1560,8 +1522,8 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           </div>
 
           {/* CỘT PHẢI: KHU VỰC TẢI LÊN TÀI LIỆU MINH CHỨNG (eKYC THỰC TẾ) & PHỎNG VẤN TRỰC TUYẾN */}
-          <div className="space-y-6">
-            <div className="rounded-[24px] border border-[hsl(var(--border))] bg-white p-6 shadow-sm flex flex-col justify-between">
+          <div className="space-y-6 max-w-full">
+            <div className="rounded-[24px] border border-[hsl(var(--border))] bg-white p-4 sm:p-6 shadow-sm flex flex-col justify-between max-w-full overflow-hidden">
               <div>
                 <div className="flex items-center justify-between pb-4 border-b border-[hsl(var(--border))]">
                   <div className="flex items-center gap-2">
@@ -1686,7 +1648,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                                 alt="CCCD Mặt trước" 
                                 className="w-full h-full object-cover"
                               />
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1.5">
                                 <button
                                   type="button"
                                   onClick={() => setPreviewDoc(frontDoc)}
@@ -1759,7 +1721,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                                 alt="CCCD Mặt sau" 
                                 className="w-full h-full object-cover"
                               />
-                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1.5">
                                 <button
                                   type="button"
                                   onClick={() => setPreviewDoc(backDoc)}
@@ -2114,7 +2076,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
           </div>
 
           {/* CARD 2: PHỎNG VẤN TRỰC TUYẾN VỚI ADMIN (BẮT BUỘC NHẬN CA) */}
-          <div className={`rounded-[24px] border p-6 shadow-sm transition-all ${
+          <div className={`rounded-[24px] border p-4 sm:p-6 max-w-full overflow-hidden shadow-sm transition-all ${
             interviewStatus === 'passed' 
               ? 'border-emerald-300 bg-[#f4f9f2]' 
               : interviewStatus === 'scheduled' 
