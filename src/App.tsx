@@ -1797,7 +1797,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
   const [needs, setNeeds] = useState<string[]>([]);
   const [newNeed, setNewNeed] = useState('');
 
-  const userId = currentUser?.id || 5;
+  const userId = currentUser?.id;
 
   const populateForm = (p: ElderlyProfile | null) => {
     if (p) {
@@ -1829,6 +1829,12 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
   };
 
   const loadProfiles = async (targetId?: number | null) => {
+    if (!userId) {
+      setProfiles([]);
+      populateForm(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`${API}/elderly-profiles?userId=${userId}`);
@@ -2006,7 +2012,7 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
             }`}
           data-testid="button-add-new-profile-tab"
         >
-          <Plus size={14} /> + Thêm người thân mới
+          <Plus size={14} /> Thêm người thân mới
         </button>
       </div>
 
@@ -2231,7 +2237,9 @@ function CareProfile({ notify, currentUser }: { notify: (message: string) => voi
       <div className="mt-8">
         <FamilyCareHistory3Step
           familyUserId={currentUser?.id}
+          currentUserName={currentUser?.full_name}
           initialPatientId={profileId}
+          refreshTrigger={profiles.length}
           notify={notify}
         />
       </div>
@@ -6150,7 +6158,11 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
                 <X size={20} />
               </button>
             </div>
-            <FamilyCareHistory3Step notify={notify} />
+            <FamilyCareHistory3Step
+              familyUserId={currentUser?.id}
+              currentUserName={currentUser?.full_name}
+              notify={notify}
+            />
           </div>
         </div>
       )}

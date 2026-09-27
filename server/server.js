@@ -5344,20 +5344,40 @@ app.get('/api/care-logs', async (req, res) => {
 app.get('/api/care-logs/families-tree', async (req, res) => {
   if (!isMySqlConnected) return res.json([]);
   try {
-    const [families] = await pool.execute(`
+    const { familyUserId } = req.query;
+
+    let familiesQuery = `
       SELECT u.id, u.full_name, u.phone, u.email, fp.address, fp.district
       FROM users u
       LEFT JOIN family_profiles fp ON u.id = fp.user_id
-      WHERE u.role = 'family'
-      ORDER BY u.id ASC
-    `);
+      WHERE 1=1
+    `;
+    const familiesParams = [];
 
-    const [elderly] = await pool.execute(`
+    if (familyUserId) {
+      familiesQuery += ' AND u.id = ?';
+      familiesParams.push(Number(familyUserId));
+    } else {
+      familiesQuery += " AND u.role = 'family'";
+    }
+
+    familiesQuery += ' ORDER BY u.id ASC';
+    const [families] = await pool.execute(familiesQuery, familiesParams);
+
+    let elderlyQuery = `
       SELECT ep.id, ep.user_id, ep.full_name, ep.date_of_birth, ep.gender, ep.district, ep.care_needs,
              (SELECT COUNT(*) FROM patient_care_logs pcl WHERE pcl.elderly_profile_id = ep.id OR pcl.elderly_name = ep.full_name) AS logs_count
       FROM elderly_profiles ep
-      ORDER BY ep.id ASC
-    `);
+    `;
+    const elderlyParams = [];
+
+    if (familyUserId) {
+      elderlyQuery += ' WHERE ep.user_id = ?';
+      elderlyParams.push(Number(familyUserId));
+    }
+
+    elderlyQuery += ' ORDER BY ep.id ASC';
+    const [elderly] = await pool.execute(elderlyQuery, elderlyParams);
 
     const tree = families.map(f => {
       const patients = elderly
@@ -5388,9 +5408,10 @@ app.get('/api/care-logs/families-tree', async (req, res) => {
         district: f.district || 'Hà Nội',
         patients
       };
-    }).filter(f => f.patients.length > 0);
+    });
 
-    return res.json(tree);
+    const result = familyUserId ? tree : tree.filter(f => f.patients.length > 0);
+    return res.json(result);
   } catch (err) {
     console.error('Lỗi lấy cây gia đình - người bệnh:', err.message);
     return res.status(500).json({ error: err.message });
@@ -5457,9 +5478,41 @@ app.post('/api/care-logs', async (req, res) => {
 
   try {
     const tasksJson = Array.isArray(tasks_completed) ? JSON.stringify(tasks_completed) : '[]';
-    const famId = family_user_id ? Number(family_user_id) : 5;
+    let famId = family_user_id ? Number(family_user_id) : null;
+    let profId = elderly_profile_id ? Number(elderly_profile_id) : null;
     const cgId = Number(caregiver_user_id);
     const schedId = schedule_id ? Number(schedule_id) : null;
+
+    if (schedId && (!famId || !profId)) {
+      try {
+        const [schedRows] = await pool.execute('SELECT family_user_id, elderly_profile_id FROM schedules WHERE id = ?', [schedId]);
+        if (schedRows && schedRows.length > 0) {
+          if (!famId && schedRows[0].family_user_id) famId = Number(schedRows[0].family_user_id);
+          if (!profId && schedRows[0].elderly_profile_id) profId = Number(schedRows[0].elderly_profile_id);
+        }
+      } catch (e) {
+        console.warn('Lỗi tra cứu schedule cho care log:', e.message);
+      }
+    }
+
+    if (!profId && elderly_name) {
+      try {
+        let epQuery = 'SELECT id, user_id FROM elderly_profiles WHERE full_name = ?';
+        const epParams = [elderly_name];
+        if (famId) {
+          epQuery += ' AND user_id = ?';
+          epParams.push(famId);
+        }
+        epQuery += ' LIMIT 1';
+        const [epRows] = await pool.execute(epQuery, epParams);
+        if (epRows && epRows.length > 0) {
+          profId = epRows[0].id;
+          if (!famId) famId = epRows[0].user_id;
+        }
+      } catch (e) {
+        console.warn('Lỗi tra cứu elderly profile cho care log:', e.message);
+      }
+    }
 
     const [result] = await pool.execute(
       `INSERT INTO patient_care_logs 
@@ -5471,7 +5524,7 @@ app.post('/api/care-logs', async (req, res) => {
         schedId,
         famId,
         cgId,
-        elderly_profile_id || null,
+        profId,
         elderly_name,
         family_name || 'Gia đình',
         caregiver_name || 'Chuyên viên chăm sóc',

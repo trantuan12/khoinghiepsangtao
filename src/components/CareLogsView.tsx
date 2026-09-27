@@ -149,17 +149,22 @@ export function CareLogsView({
   // Tải cây phân cấp Gia đình -> Người bệnh
   const fetchFamilyTree = async () => {
     try {
-      const res = await fetch(`${API}/care-logs/families-tree`);
+      const treeUrl = (role === 'family' && currentUserId)
+        ? `${API}/care-logs/families-tree?familyUserId=${currentUserId}`
+        : `${API}/care-logs/families-tree`;
+      const res = await fetch(treeUrl);
       if (res.ok) {
         const data: FamilyTreeItem[] = await res.json();
         setFamilyTree(data);
         if (data.length > 0 && selectedFamilyId === null) {
-          // Mặc định chọn gia đình đầu tiên
-          setSelectedFamilyId(data[0].id);
-          if (data[0].patients.length > 0) {
-            setSelectedPatientId(data[0].patients[0].id);
-            setFormPatientName(data[0].patients[0].full_name);
-            setFormFamilyName(data[0].family_name);
+          const defaultFam = (role === 'family' && currentUserId)
+            ? (data.find(f => f.id === currentUserId) || data[0])
+            : data[0];
+          setSelectedFamilyId(defaultFam.id);
+          if (defaultFam.patients && defaultFam.patients.length > 0) {
+            setSelectedPatientId(defaultFam.patients[0].id);
+            setFormPatientName(defaultFam.patients[0].full_name);
+            setFormFamilyName(defaultFam.family_name);
           }
         }
       }
@@ -197,8 +202,14 @@ export function CareLogsView({
 
   // Gia đình đang được chọn hiện tại
   const currentSelectedFamily = useMemo(() => {
-    return familyTree.find(f => f.id === selectedFamilyId) || familyTree[0];
-  }, [familyTree, selectedFamilyId]);
+    if (role === 'family' && currentUserId) {
+      return (
+        familyTree.find(f => f.id === currentUserId) ||
+        (familyTree.length === 1 && familyTree[0].id === currentUserId ? familyTree[0] : null)
+      );
+    }
+    return familyTree.find(f => f.id === selectedFamilyId) || familyTree[0] || null;
+  }, [familyTree, selectedFamilyId, role, currentUserId]);
 
   // Người bệnh đang được chọn hiện tại
   const currentSelectedPatient = useMemo(() => {

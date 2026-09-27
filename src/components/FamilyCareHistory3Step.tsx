@@ -25,13 +25,17 @@ import { API } from '@/lib/apiConfig';
 
 interface FamilyCareHistory3StepProps {
   familyUserId?: number;
+  currentUserName?: string;
   initialPatientId?: number | null;
+  refreshTrigger?: any;
   notify?: (msg: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export function FamilyCareHistory3Step({
   familyUserId,
+  currentUserName,
   initialPatientId,
+  refreshTrigger,
   notify = () => {}
 }: FamilyCareHistory3StepProps) {
   const [, setLocation] = useLocation();
@@ -50,24 +54,55 @@ export function FamilyCareHistory3Step({
     const fetchData = async () => {
       try {
         setLoading(true);
+        const treeUrl = familyUserId
+          ? `${API}/care-logs/families-tree?familyUserId=${familyUserId}`
+          : `${API}/care-logs/families-tree`;
+        const logsUrl = familyUserId
+          ? `${API}/care-logs?familyUserId=${familyUserId}`
+          : `${API}/care-logs`;
+
         const [treeRes, logsRes] = await Promise.all([
-          fetch(`${API}/care-logs/families-tree`),
-          fetch(`${API}/care-logs`)
+          fetch(treeUrl),
+          fetch(logsUrl)
         ]);
+
         if (treeRes.ok) {
           const treeData: FamilyTreeItem[] = await treeRes.json();
           setFamilyTree(treeData);
 
-          // TỰ ĐỘNG chọn gia đình dựa trên familyUserId (không hiển thị Nấc 1 nữa)
-          const defaultFam = (familyUserId ? treeData.find(f => f.id === familyUserId) : null) || treeData[0];
-          if (defaultFam) {
-            setSelectedFamilyId(defaultFam.id);
-            if (defaultFam.patients.length > 0) {
+          // TỰ ĐỘNG chọn gia đình dựa trên familyUserId (chỉ lấy đúng gia đình của mình)
+          const matchedFam = familyUserId
+            ? treeData.find(f => f.id === familyUserId) || (treeData.length === 1 ? treeData[0] : null)
+            : treeData[0] || null;
+
+          if (matchedFam) {
+            setSelectedFamilyId(matchedFam.id);
+            if (matchedFam.patients && matchedFam.patients.length > 0) {
               const defaultPatient = initialPatientId
-                ? defaultFam.patients.find(p => p.id === initialPatientId) || defaultFam.patients[0]
-                : defaultFam.patients[0];
+                ? matchedFam.patients.find(p => p.id === initialPatientId) || matchedFam.patients[0]
+                : matchedFam.patients[0];
               setSelectedPatientId(defaultPatient.id);
+            } else {
+              setSelectedPatientId(null);
             }
+          } else {
+            // Không tìm thấy gia đình này trong hệ thống: tạo đối tượng chuẩn theo user hiện tại
+            if (familyUserId) {
+              const emptyFam: FamilyTreeItem = {
+                id: familyUserId,
+                family_name: currentUserName ? `Gia đình ${currentUserName}` : 'Gia đình',
+                representative: currentUserName || 'Đại diện gia đình',
+                phone: '',
+                email: '',
+                district: 'Hà Nội',
+                patients: []
+              };
+              setFamilyTree([emptyFam]);
+              setSelectedFamilyId(familyUserId);
+            } else {
+              setSelectedFamilyId(null);
+            }
+            setSelectedPatientId(null);
           }
         }
         if (logsRes.ok) {
@@ -81,16 +116,22 @@ export function FamilyCareHistory3Step({
       }
     };
     fetchData();
-  }, [familyUserId, initialPatientId]);
+  }, [familyUserId, initialPatientId, refreshTrigger, currentUserName]);
 
-  // Gia đình hiện tại (tự động chọn, không cần user chọn)
+  // Gia đình hiện tại (tự động chọn, không bao giờ lấy nhầm sang gia đình người khác)
   const currentFamily = useMemo(() => {
-    return familyTree.find(f => f.id === selectedFamilyId) || familyTree[0];
-  }, [familyTree, selectedFamilyId]);
+    if (familyUserId) {
+      return (
+        familyTree.find(f => f.id === familyUserId) ||
+        (familyTree.length === 1 && familyTree[0].id === familyUserId ? familyTree[0] : null)
+      );
+    }
+    return familyTree.find(f => f.id === selectedFamilyId) || familyTree[0] || null;
+  }, [familyTree, selectedFamilyId, familyUserId]);
 
   // Người thân hiện tại
   const currentPatient = useMemo(() => {
-    if (!currentFamily) return null;
+    if (!currentFamily || !currentFamily.patients || currentFamily.patients.length === 0) return null;
     return currentFamily.patients.find(p => p.id === selectedPatientId) || currentFamily.patients[0] || null;
   }, [currentFamily, selectedPatientId]);
 
@@ -100,7 +141,7 @@ export function FamilyCareHistory3Step({
     const list = logs.filter(l => {
       return (
         (l.elderly_profile_id && l.elderly_profile_id === currentPatient.id) ||
-        (l.elderly_name && l.elderly_name.toLowerCase().includes(currentPatient.full_name.toLowerCase()))
+        (l.elderly_name && l.elderly_name.toLowerCase().trim() === currentPatient.full_name.toLowerCase().trim())
       );
     });
     // Tự động mở lần đầu tiên nếu chưa mở
@@ -133,7 +174,7 @@ export function FamilyCareHistory3Step({
             <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-emerald-900 text-white px-3 py-1.5 text-[11.5px] font-bold">
               <Home size={13} />
               <span>{currentFamily.family_name}</span>
-              <span className="text-emerald-300 font-normal">• {currentFamily.district} • {currentFamily.patients.length} người thân</span>
+              <span className="text-emerald-300 font-normal">• {currentFamily.district || 'Hà Nội'} • {currentFamily.patients ? currentFamily.patients.length : 0} người thân</span>
             </div>
           )}
         </div>
@@ -145,68 +186,87 @@ export function FamilyCareHistory3Step({
         </div>
       ) : (
         <div className="space-y-6">
-          {/* NẤC 1: CHỌN NGƯỜI THÂN TRONG GIA ĐÌNH */}
-          {currentFamily && (
-            <div>
-              <label className="text-[11.5px] font-bold uppercase tracking-wider text-stone-500 mb-2.5 flex items-center gap-1.5">
-                <Users size={14} className="text-teal-700" />
-                Nấc 1: Chọn Thành Viên Trong {currentFamily.family_name.toUpperCase()} ({currentFamily.patients.length})
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {currentFamily.patients.map(p => {
-                  const isSelected = selectedPatientId === p.id;
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => handleSelectPatient(p.id)}
-                      className={`p-3.5 rounded-2xl text-left border transition-all flex items-center justify-between ${
-                        isSelected
-                          ? 'bg-teal-900 text-white border-teal-950 shadow-md ring-2 ring-teal-600/30'
-                          : 'bg-stone-50/70 hover:bg-stone-100 text-stone-800 border-stone-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-9 h-9 rounded-full font-bold flex items-center justify-center text-xs ${
-                            isSelected ? 'bg-teal-500 text-white' : 'bg-teal-100 text-teal-800'
-                          }`}
-                        >
-                          {p.full_name.split(' ').slice(-1)[0][0]}
-                        </div>
-                        <div>
-                          <div className="font-bold text-[13.5px]">{p.full_name}</div>
-                          <div className={`text-[11px] ${isSelected ? 'text-teal-200' : 'text-stone-500'}`}>
-                            {p.age} tuổi • Giới tính: {p.gender}
-                          </div>
-                        </div>
-                      </div>
-                      <span
-                        className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold ${
-                          isSelected ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+          {/* TRƯỜNG HỢP GIA ĐÌNH CHƯA CÓ NGƯỜI THÂN NÀO */}
+          {currentFamily && currentFamily.patients && currentFamily.patients.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50/70 p-8 text-center">
+              <div className="mx-auto w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mb-3">
+                <Users size={22} />
+              </div>
+              <h4 className="text-[15px] font-bold text-stone-800">Gia đình chưa có hồ sơ người thân</h4>
+              <p className="mt-1 text-[13px] text-stone-500 max-w-md mx-auto leading-relaxed">
+                Bạn chưa thêm người thân nào vào tài khoản. Hãy điền thông tin và bấm <strong>"Thêm người thân mới"</strong> ở khung phía trên để bắt đầu theo dõi sức khỏe và sinh hiệu.
+              </p>
+            </div>
+          ) : currentFamily && currentFamily.patients && currentFamily.patients.length > 0 ? (
+            <>
+              {/* NẤC 1: CHỌN NGƯỜI THÂN TRONG GIA ĐÌNH */}
+              <div>
+                <label className="text-[11.5px] font-bold uppercase tracking-wider text-stone-500 mb-2.5 flex items-center gap-1.5">
+                  <Users size={14} className="text-teal-700" />
+                  Nấc 1: Chọn Thành Viên Trong {currentFamily.family_name.toUpperCase()} ({currentFamily.patients.length})
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {currentFamily.patients.map(p => {
+                    const isSelected = selectedPatientId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handleSelectPatient(p.id)}
+                        className={`p-3.5 rounded-2xl text-left border transition-all flex items-center justify-between ${
+                          isSelected
+                            ? 'bg-teal-900 text-white border-teal-950 shadow-md ring-2 ring-teal-600/30'
+                            : 'bg-stone-50/70 hover:bg-stone-100 text-stone-800 border-stone-200'
                         }`}
                       >
-                        {p.logs_count} lần chăm sóc
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* NẤC 2: DANH SÁCH CÁC LẦN CHĂM SÓC (LẦN 1, LẦN 2, LẦN 3...) */}
-          {currentPatient && (
-            <div className="pt-2 border-t border-stone-100">
-              <label className="text-[11.5px] font-bold uppercase tracking-wider text-stone-500 mb-3 flex items-center gap-1.5">
-                <Clock size={14} className="text-indigo-700" />
-                Nấc 2: Các Lần Chăm Sóc Đã Thực Hiện Cho {currentPatient.full_name.toUpperCase()} ({patientLogs.length} lần)
-              </label>
-
-              {patientLogs.length === 0 ? (
-                <div className="rounded-2xl bg-stone-50 p-8 text-center text-stone-500 text-xs border border-stone-200">
-                  Chưa có lần chăm sóc nào được ghi nhận cho {currentPatient.full_name}.
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-9 h-9 rounded-full font-bold flex items-center justify-center text-xs ${
+                              isSelected ? 'bg-teal-500 text-white' : 'bg-teal-100 text-teal-800'
+                            }`}
+                          >
+                            {p.full_name.split(' ').slice(-1)[0][0]}
+                          </div>
+                          <div>
+                            <div className="font-bold text-[13.5px]">{p.full_name}</div>
+                            <div className={`text-[11px] ${isSelected ? 'text-teal-200' : 'text-stone-500'}`}>
+                              {p.age} tuổi • Giới tính: {p.gender}
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold ${
+                            isSelected ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {p.logs_count} lần chăm sóc
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
+              </div>
+
+              {/* NẤC 2: DANH SÁCH CÁC LẦN CHĂM SÓC (LẦN 1, LẦN 2, LẦN 3...) */}
+              {currentPatient && (
+                <div className="pt-2 border-t border-stone-100">
+                  <label className="text-[11.5px] font-bold uppercase tracking-wider text-stone-500 mb-3 flex items-center gap-1.5">
+                    <Clock size={14} className="text-indigo-700" />
+                    Nấc 2: Các Lần Chăm Sóc Đã Thực Hiện Cho {currentPatient.full_name.toUpperCase()} ({patientLogs.length} lần)
+                  </label>
+
+                  {patientLogs.length === 0 ? (
+                    <div className="rounded-2xl bg-stone-50 p-8 text-center text-stone-500 text-xs border border-stone-200">
+                      <div className="mx-auto w-10 h-10 rounded-xl bg-stone-100 text-stone-400 flex items-center justify-center mb-2">
+                        <Clock size={20} />
+                      </div>
+                      <div className="font-semibold text-stone-700 text-[13px]">
+                        Chưa có ca chăm sóc nào được thực hiện cho {currentPatient.full_name}
+                      </div>
+                      <div className="text-stone-400 mt-1 max-w-md mx-auto">
+                        Sau khi chuyên viên hoàn thành ca chăm sóc và nộp báo cáo sinh hiệu lâm sàng, các lần chăm sóc và chỉ số theo dõi sẽ tự động hiển thị tại đây.
+                      </div>
+                    </div>
+                  ) : (
                 <div className="space-y-3">
                   {patientLogs.map((log, index) => {
                     const isExpanded = expandedLogId === log.id;
@@ -370,6 +430,12 @@ export function FamilyCareHistory3Step({
               )}
             </div>
           )}
+          </>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50/70 p-8 text-center text-stone-400 text-xs">
+            Chưa có dữ liệu theo dõi sau chăm sóc.
+          </div>
+        )}
         </div>
       )}
     </div>

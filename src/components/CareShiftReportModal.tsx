@@ -122,14 +122,17 @@ export function CareShiftReportModal({
 
     setLoading(true);
     try {
-      const caregiverId = currentUser?.id || 2;
-      const caregiverName = currentUser?.full_name || 'Người chăm sóc';
-      const familyUserId = shift.familyUserId || shift.family_user_id || 5;
+      const caregiverId = currentUser?.id || shift.caregiver_user_id || shift.caregiverUserId || 2;
+      const caregiverName = currentUser?.full_name || shift.caregiver_name || shift.caregiverName || 'Người chăm sóc';
+      const familyUserId = shift.family_user_id || shift.familyUserId || (currentUser?.role === 'family' ? currentUser.id : null);
+      const elderlyProfileId = shift.elderly_profile_id || shift.elderlyProfileId || null;
 
       const payload = {
         schedule_id: shift.id,
+        elderly_profile_id: elderlyProfileId,
         elderly_name: patientName,
         family_user_id: familyUserId,
+        family_name: shift.family_name || shift.familyName || 'Gia đình',
         caregiver_user_id: caregiverId,
         caregiver_name: caregiverName,
         log_date: shiftDate,
