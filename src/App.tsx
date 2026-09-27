@@ -6169,6 +6169,9 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
   const [inputVal, setInputVal] = useState('');
   const [sending, setSending] = useState(false);
   const [loadingContacts, setLoadingContacts] = useState(true);
+  const [showMobileChat, setShowMobileChat] = useState<boolean>(() => {
+    return Boolean(getUrlTargetUserId());
+  });
 
   // Modal mở cuộc trò chuyện mới
   const [showNewChatModal, setShowNewChatModal] = useState(false);
@@ -6281,6 +6284,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
   const handleSelectContact = (targetUserId: number) => {
     setSelectedUserId(targetUserId);
     selectedUserIdRef.current = targetUserId;
+    setShowMobileChat(true);
     // Ngay lập tức đưa số tin chưa đọc của người này về 0 trên giao diện
     setContacts(prev => prev.map(c => Number(c.userId) === Number(targetUserId) ? { ...c, unread: 0 } : c));
     // Đánh dấu đã đọc trong cơ sở dữ liệu MySQL
@@ -6380,6 +6384,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
     setContacts(prev => [newContact, ...prev.filter(c => Number(c.userId) !== targetId)]);
     setSelectedUserId(targetId);
     selectedUserIdRef.current = targetId;
+    setShowMobileChat(true);
     try {
       const url = new URL(window.location.href);
       url.searchParams.set('user', String(targetId));
@@ -6460,7 +6465,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
 
       <div className="grid min-h-[580px] gap-5 lg:grid-cols-[.38fr_1fr]">
         {/* Danh sách người trò chuyện */}
-        <Card className="overflow-hidden flex flex-col" testId="card-conversation-list">
+        <Card className={`overflow-hidden flex flex-col ${showMobileChat ? 'hidden lg:flex' : 'flex'}`} testId="card-conversation-list">
           <div className="border-b border-[hsl(var(--border))] p-4 sm:p-5">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -6519,19 +6524,27 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
         </Card>
 
         {/* Khung chat chi tiết */}
-        <Card className="flex min-h-[580px] flex-col overflow-hidden" testId="card-active-conversation">
-          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-5 py-4 sm:px-6 bg-white">
-            <div className="flex items-center gap-3">
+        <Card className={`min-h-[580px] flex-col overflow-hidden ${showMobileChat ? 'flex' : 'hidden lg:flex'}`} testId="card-active-conversation">
+          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-3.5 py-3 sm:px-6 sm:py-4 bg-white">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => setShowMobileChat(false)}
+                className="lg:hidden flex items-center justify-center p-1.5 -ml-1 text-[#2d4a30] hover:bg-gray-100 rounded-xl transition cursor-pointer shrink-0"
+                title="Quay lại danh sách hội thoại"
+              >
+                <ArrowLeft size={20} />
+              </button>
               <Initials text={currentContact.initials} color={currentContact.color} size="sm" />
-              <div>
-                <p className="text-[13.5px] font-bold text-[#273a2c]">{currentContact.name}</p>
-                <p className="mt-0.5 flex items-center gap-1 text-[11px] text-[#6d8b62]">
-                  <span className="h-2 w-2 rounded-full bg-[#5d8b52]" /> {currentContact.role}
+              <div className="min-w-0">
+                <p className="text-[13.5px] font-bold text-[#273a2c] truncate">{currentContact.name}</p>
+                <p className="mt-0.5 flex items-center gap-1 text-[11px] text-[#6d8b62] truncate">
+                  <span className="h-2 w-2 rounded-full bg-[#5d8b52] shrink-0" /> {currentContact.role}
                 </p>
               </div>
             </div>
             {currentContact.userId === 1 && (
-              <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10.5px] font-bold text-emerald-800 border border-emerald-200">
+              <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10.5px] font-bold text-emerald-800 border border-emerald-200 shrink-0">
                 Hỗ trợ 24/7
               </span>
             )}
@@ -7109,7 +7122,7 @@ type AdminUserDetail = {
   } | null;
 };
 
-function Admin({ notify }: { notify: (message: string) => void }) {
+function Admin({ notify }: { notify: (message: string, actionLink?: string, actionText?: string) => void }) {
   // ---- State ----
   const [activeTab, setActiveTab] = useState<'overview' | 'pending_approval' | 'caregivers' | 'interviews' | 'families' | 'subscriptions' | 'messages' | 'vouchers' | 'settings' | 'care_logs'>('overview');
   const [pendingSubTab, setPendingSubTab] = useState<'caregivers' | 'families'>('caregivers');
@@ -7493,8 +7506,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
       });
       const data = await res.json();
       if (data.success && data.meetingLink) {
-        window.open(data.meetingLink, '_blank');
-        notify(`✅ Đã xác nhận lịch phỏng vấn và gửi link Google Meet cho ${caregiverName}!`);
+        notify(`Đã tạo link Google Meet thành công cho ${caregiverName},`, data.meetingLink, 'vào ngay bây giờ');
         setInterviews(prev => prev.map(i => i.user_id === caregiverUserId ? {
           ...i,
           interview_meeting_link: data.meetingLink,
@@ -9319,7 +9331,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
       {/* ===== TAB: HỘP THƯ ===== */}
       {activeTab === 'messages' && (
         <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
-          <Card className="p-0 overflow-hidden">
+          <Card className={`p-0 overflow-hidden flex flex-col ${selectedConv ? 'hidden lg:flex' : 'flex'}`}>
             <div className="flex items-center gap-2 p-5 border-b border-[hsl(var(--border))]">
               <MessageCircle size={19} className="text-[#567a4e]" />
               <h2 className="font-display text-[18px] font-bold text-[#263b2c]">Hội thoại ({conversations.length})</h2>
@@ -9358,7 +9370,7 @@ function Admin({ notify }: { notify: (message: string) => void }) {
             </div>
           </Card>
 
-          <Card className="p-0 overflow-hidden flex flex-col">
+          <Card className={`p-0 overflow-hidden flex flex-col ${selectedConv ? 'flex' : 'hidden lg:flex'}`}>
             {!selectedConv ? (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
                 <MessageCircle size={48} className="text-[#c8ddc5]" />
@@ -9366,17 +9378,27 @@ function Admin({ notify }: { notify: (message: string) => void }) {
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between p-4 border-b border-[hsl(var(--border))] bg-[#fafcf9]">
-                  <div>
-                    <p className="text-[14px] font-bold text-[#263b2c]">
-                      {selectedConv.participants.map(p => p.full_name).join(' ↔ ')}
-                    </p>
-                    <p className="text-[11px] text-[#8a9a8a]">
-                      {selectedConv.participants.map(p => p.role === 'family' ? '🏠 Gia đình' : p.role === 'caregiver' ? '🩺 Người chăm sóc' : '🛡️ Admin').join(' · ')}
-                      · {selectedConv.msg_count} tin nhắn
-                    </p>
+                <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[hsl(var(--border))] bg-[#fafcf9]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedConv(null)}
+                      className="lg:hidden flex items-center justify-center p-1.5 -ml-1 text-[#2d4a30] hover:bg-gray-100 rounded-xl transition cursor-pointer shrink-0"
+                      title="Quay lại danh sách hội thoại"
+                    >
+                      <ArrowLeft size={19} />
+                    </button>
+                    <div className="min-w-0">
+                      <p className="text-[13.5px] sm:text-[14px] font-bold text-[#263b2c] truncate">
+                        {selectedConv.participants.map(p => p.full_name).join(' ↔ ')}
+                      </p>
+                      <p className="text-[11px] text-[#8a9a8a] truncate">
+                        {selectedConv.participants.map(p => p.role === 'family' ? '🏠 Gia đình' : p.role === 'caregiver' ? '🩺 Người chăm sóc' : '🛡️ Admin').join(' · ')}
+                        · {selectedConv.msg_count} tin nhắn
+                      </p>
+                    </div>
                   </div>
-                  <span className="rounded-full bg-[#edf5ea] px-3 py-1 text-[11px] font-bold text-[#43643d]">Đang xem</span>
+                  <span className="rounded-full bg-[#edf5ea] px-2.5 py-0.5 text-[10.5px] font-bold text-[#43643d] shrink-0">Đang xem</span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[420px]">
@@ -11030,7 +11052,7 @@ function Router() {
     } catch { }
     return 'family';
   });
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState<{ message: string; actionLink?: string; actionText?: string } | string | null>(null);
 
   // Tự động kiểm tra và đồng bộ vai trò mới nhất từ MySQL để tránh sai lệch vai trò
   useEffect(() => {
@@ -11061,9 +11083,14 @@ function Router() {
       .catch(() => { });
   }, [currentUser?.id]);
 
-  const notify = (message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast(''), 2800);
+  const notify = (message: string, actionLink?: string, actionText?: string) => {
+    if (actionLink) {
+      setToast({ message, actionLink, actionText: actionText || 'vào ngay bây giờ' });
+      window.setTimeout(() => setToast(null), 12000);
+    } else {
+      setToast(message);
+      window.setTimeout(() => setToast(null), 2800);
+    }
   };
 
   const login = (role?: 'family' | 'caregiver' | 'admin', user?: CurrentUser) => {
@@ -11158,8 +11185,25 @@ function Router() {
   return (
     <>
       {toast && (
-        <div className="fixed bottom-5 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-2 rounded-[14px] bg-[hsl(var(--primary))] px-4 py-3 text-[12px] font-semibold text-white shadow-[var(--shadow-lg)] animate-rise" role="status" data-testid="status-toast">
-          <CheckCircle2 size={16} className="text-[#e6c27b]" /> {toast}
+        <div className="fixed bottom-5 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-2.5 rounded-[16px] bg-[hsl(var(--primary))] px-4.5 py-3 text-[12.5px] font-semibold text-white shadow-2xl animate-rise max-w-[94vw] border border-white/20" role="status" data-testid="status-toast">
+          <CheckCircle2 size={17} className="text-[#e6c27b] shrink-0" />
+          {typeof toast === 'string' ? (
+            <span>{toast}</span>
+          ) : (
+            <span className="flex items-center gap-1.5 flex-wrap">
+              <span>{toast.message}</span>
+              {toast.actionLink && (
+                <a
+                  href={toast.actionLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 underline underline-offset-4 text-amber-300 hover:text-white font-bold cursor-pointer ml-1 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-lg transition shadow-xs"
+                >
+                  <Video size={13} /> {toast.actionText || 'vào ngay bây giờ'} ↗
+                </a>
+              )}
+            </span>
+          )}
         </div>
       )}
       <Switch>

@@ -822,11 +822,11 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     notify(nextStatus === 'completed' ? `Đã báo cáo hoàn thành ca: ${sch.title}` : `Đã nhận ca: ${sch.title}`);
   };
 
-  // Định dạng hiển thị tệp URL (hỗ trợ cả relative URL và external)
+  // Định dạng hiển thị tệp URL (hỗ trợ cả base64 dataUrl, relative URL và external)
   const getFullFileUrl = (url: string) => {
     if (!url) return '';
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `${API_BASE_URL}${url}`;
+    if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
   };
 
   // Lấy tài liệu theo loại
@@ -1774,18 +1774,10 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   const doc = getDoc('policeCheck');
                   const isLocked = verificationStatus === 'pending';
                   return (
-                    <div className={`rounded-[18px] border p-3.5 transition-all ${
+                    <div className={`rounded-[20px] border p-4 transition-all ${
                       doc ? 'bg-[#f4f9f2] border-[#b8d4b3]' : 'bg-[#fafcf9] border-[hsl(var(--border))]'
                     }`}>
-                      <input 
-                        type="file" 
-                        ref={fileInputRefs.policeCheck}
-                        accept="image/*,.pdf"
-                        onChange={e => handleFileChange('policeCheck', e)}
-                        className="hidden" 
-                        disabled={verificationStatus === 'approved'}
-                      />
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="flex items-start gap-3 min-w-0">
                           <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
                             doc ? 'bg-[#dbebd7] text-[#41683b]' : 'bg-gray-100 text-gray-400'
@@ -1793,64 +1785,92 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                             <FileCheck2 size={18} />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[12.5px] font-bold text-[#2a3c2e]">2. Giấy Lý lịch tư pháp số 2</p>
-                            <p className="text-[10.5px] text-[hsl(var(--muted-foreground))]">Chứng nhận lý lịch sạch từ Sở Tư pháp</p>
-                            {doc && (
-                              <div className="mt-1.5 flex items-center gap-2">
-                                <span className="text-[11px] font-semibold text-[#3e5f39] truncate max-w-[170px]" title={doc.name}>
-                                  📎 {doc.name}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-[13px] font-bold text-[#2a3c2e]">2. Phiếu Lý lịch tư pháp số 2</p>
+                              {doc ? (
+                                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                                  {isLocked ? '🔒 Chờ đối soát' : '✓ Đã tải lên'}
                                 </span>
-                                <span className={`rounded-full px-2 py-0.2 text-[9px] font-bold ${
-                                  isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
-                                }`}>
-                                  {isLocked ? '🔒 Chờ đối soát' : 'Đã tải lên'}
+                              ) : (
+                                <span className="rounded-full bg-stone-100 text-stone-600 px-2.5 py-0.5 text-[10px] font-bold border border-stone-200">
+                                  Chưa tải lên
                                 </span>
-                              </div>
-                            )}
+                              )}
+                            </div>
+                            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                              Chứng nhận lý lịch sạch từ Sở Tư pháp để Admin đối soát và thẩm định cấp điểm CARE SCORE.
+                            </p>
                           </div>
                         </div>
+                      </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {doc ? (
-                            <>
-                              <button 
-                                type="button" 
+                      <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-3 text-center">
+                        <input 
+                          type="file" 
+                          ref={fileInputRefs.policeCheck}
+                          accept="image/*,.pdf"
+                          onChange={e => handleFileChange('policeCheck', e)}
+                          className="hidden" 
+                          disabled={verificationStatus === 'approved'}
+                        />
+
+                        {doc ? (
+                          <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] sm:aspect-[21/9] flex items-center justify-center">
+                            {doc.url.startsWith('data:application/pdf') || doc.url.endsWith('.pdf') ? (
+                              <div className="p-6 text-center">
+                                <FileText size={40} className="mx-auto text-red-500 mb-1" />
+                                <span className="text-[12px] font-bold text-gray-800 block truncate max-w-[240px]">{doc.name}</span>
+                                <span className="text-[10.5px] text-gray-400">Tài liệu PDF</span>
+                              </div>
+                            ) : (
+                              <img 
+                                src={getFullFileUrl(doc.url)} 
+                                alt={doc.name} 
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1.5">
+                              <button
+                                type="button"
                                 onClick={() => setPreviewDoc(doc)}
-                                className="flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-white px-2.5 py-1 text-[11px] font-bold text-[#3b5938] hover:bg-[#e4efe0] transition cursor-pointer shadow-2xs"
-                                title="Xem trước ảnh"
+                                className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                               >
-                                <Eye size={13} /> Xem tệp
+                                <Eye size={13} /> Xem to
                               </button>
                               {verificationStatus !== 'approved' && (
                                 <>
-                                  <button 
-                                    type="button" 
+                                  <button
+                                    type="button"
                                     onClick={() => fileInputRefs.policeCheck.current?.click()}
-                                    className="rounded-lg border border-[hsl(var(--border))] bg-white px-2 py-1 text-[11px] font-bold text-[#455c47] hover:bg-gray-50 transition cursor-pointer"
+                                    className="rounded-lg bg-white/95 px-2 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                   >
                                     Đổi ảnh
                                   </button>
-                                  <button 
-                                    type="button" 
+                                  <button
+                                    type="button"
                                     onClick={() => handleRemoveDoc('policeCheck')}
-                                    className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 transition cursor-pointer"
-                                    title="Gỡ tệp"
+                                    className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                   >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={13} /> Xóa
                                   </button>
                                 </>
                               )}
-                            </>
-                          ) : (
-                            <button 
-                              type="button" 
-                              onClick={() => fileInputRefs.policeCheck.current?.click()}
-                              className="rounded-xl bg-[#456740] px-3 py-1.5 text-[11.5px] font-bold text-white shadow-2xs hover:bg-[#345130] transition cursor-pointer flex items-center gap-1"
-                            >
-                              <Upload size={13} /> Tải ảnh lên
-                            </button>
-                          )}
-                        </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              if (verificationStatus !== 'approved') {
+                                fileInputRefs.policeCheck.current?.click();
+                              }
+                            }}
+                            className="flex flex-col items-center justify-center aspect-[16/10] sm:aspect-[21/9] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-4"
+                          >
+                            <Upload size={24} className="text-[#597855] mb-1.5" />
+                            <span className="text-[12.5px] font-bold text-[#446240]">Tải ảnh Phiếu lý lịch tư pháp số 2</span>
+                            <span className="text-[10.5px] text-gray-400 mt-0.5">JPG, PNG hoặc PDF</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1865,9 +1885,36 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   );
                   const isLocked = verificationStatus === 'pending';
                   return (
-                    <div className={`rounded-[18px] border p-3.5 transition-all ${
+                    <div className={`rounded-[20px] border p-4 transition-all ${
                       certDocs.length > 0 ? 'bg-[#f4f9f2] border-[#b8d4b3]' : 'bg-[#fafcf9] border-[hsl(var(--border))]'
                     }`}>
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                            certDocs.length > 0 ? 'bg-[#dbebd7] text-[#41683b]' : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            <FileCheck2 size={18} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-[13px] font-bold text-[#2a3c2e]">3. Các chứng chỉ bổ sung</p>
+                              {certDocs.length > 0 ? (
+                                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                                  {isLocked ? '🔒 Chờ đối soát' : `✓ Đã tải ${certDocs.length} tệp`}
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-stone-100 text-stone-600 px-2.5 py-0.5 text-[10px] font-bold border border-stone-200">
+                                  Tùy chọn bổ sung
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                              Bằng CĐ Y tế, chứng chỉ Chữ thập đỏ, chứng chỉ điều dưỡng... để gia tăng điểm tin cậy.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
                       <input 
                         type="file" 
                         ref={fileInputRefs.certificate}
@@ -1877,72 +1924,77 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                         className="hidden" 
                         disabled={verificationStatus === 'approved'}
                       />
-                      
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                            certDocs.length > 0 ? 'bg-[#dbebd7] text-[#41683b]' : 'bg-gray-100 text-gray-400'
-                          }`}>
-                            <FileCheck2 size={18} />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[12.5px] font-bold text-[#2a3c2e]">3. Các chứng chỉ bổ sung</p>
-                            <p className="text-[10.5px] text-[hsl(var(--muted-foreground))]">Bằng CĐ Y tế, chứng chỉ Chữ thập đỏ...</p>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {verificationStatus !== 'approved' && (
-                            <button 
-                              type="button" 
-                              onClick={() => fileInputRefs.certificate.current?.click()}
-                              className="rounded-xl bg-[#456740] px-3 py-1.5 text-[11.5px] font-bold text-white shadow-2xs hover:bg-[#345130] transition cursor-pointer flex items-center gap-1"
-                            >
-                              <Upload size={13} /> Tải ảnh lên
-                            </button>
-                          )}
-                        </div>
-                      </div>
+                      {/* Grid danh sách ảnh chứng chỉ đã tải lên & ô thêm mới */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                        {certDocs.map((doc, idx) => (
+                          <div key={doc.url || idx} className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-3 text-center">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[11.5px] font-bold text-gray-700 truncate max-w-[160px]" title={doc.name}>
+                                {doc.name || `Chứng chỉ ${idx + 1}`}
+                              </span>
+                              <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                                isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
+                              }`}>
+                                {isLocked ? '🔒 Chờ duyệt' : 'Đã tải lên'}
+                              </span>
+                            </div>
 
-                      {/* Danh sách các chứng chỉ đã tải lên */}
-                      {certDocs.length > 0 && (
-                        <div className="mt-2.5 space-y-1.5 border-t border-[#b8d4b3]/60 pt-2.5">
-                          {certDocs.map((doc, idx) => (
-                            <div key={doc.url || idx} className="flex items-center justify-between gap-2 rounded-lg bg-white/80 border border-[#c4dcbe] px-2.5 py-1.5">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-[11px] font-semibold text-[#3e5f39] truncate max-w-[170px]" title={doc.name}>
-                                  📎 {doc.name}
-                                </span>
-                                <span className={`rounded-full px-2 py-0.2 text-[9px] font-bold shrink-0 ${
-                                  isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
-                                }`}>
-                                  {isLocked ? '🔒 Chờ đối soát' : 'Đã tải lên'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
+                            <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] flex items-center justify-center">
+                              {doc.url.startsWith('data:application/pdf') || doc.url.endsWith('.pdf') ? (
+                                <div className="p-4 text-center">
+                                  <FileText size={36} className="mx-auto text-red-500 mb-1" />
+                                  <span className="text-[11px] font-bold text-gray-800 block truncate max-w-[180px]">{doc.name}</span>
+                                </div>
+                              ) : (
+                                <img 
+                                  src={getFullFileUrl(doc.url)} 
+                                  alt={doc.name} 
+                                  className="w-full h-full object-cover"
+                                />
+                              )}
+                              <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1.5">
                                 <button
                                   type="button"
                                   onClick={() => setPreviewDoc(doc)}
-                                  className="flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-white px-2 py-0.5 text-[10.5px] font-bold text-[#3b5938] hover:bg-[#e4efe0] transition cursor-pointer"
-                                  title="Xem trước ảnh"
+                                  className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                 >
-                                  <Eye size={12} /> Xem
+                                  <Eye size={13} /> Xem to
                                 </button>
                                 {verificationStatus !== 'approved' && (
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveSpecificDoc(doc)}
-                                    className="rounded-lg p-1 text-red-500 hover:bg-red-50 transition cursor-pointer"
-                                    title="Gỡ tệp"
+                                    className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                   >
-                                    <Trash2 size={13} />
+                                    <Trash2 size={13} /> Xóa
                                   </button>
                                 )}
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          </div>
+                        ))}
+
+                        {/* Ô tải lên / Thêm chứng chỉ */}
+                        {verificationStatus !== 'approved' && (
+                          <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-3 text-center flex flex-col justify-between">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[11.5px] font-bold text-gray-700">Thêm chứng chỉ mới</span>
+                              <span className="text-[9.5px] text-gray-400">Chọn 1 hoặc nhiều ảnh</span>
+                            </div>
+                            <div 
+                              onClick={() => fileInputRefs.certificate.current?.click()}
+                              className="flex flex-col items-center justify-center aspect-[16/10] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-3"
+                            >
+                              <Upload size={22} className="text-[#597855] mb-1.5" />
+                              <span className="text-[12px] font-bold text-[#446240]">
+                                {certDocs.length > 0 ? '+ Thêm chứng chỉ khác' : 'Tải ảnh chứng chỉ bổ sung'}
+                              </span>
+                              <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG hoặc PDF</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
@@ -1952,18 +2004,10 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   const doc = getDoc('healthCheck');
                   const isLocked = verificationStatus === 'pending';
                   return (
-                    <div className={`rounded-[18px] border p-3.5 transition-all ${
+                    <div className={`rounded-[20px] border p-4 transition-all ${
                       doc ? 'bg-[#f4f9f2] border-[#b8d4b3]' : 'bg-[#fafcf9] border-[hsl(var(--border))]'
                     }`}>
-                      <input 
-                        type="file" 
-                        ref={fileInputRefs.healthCheck}
-                        accept="image/*,.pdf"
-                        onChange={e => handleFileChange('healthCheck', e)}
-                        className="hidden" 
-                        disabled={verificationStatus === 'approved'}
-                      />
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="flex items-start gap-3 min-w-0">
                           <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
                             doc ? 'bg-[#dbebd7] text-[#41683b]' : 'bg-gray-100 text-gray-400'
@@ -1972,68 +2016,91 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-[12.5px] font-bold text-[#2a3c2e]">4. Giấy khám sức khỏe định kỳ (nếu có)</p>
-                              <span className="rounded-full bg-stone-100 text-stone-600 px-2 py-0.2 text-[9.5px] font-semibold border border-stone-200">
-                                Không bắt buộc
-                              </span>
+                              <p className="text-[13px] font-bold text-[#2a3c2e]">4. Giấy khám sức khỏe định kỳ (nếu có)</p>
+                              {doc ? (
+                                <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10px] font-bold border border-emerald-300">
+                                  {isLocked ? '🔒 Chờ đối soát' : '✓ Đã tải lên'}
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-stone-100 text-stone-600 px-2.5 py-0.5 text-[10px] font-bold border border-stone-200">
+                                  Tùy chọn bổ sung
+                                </span>
+                              )}
                             </div>
-                            <p className="text-[10.5px] text-[hsl(var(--muted-foreground))]">Đủ điều kiện hành nghề trong 6 tháng (Điểm cộng khi xét duyệt)</p>
-                            {doc && (
-                              <div className="mt-1.5 flex items-center gap-2">
-                                <span className="text-[11px] font-semibold text-[#3e5f39] truncate max-w-[170px]" title={doc.name}>
-                                  📎 {doc.name}
-                                </span>
-                                <span className={`rounded-full px-2 py-0.2 text-[9px] font-bold ${
-                                  isLocked ? 'bg-amber-100 text-amber-800' : 'bg-[#dbebd7] text-[#3e5f39]'
-                                }`}>
-                                  {isLocked ? '🔒 Chờ đối soát' : 'Đã tải lên'}
-                                </span>
-                              </div>
-                            )}
+                            <p className="text-[11px] text-[hsl(var(--muted-foreground))] mt-0.5">
+                              Giấy khám sức khỏe trong vòng 6 tháng gần nhất để khẳng định đủ điều kiện thể chất chăm sóc.
+                            </p>
                           </div>
                         </div>
+                      </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {doc ? (
-                            <>
-                              <button 
-                                type="button" 
+                      <div className="rounded-2xl border border-dashed border-[#ccd9ca] bg-[#fafcfa] p-3 text-center">
+                        <input 
+                          type="file" 
+                          ref={fileInputRefs.healthCheck}
+                          accept="image/*,.pdf"
+                          onChange={e => handleFileChange('healthCheck', e)}
+                          className="hidden" 
+                          disabled={verificationStatus === 'approved'}
+                        />
+
+                        {doc ? (
+                          <div className="relative group rounded-xl overflow-hidden border border-gray-200 bg-gray-50 aspect-[16/10] sm:aspect-[21/9] flex items-center justify-center">
+                            {doc.url.startsWith('data:application/pdf') || doc.url.endsWith('.pdf') ? (
+                              <div className="p-6 text-center">
+                                <FileText size={40} className="mx-auto text-red-500 mb-1" />
+                                <span className="text-[12px] font-bold text-gray-800 block truncate max-w-[240px]">{doc.name}</span>
+                                <span className="text-[10.5px] text-gray-400">Tài liệu PDF</span>
+                              </div>
+                            ) : (
+                              <img 
+                                src={getFullFileUrl(doc.url)} 
+                                alt={doc.name} 
+                                className="w-full h-full object-cover"
+                              />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 sm:bg-black/50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 sm:gap-2 p-1.5">
+                              <button
+                                type="button"
                                 onClick={() => setPreviewDoc(doc)}
-                                className="flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-white px-2.5 py-1 text-[11px] font-bold text-[#3b5938] hover:bg-[#e4efe0] transition cursor-pointer shadow-2xs"
-                                title="Xem trước ảnh"
+                                className="rounded-lg bg-white/95 px-2.5 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                               >
-                                <Eye size={13} /> Xem tệp
+                                <Eye size={13} /> Xem to
                               </button>
                               {verificationStatus !== 'approved' && (
                                 <>
-                                  <button 
-                                    type="button" 
+                                  <button
+                                    type="button"
                                     onClick={() => fileInputRefs.healthCheck.current?.click()}
-                                    className="rounded-lg border border-[hsl(var(--border))] bg-white px-2 py-1 text-[11px] font-bold text-[#455c47] hover:bg-gray-50 transition cursor-pointer"
+                                    className="rounded-lg bg-white/95 px-2 py-1.5 text-gray-800 hover:bg-white text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                   >
                                     Đổi ảnh
                                   </button>
-                                  <button 
-                                    type="button" 
+                                  <button
+                                    type="button"
                                     onClick={() => handleRemoveDoc('healthCheck')}
-                                    className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 transition cursor-pointer"
-                                    title="Gỡ tệp"
+                                    className="rounded-lg bg-rose-600/90 px-2 py-1.5 text-white hover:bg-rose-600 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
                                   >
-                                    <Trash2 size={14} />
+                                    <Trash2 size={13} /> Xóa
                                   </button>
                                 </>
                               )}
-                            </>
-                          ) : (
-                            <button 
-                              type="button" 
-                              onClick={() => fileInputRefs.healthCheck.current?.click()}
-                              className="rounded-xl bg-[#456740] px-3 py-1.5 text-[11.5px] font-bold text-white shadow-2xs hover:bg-[#345130] transition cursor-pointer flex items-center gap-1"
-                            >
-                              <Upload size={13} /> Tải ảnh lên
-                            </button>
-                          )}
-                        </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              if (verificationStatus !== 'approved') {
+                                fileInputRefs.healthCheck.current?.click();
+                              }
+                            }}
+                            className="flex flex-col items-center justify-center aspect-[16/10] sm:aspect-[21/9] rounded-xl border border-dashed border-gray-300 bg-white hover:bg-[#f2f8f0] cursor-pointer transition p-4"
+                          >
+                            <Upload size={24} className="text-[#597855] mb-1.5" />
+                            <span className="text-[12.5px] font-bold text-[#446240]">Tải ảnh Giấy khám sức khỏe</span>
+                            <span className="text-[10.5px] text-gray-400 mt-0.5">JPG, PNG hoặc PDF</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
