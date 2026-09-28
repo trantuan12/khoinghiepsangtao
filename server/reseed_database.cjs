@@ -300,8 +300,8 @@ async function reseed() {
       shift_date: '2026-09-27',
       shift_time: '08:00 - 12:00',
       total_amount: 400000,
-      platform_fee: 160000,      // 40%
-      caregiver_earnings: 240000, // 60%
+      platform_fee: 140000,      // 35%
+      caregiver_earnings: 260000, // 65%
       escrow_status: 'paid_out',
       created_at: '2026-09-27 08:00:00'
     },
@@ -316,8 +316,8 @@ async function reseed() {
       shift_date: '2026-09-25',
       shift_time: '13:00 - 17:00',
       total_amount: 500000,
-      platform_fee: 200000,      // 40%
-      caregiver_earnings: 300000, // 60%
+      platform_fee: 175000,      // 35%
+      caregiver_earnings: 325000, // 65%
       escrow_status: 'paid_out',
       created_at: '2026-09-25 13:00:00'
     },
@@ -332,8 +332,8 @@ async function reseed() {
       shift_date: '2026-09-24',
       shift_time: '08:00 - 12:00',
       total_amount: 450000,
-      platform_fee: 180000,      // 40%
-      caregiver_earnings: 270000, // 60%
+      platform_fee: 157500,      // 35%
+      caregiver_earnings: 292500, // 65%
       escrow_status: 'paid_out',
       created_at: '2026-09-24 08:00:00'
     },
@@ -348,8 +348,8 @@ async function reseed() {
       shift_date: '2026-09-22',
       shift_time: '14:00 - 18:00',
       total_amount: 400000,
-      platform_fee: 160000,      // 40%
-      caregiver_earnings: 240000, // 60%
+      platform_fee: 140000,      // 35%
+      caregiver_earnings: 260000, // 65%
       escrow_status: 'in_escrow',
       created_at: '2026-09-22 14:00:00'
     },
@@ -364,8 +364,8 @@ async function reseed() {
       shift_date: '2026-09-19',
       shift_time: '08:00 - 12:00',
       total_amount: 350000,
-      platform_fee: 140000,      // 40%
-      caregiver_earnings: 210000, // 60%
+      platform_fee: 122500,      // 35%
+      caregiver_earnings: 227500, // 65%
       escrow_status: 'in_escrow',
       created_at: '2026-09-19 08:00:00'
     }
@@ -440,7 +440,7 @@ async function reseed() {
       ]
     );
   }
-  console.log('  ✓ Đã nạp 5 ca chăm sóc: 2.100.000 đ (Tổng GMV = 2.150.000 đ)');
+  console.log('  ✓ Đã nạp 5 ca chăm sóc: 2.100.000 đ (Tổng GMV = 2.400.000 đ)');
 
   // 6. NẠP HỒ SƠ THEO DÕI SỨC KHỎE SAU CA (patient_care_logs)
   // Quy chuẩn sinh hiệu:

@@ -176,7 +176,7 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
         })
       });
       if (res.ok) {
-        notify('✅ Đã xác nhận hoàn thành ca! CARE-MATCH đã tự động tất toán 60% thù lao cho Người chăm sóc.');
+        notify('✅ Đã xác nhận hoàn thành ca! CARE-MATCH đã tự động tất toán 65% thù lao cho Người chăm sóc.');
         loadData();
       }
     } catch {
@@ -235,7 +235,7 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
               </span>
             </div>
             <p className="mt-1 text-[12.5px] leading-relaxed text-amber-900/90">
-              <strong>Yêu cầu thanh toán trước ca tối thiểu 1 ngày:</strong> Khi đặt lịch, gia đình cần thanh toán trước để giữ chỗ chuyên viên chăm sóc. Số tiền được <strong>CARE-MATCH giữ an toàn trung gian</strong> cho đến khi ca hoàn thành và được cả hai bên xác nhận. Thù lao sau đó sẽ tự động chuyển vào tài khoản ngân hàng của Người chăm sóc (khấu trừ 40% phí nền tảng sàn).
+              <strong>Yêu cầu thanh toán trước ca tối thiểu 1 ngày:</strong> Khi đặt lịch, gia đình cần thanh toán trước để giữ chỗ chuyên viên chăm sóc. Số tiền được <strong>CARE-MATCH giữ an toàn trung gian</strong> cho đến khi ca hoàn thành và được cả hai bên xác nhận. Thù lao sau đó sẽ tự động chuyển vào tài khoản ngân hàng của Người chăm sóc (khấu trừ 35% phí nền tảng sàn).
             </p>
           </div>
         </div>

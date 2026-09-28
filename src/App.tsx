@@ -7232,15 +7232,23 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
   const [systemSettings, setSystemSettings] = useState<Record<string, any>>({
     cancellation_fee_regular: 10000,
     vip_family_monthly_price: 300000,
-    caregiver_payout_percentage: 60,
-    platform_commission_percentage: 40,
+    vip_monthly_price: 300000,
+    caregiver_payout_percentage: 65,
+    caregiver_payout_rate: 65,
+    platform_commission_percentage: 35,
+    platform_commission_rate: 35,
     base_shift_rate_4h: 400000,
     night_shift_multiplier: 1.5,
     hourly_rate_divisor: 4,
+    hourly_divisor: 4,
     min_care_score_approval: 90,
+    min_care_score_recommended: 90,
     require_interview_meet: true,
+    require_online_interview: 1,
     platform_hotline: '1900 6868',
-    system_headline: 'Những người chăm sóc phù hợp nhất'
+    hotline_support: '1900 6868',
+    system_headline: 'Những người chăm sóc phù hợp nhất',
+    home_headline: 'Những người chăm sóc phù hợp nhất'
   });
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -7807,7 +7815,48 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
       .then(data => {
         const s = data.settings || data;
         if (s && typeof s === 'object' && Object.keys(s).length > 0) {
-          setSystemSettings(prev => ({ ...prev, ...s }));
+          const norm: Record<string, any> = { ...s };
+          if (s.platform_commission_rate != null) {
+            norm.platform_commission_percentage = Number(s.platform_commission_rate);
+          } else if (s.platform_commission_percentage != null) {
+            norm.platform_commission_rate = Number(s.platform_commission_percentage);
+          }
+          if (s.caregiver_payout_rate != null) {
+            norm.caregiver_payout_percentage = Number(s.caregiver_payout_rate);
+          } else if (s.caregiver_payout_percentage != null) {
+            norm.caregiver_payout_rate = Number(s.caregiver_payout_percentage);
+          }
+          if (s.vip_monthly_price != null) {
+            norm.vip_family_monthly_price = Number(s.vip_monthly_price);
+          } else if (s.vip_family_monthly_price != null) {
+            norm.vip_monthly_price = Number(s.vip_family_monthly_price);
+          }
+          if (s.hourly_divisor != null) {
+            norm.hourly_rate_divisor = Number(s.hourly_divisor);
+          } else if (s.hourly_rate_divisor != null) {
+            norm.hourly_divisor = Number(s.hourly_rate_divisor);
+          }
+          if (s.min_care_score_recommended != null) {
+            norm.min_care_score_approval = Number(s.min_care_score_recommended);
+          } else if (s.min_care_score_approval != null) {
+            norm.min_care_score_recommended = Number(s.min_care_score_approval);
+          }
+          if (s.require_online_interview != null) {
+            norm.require_interview_meet = (s.require_online_interview == 1 || s.require_online_interview === '1' || s.require_online_interview === true);
+          } else if (s.require_interview_meet != null) {
+            norm.require_online_interview = s.require_interview_meet ? 1 : 0;
+          }
+          if (s.hotline_support != null) {
+            norm.platform_hotline = s.hotline_support;
+          } else if (s.platform_hotline != null) {
+            norm.hotline_support = s.platform_hotline;
+          }
+          if (s.home_headline != null) {
+            norm.system_headline = s.home_headline;
+          } else if (s.system_headline != null) {
+            norm.home_headline = s.system_headline;
+          }
+          setSystemSettings(prev => ({ ...prev, ...norm }));
         }
       })
       .catch(() => { });
@@ -9678,8 +9727,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                         type="number"
                         min="0"
                         step="5000"
-                        value={systemSettings.vip_family_monthly_price ?? 300000}
-                        onChange={e => setSystemSettings({ ...systemSettings, vip_family_monthly_price: Number(e.target.value) })}
+                        value={systemSettings.vip_family_monthly_price ?? systemSettings.vip_monthly_price ?? 300000}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setSystemSettings(prev => ({ ...prev, vip_family_monthly_price: val, vip_monthly_price: val }));
+                        }}
                         className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-amber-900 outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-600/10"
                       />
                       <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] font-bold text-gray-400">VNĐ/tháng</span>
@@ -9697,8 +9749,17 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                           type="number"
                           min="40"
                           max="100"
-                          value={systemSettings.caregiver_payout_percentage ?? 60}
-                          onChange={e => setSystemSettings({ ...systemSettings, caregiver_payout_percentage: Number(e.target.value) })}
+                          value={systemSettings.caregiver_payout_percentage ?? systemSettings.caregiver_payout_rate ?? 65}
+                          onChange={e => {
+                            const val = Number(e.target.value);
+                            setSystemSettings(prev => ({
+                              ...prev,
+                              caregiver_payout_percentage: val,
+                              caregiver_payout_rate: val,
+                              platform_commission_percentage: 100 - val,
+                              platform_commission_rate: 100 - val
+                            }));
+                          }}
                           className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-emerald-900 outline-none focus:border-emerald-600"
                         />
                         <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] font-bold text-gray-400">%</span>
@@ -9714,8 +9775,17 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                           type="number"
                           min="0"
                           max="60"
-                          value={systemSettings.platform_commission_percentage ?? 40}
-                          onChange={e => setSystemSettings({ ...systemSettings, platform_commission_percentage: Number(e.target.value) })}
+                          value={systemSettings.platform_commission_percentage ?? systemSettings.platform_commission_rate ?? 35}
+                          onChange={e => {
+                            const val = Number(e.target.value);
+                            setSystemSettings(prev => ({
+                              ...prev,
+                              platform_commission_percentage: val,
+                              platform_commission_rate: val,
+                              caregiver_payout_percentage: 100 - val,
+                              caregiver_payout_rate: 100 - val
+                            }));
+                          }}
                           className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-gray-700 outline-none focus:border-emerald-600"
                         />
                         <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[12px] font-bold text-gray-400">%</span>
@@ -9783,8 +9853,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                         type="number"
                         min="1"
                         max="12"
-                        value={systemSettings.hourly_rate_divisor ?? 4}
-                        onChange={e => setSystemSettings({ ...systemSettings, hourly_rate_divisor: Number(e.target.value) })}
+                        value={systemSettings.hourly_rate_divisor ?? systemSettings.hourly_divisor ?? 4}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setSystemSettings(prev => ({ ...prev, hourly_rate_divisor: val, hourly_divisor: val }));
+                        }}
                         className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-gray-900 outline-none focus:border-emerald-600"
                       />
                       <p className="text-[10px] text-gray-400 mt-1">Công thức: Giá giờ = Giá ca / 4</p>
@@ -9823,8 +9896,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                       type="number"
                       min="70"
                       max="100"
-                      value={systemSettings.min_care_score_approval ?? 90}
-                      onChange={e => setSystemSettings({ ...systemSettings, min_care_score_approval: Number(e.target.value) })}
+                      value={systemSettings.min_care_score_approval ?? systemSettings.min_care_score_recommended ?? 90}
+                      onChange={e => {
+                        const val = Number(e.target.value);
+                        setSystemSettings(prev => ({ ...prev, min_care_score_approval: val, min_care_score_recommended: val }));
+                      }}
                       className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-emerald-800 outline-none focus:border-emerald-600"
                     />
                     <p className="text-[10.5px] text-gray-500 mt-1">Chỉ những người chăm sóc đạt từ điểm số này trở lên mới được hiển thị đề xuất nhận ca.</p>
@@ -9838,8 +9914,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={systemSettings.require_interview_meet !== false && systemSettings.require_interview_meet !== 'false'}
-                        onChange={e => setSystemSettings({ ...systemSettings, require_interview_meet: e.target.checked })}
+                        checked={systemSettings.require_interview_meet !== false && systemSettings.require_interview_meet !== 'false' && systemSettings.require_online_interview != 0}
+                        onChange={e => {
+                          const checked = e.target.checked;
+                          setSystemSettings(prev => ({ ...prev, require_interview_meet: checked, require_online_interview: checked ? 1 : 0 }));
+                        }}
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
@@ -9869,8 +9948,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                     </label>
                     <input
                       type="text"
-                      value={systemSettings.platform_hotline || '1900 6868'}
-                      onChange={e => setSystemSettings({ ...systemSettings, platform_hotline: e.target.value })}
+                      value={systemSettings.platform_hotline || systemSettings.hotline_support || '1900 6868'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setSystemSettings(prev => ({ ...prev, platform_hotline: val, hotline_support: val }));
+                      }}
                       placeholder="1900 6868"
                       className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-gray-900 outline-none focus:border-emerald-600 font-mono"
                     />
@@ -9883,8 +9965,11 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                     </label>
                     <input
                       type="text"
-                      value={systemSettings.system_headline || 'Những người chăm sóc phù hợp nhất'}
-                      onChange={e => setSystemSettings({ ...systemSettings, system_headline: e.target.value })}
+                      value={systemSettings.system_headline || systemSettings.home_headline || 'Những người chăm sóc phù hợp nhất'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setSystemSettings(prev => ({ ...prev, system_headline: val, home_headline: val }));
+                      }}
                       placeholder="Những người chăm sóc phù hợp nhất"
                       className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13px] font-medium text-gray-900 outline-none focus:border-emerald-600"
                     />

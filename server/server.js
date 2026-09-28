@@ -438,8 +438,8 @@ async function initBookingEscrowPaymentsTable() {
         shift_date VARCHAR(64) NOT NULL,
         shift_time VARCHAR(64) NOT NULL,
         total_amount INT NOT NULL COMMENT 'Tổng số tiền ca làm (100%)',
-        platform_fee INT NOT NULL COMMENT 'Chiết khấu sàn nền tảng 40%',
-        caregiver_earnings INT NOT NULL COMMENT 'Thực nhận của Người chăm sóc 60%',
+        platform_fee INT NOT NULL COMMENT 'Chiết khấu sàn nền tảng 35%',
+        caregiver_earnings INT NOT NULL COMMENT 'Thực nhận của Người chăm sóc 65%',
         escrow_status ENUM('pending_payment', 'in_escrow', 'paid_out', 'refunded') DEFAULT 'pending_payment' COMMENT 'Trạng thái ký quỹ',
         payment_method VARCHAR(64) DEFAULT 'VietQR Napas 247',
         family_paid_at TIMESTAMP NULL,
@@ -472,8 +472,8 @@ async function initBookingEscrowPaymentsTable() {
       const [existing] = await pool.execute('SELECT id FROM booking_escrow_payments WHERE schedule_id = ? LIMIT 1', [sched.id]);
       if (existing.length === 0) {
         const total = Number(sched.price) || 400000;
-        const fee = Math.round(total * 0.40); // 40% phí nền tảng
-        const earnings = total - fee;        // 60% thực nhận
+        const fee = Math.round(total * 0.35); // 35% phí nền tảng
+        const earnings = total - fee;        // 65% thực nhận
         const txCode = 'ESC-2026-' + String(sched.id).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
         
         let escrowStatus = 'pending_payment';
@@ -650,8 +650,8 @@ async function initSystemSettingsTable() {
     const defaults = [
       ['cancellation_fee_regular', '10000', 'number', 'fees', 'Phí đổi / hủy ca đối với tài khoản thường (VNĐ)'],
       ['vip_monthly_price', '300000', 'number', 'membership', 'Giá gói Hội viên VIP Gia đình (VNĐ/tháng)'],
-      ['caregiver_payout_rate', '60', 'number', 'commission', 'Tỷ lệ thù lao chuyển trả cho người chăm sóc (%)'],
-      ['platform_commission_rate', '40', 'number', 'commission', 'Tỷ lệ hoa hồng vận hành sàn CARE-MATCH (%)'],
+      ['caregiver_payout_rate', '65', 'number', 'commission', 'Tỷ lệ thù lao chuyển trả cho người chăm sóc (%)'],
+      ['platform_commission_rate', '35', 'number', 'commission', 'Tỷ lệ hoa hồng vận hành sàn CARE-MATCH (%)'],
       ['base_shift_rate_4h', '400000', 'number', 'pricing', 'Mức thù lao chuẩn ca ngày 4 tiếng (VNĐ)'],
       ['night_shift_multiplier', '1.5', 'number', 'pricing', 'Hệ số tính ca đêm (12 tiếng) so với ca ngày'],
       ['hourly_divisor', '4', 'number', 'pricing', 'Số giờ quy đổi từ ca 4 tiếng sang đơn giá theo giờ (Đơn giá/h = Ca / 4)'],
@@ -2679,8 +2679,8 @@ app.post('/api/schedules', async (req, res) => {
       let bookingPaymentId = null;
       const txCode = 'ESC-2026-' + String(result.insertId).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
       try {
-        const fee = Math.round(schedOrigPrice * 0.40); // 40% phí sàn tính trên giá gốc
-        const earnings = schedOrigPrice - fee;        // 60% thực nhận của Người chăm sóc tính trên giá gốc (Nền tảng bù voucher)
+        const fee = Math.round(schedOrigPrice * 0.35); // 35% phí sàn tính trên giá gốc
+        const earnings = schedOrigPrice - fee;        // 65% thực nhận của Người chăm sóc tính trên giá gốc (Nền tảng bù voucher)
         const systemSubsidy = vDiscount;
         const [escResult] = await pool.execute(
           `INSERT INTO booking_escrow_payments 
@@ -2782,7 +2782,7 @@ app.patch('/api/schedules/:id', async (req, res) => {
           // CẢ HAI BÊN ĐÃ XÁC NHẬN -> CHÍNH THỨC HOÀN TẤT VÀ GIẢI NGÂN
           await pool.execute("UPDATE schedules SET status = 'completed' WHERE id = ?", [id]);
 
-          // Tự động giải ngân ký quỹ 60% cho người chăm sóc, trích 40% phí sàn
+          // Tự động giải ngân ký quỹ 65% cho người chăm sóc, trích 35% phí sàn
           try {
             const ref = 'PAYOUT-' + Math.floor(10000000 + Math.random() * 90000000);
             await pool.execute(
@@ -2790,18 +2790,18 @@ app.patch('/api/schedules/:id', async (req, res) => {
                SET escrow_status = 'paid_out', 
                    released_at = NOW(), 
                    bank_reference = ?,
-                   notes = 'Cả hai bên đã xác nhận hoàn thành ca. Hệ thống đã giải ngân tự động 60% thù lao vào tài khoản ngân hàng' 
+                   notes = 'Cả hai bên đã xác nhận hoàn thành ca. Hệ thống đã giải ngân tự động 65% thù lao vào tài khoản ngân hàng' 
                WHERE schedule_id = ?`,
               [ref, id]
             );
 
             if (item.caregiver_user_id) {
-              const netEarn = Math.round((Number(item.price) || 400000) * 0.60);
+              const netEarn = Math.round((Number(item.price) || 400000) * 0.65);
               await createNotification(
                 item.caregiver_user_id,
                 'payment',
                 '✅ Thù lao đã chuyển về tài khoản ngân hàng!',
-                `Cả hai bên đã xác nhận hoàn thành ca #${id}. Hệ thống đã tự động chuyển ${netEarn.toLocaleString('vi-VN')} đ (60% thù lao) vào tài khoản ngân hàng của bạn.`,
+                `Cả hai bên đã xác nhận hoàn thành ca #${id}. Hệ thống đã tự động chuyển ${netEarn.toLocaleString('vi-VN')} đ (65% thù lao) vào tài khoản ngân hàng của bạn.`,
                 '/payments'
               );
             }
@@ -3226,8 +3226,8 @@ app.get('/api/settings', async (req, res) => {
   const fallback = {
     cancellation_fee_regular: 10000,
     vip_monthly_price: 300000,
-    caregiver_payout_rate: 60,
-    platform_commission_rate: 40,
+    caregiver_payout_rate: 65,
+    platform_commission_rate: 35,
     base_shift_rate_4h: 400000,
     night_shift_multiplier: 1.5,
     hourly_divisor: 4,
@@ -3235,6 +3235,15 @@ app.get('/api/settings', async (req, res) => {
     require_online_interview: 1,
     home_headline: 'Những người chăm sóc phù hợp nhất',
     hotline_support: '1900 6868',
+    slogan_text: 'CARE MATCH — Đồng hành mỗi ngày – An vui tuổi bạc',
+    escrow_deposit_percent: 100,
+    cancel_free_hours_notice: 6,
+    max_shifts_per_caregiver_day: 3,
+    emergency_sla_minutes: 15,
+    require_daily_care_log: 1,
+    warning_bp_high: 140,
+    warning_spo2_low: 95,
+    support_email: 'cskh@carematch.vn',
     admin_bank_name: 'MB Bank (Quân Đội)',
     admin_bank_account: '0934 567 890',
     admin_bank_owner: 'TỐNG THANH DƯƠNG',
@@ -3244,7 +3253,18 @@ app.get('/api/settings', async (req, res) => {
     vietqr_auto_confirm: 1
   };
   if (!isMySqlConnected) {
-    return res.json({ success: true, settings: fallback, rows: [] });
+    const enrichedFallback = {
+      ...fallback,
+      vip_family_monthly_price: fallback.vip_monthly_price,
+      caregiver_payout_percentage: fallback.caregiver_payout_rate,
+      platform_commission_percentage: fallback.platform_commission_rate,
+      hourly_rate_divisor: fallback.hourly_divisor,
+      min_care_score_approval: fallback.min_care_score_recommended,
+      require_interview_meet: Boolean(Number(fallback.require_online_interview)),
+      platform_hotline: fallback.hotline_support,
+      system_headline: fallback.home_headline
+    };
+    return res.json({ success: true, settings: enrichedFallback, rows: [] });
   }
   try {
     const [rows] = await pool.execute('SELECT * FROM system_settings');
@@ -3258,19 +3278,80 @@ app.get('/api/settings', async (req, res) => {
         settings[r.setting_key] = r.setting_value;
       }
     }
+    // Gắn thêm các alias tương thích 100% cho mọi client
+    settings.vip_family_monthly_price = settings.vip_monthly_price;
+    settings.caregiver_payout_percentage = settings.caregiver_payout_rate;
+    settings.platform_commission_percentage = settings.platform_commission_rate;
+    settings.hourly_rate_divisor = settings.hourly_divisor;
+    settings.min_care_score_approval = settings.min_care_score_recommended;
+    settings.require_interview_meet = Boolean(Number(settings.require_online_interview));
+    settings.platform_hotline = settings.hotline_support;
+    settings.system_headline = settings.home_headline;
+
     return res.json({ success: true, settings, rows });
   } catch (err) {
     return res.json({ success: true, settings: fallback, rows: [] });
   }
 });
 
-app.put('/api/settings', async (req, res) => {
+const handleSaveSettingsEndpoint = async (req, res) => {
   if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
   try {
-    const settings = (req.body && req.body.settings) ? req.body.settings : req.body;
-    if (!settings || typeof settings !== 'object') {
+    const raw = (req.body && req.body.settings) ? req.body.settings : req.body;
+    if (!raw || typeof raw !== 'object') {
       return res.status(400).json({ error: 'Dữ liệu cấu hình không hợp lệ' });
     }
+    const settings = { ...raw };
+
+    // Tự động map và đồng bộ 2 chiều các alias và canonical key
+    if (settings.platform_commission_percentage !== undefined) {
+      settings.platform_commission_rate = settings.platform_commission_percentage;
+    } else if (settings.platform_commission_rate !== undefined) {
+      settings.platform_commission_percentage = settings.platform_commission_rate;
+    }
+
+    if (settings.caregiver_payout_percentage !== undefined) {
+      settings.caregiver_payout_rate = settings.caregiver_payout_percentage;
+    } else if (settings.caregiver_payout_rate !== undefined) {
+      settings.caregiver_payout_percentage = settings.caregiver_payout_rate;
+    }
+
+    if (settings.vip_family_monthly_price !== undefined) {
+      settings.vip_monthly_price = settings.vip_family_monthly_price;
+    } else if (settings.vip_monthly_price !== undefined) {
+      settings.vip_family_monthly_price = settings.vip_monthly_price;
+    }
+
+    if (settings.hourly_rate_divisor !== undefined) {
+      settings.hourly_divisor = settings.hourly_rate_divisor;
+    } else if (settings.hourly_divisor !== undefined) {
+      settings.hourly_rate_divisor = settings.hourly_divisor;
+    }
+
+    if (settings.min_care_score_approval !== undefined) {
+      settings.min_care_score_recommended = settings.min_care_score_approval;
+    } else if (settings.min_care_score_recommended !== undefined) {
+      settings.min_care_score_approval = settings.min_care_score_recommended;
+    }
+
+    if (settings.require_interview_meet !== undefined) {
+      settings.require_online_interview = (settings.require_interview_meet && settings.require_interview_meet !== 'false') ? 1 : 0;
+    } else if (settings.require_online_interview !== undefined) {
+      settings.require_interview_meet = (settings.require_online_interview == 1 || settings.require_online_interview === true || settings.require_online_interview === '1');
+    }
+
+    if (settings.platform_hotline !== undefined) {
+      settings.hotline_support = settings.platform_hotline;
+    } else if (settings.hotline_support !== undefined) {
+      settings.platform_hotline = settings.hotline_support;
+    }
+
+    if (settings.system_headline !== undefined) {
+      settings.home_headline = settings.system_headline;
+    } else if (settings.home_headline !== undefined) {
+      settings.system_headline = settings.home_headline;
+    }
+
     for (const [key, val] of Object.entries(settings)) {
       if (val === undefined) continue;
       await pool.execute(
@@ -3281,11 +3362,15 @@ app.put('/api/settings', async (req, res) => {
       );
     }
     console.log('✅ [Settings] Admin đã cập nhật cấu hình hệ thống:', Object.keys(settings));
-    return res.json({ success: true, message: 'Đã lưu cấu hình hệ thống thành công!' });
+    return res.json({ success: true, message: 'Đã lưu cấu hình hệ thống thành công!', settings });
   } catch (err) {
+    console.error('Lỗi lưu settings:', err.message);
     return res.status(500).json({ error: err.message });
   }
-});
+};
+
+app.put('/api/settings', handleSaveSettingsEndpoint);
+app.post('/api/settings', handleSaveSettingsEndpoint);
 
 // ---- NOTIFICATIONS ----
 
@@ -4598,7 +4683,7 @@ app.get('/api/payments/caregiver/:userId', async (req, res) => {
 
     for (const s of shifts) {
       const gross = Number(s.total_amount) || 0;
-      const fee = Number(s.platform_fee) || Math.round(gross * 0.40);
+      const fee = Number(s.platform_fee) || Math.round(gross * 0.35);
       const net = Number(s.caregiver_earnings) || (gross - fee);
 
       grossEarnings += gross;
@@ -4620,8 +4705,8 @@ app.get('/api/payments/caregiver/:userId', async (req, res) => {
       stats: {
         total_shifts: totalShifts,
         gross_earnings: grossEarnings,
-        platform_fee: platformFee,        // 40% trích lại cho nền tảng
-        net_earnings: netEarnings,        // 60% thực nhận
+        platform_fee: platformFee,        // 35% trích lại cho nền tảng
+        net_earnings: netEarnings,        // 65% thực nhận
         paid_out_amount: paidOutAmount,   // Đã nhận về TK ngân hàng
         in_escrow_amount: inEscrowAmount, // Chờ nhận (tiền đã ký quỹ, chờ ca xong)
         pending_family_amount: pendingFamilyAmount // Gia đình chưa thanh toán
@@ -4905,10 +4990,10 @@ app.get('/api/admin/payments/dashboard', async (req, res) => {
     return res.json({
       stats: {
         total_gmv: Number(er.total_gmv) + totalVipRev,
-        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (40% ca + 300k VIP)
-        platform_fee_total: totalShiftFees,             // 40% từ các ca
+        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (35% ca + 300k VIP)
+        platform_fee_total: totalShiftFees,             // 35% từ các ca
         vip_revenue: totalVipRev,                       // Doanh thu VIP 300k
-        caregiver_paid_total: Number(er.total_caregiver_paid), // Đã giải ngân cho Người chăm sóc (60%)
+        caregiver_paid_total: Number(er.total_caregiver_paid), // Đã giải ngân cho Người chăm sóc (65%)
         escrow_holding_total: Number(er.total_in_escrow),      // Tiền đang giữ trung gian
         pending_family_total: Number(er.total_pending_payment),// Gia đình chưa trả trước ca
         active_vip_count: Number(sr.active_vip_count),
@@ -4934,7 +5019,7 @@ app.post('/api/admin/payments/:id/release-payout', async (req, res) => {
        SET escrow_status = 'paid_out', 
            released_at = NOW(), 
            bank_reference = ?,
-           notes = 'Admin xác nhận đối soát & giải ngân thù lao 60% cho Người chăm sóc' 
+           notes = 'Admin xác nhận đối soát & giải ngân thù lao 65% cho Người chăm sóc' 
        WHERE id = ?`,
       [ref, id]
     );
@@ -5658,8 +5743,8 @@ app.get('/api/export/transactions-csv', async (req, res) => {
       'Người Chăm Sóc',
       'SĐT Điều Dưỡng',
       'Tổng Tiền Ký Quỹ (VNĐ)',
-      'Phí Nền Tảng 40% (VNĐ)',
-      'Thực Nhận Điều Dưỡng 60% (VNĐ)',
+      'Phí Nền Tảng 35% (VNĐ)',
+      'Thực Nhận Điều Dưỡng 65% (VNĐ)',
       'Trạng Thái Ký Quỹ',
       'Phương Thức Thanh Toán',
       'Mã Đối Soát Ngân Hàng',
@@ -5670,7 +5755,7 @@ app.get('/api/export/transactions-csv', async (req, res) => {
     ];
 
     const statusMap = {
-      'paid_out': 'Đã Giải Ngân (60%)',
+      'paid_out': 'Đã Giải Ngân (65%)',
       'in_escrow': 'Đang Giữ Ký Quỹ (Escrow Bảo Đảm)',
       'pending_payment': 'Chờ Gia Đình Ký Quỹ',
       'refunded': 'Đã Hoàn Tiền'
