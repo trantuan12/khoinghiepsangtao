@@ -438,8 +438,8 @@ async function initBookingEscrowPaymentsTable() {
         shift_date VARCHAR(64) NOT NULL,
         shift_time VARCHAR(64) NOT NULL,
         total_amount INT NOT NULL COMMENT 'Tổng số tiền ca làm (100%)',
-        platform_fee INT NOT NULL COMMENT 'Chiết khấu sàn nền tảng 15%',
-        caregiver_earnings INT NOT NULL COMMENT 'Thực nhận của Người chăm sóc 85%',
+        platform_fee INT NOT NULL COMMENT 'Chiết khấu sàn nền tảng 40%',
+        caregiver_earnings INT NOT NULL COMMENT 'Thực nhận của Người chăm sóc 60%',
         escrow_status ENUM('pending_payment', 'in_escrow', 'paid_out', 'refunded') DEFAULT 'pending_payment' COMMENT 'Trạng thái ký quỹ',
         payment_method VARCHAR(64) DEFAULT 'VietQR Napas 247',
         family_paid_at TIMESTAMP NULL,
@@ -472,8 +472,8 @@ async function initBookingEscrowPaymentsTable() {
       const [existing] = await pool.execute('SELECT id FROM booking_escrow_payments WHERE schedule_id = ? LIMIT 1', [sched.id]);
       if (existing.length === 0) {
         const total = Number(sched.price) || 400000;
-        const fee = Math.round(total * 0.15); // 15% phí nền tảng
-        const earnings = total - fee;        // 85% thực nhận
+        const fee = Math.round(total * 0.40); // 40% phí nền tảng
+        const earnings = total - fee;        // 60% thực nhận
         const txCode = 'ESC-2026-' + String(sched.id).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
         
         let escrowStatus = 'pending_payment';
@@ -650,8 +650,8 @@ async function initSystemSettingsTable() {
     const defaults = [
       ['cancellation_fee_regular', '10000', 'number', 'fees', 'Phí đổi / hủy ca đối với tài khoản thường (VNĐ)'],
       ['vip_monthly_price', '300000', 'number', 'membership', 'Giá gói Hội viên VIP Gia đình (VNĐ/tháng)'],
-      ['caregiver_payout_rate', '85', 'number', 'commission', 'Tỷ lệ thù lao chuyển trả cho người chăm sóc (%)'],
-      ['platform_commission_rate', '15', 'number', 'commission', 'Tỷ lệ hoa hồng vận hành sàn CARE-MATCH (%)'],
+      ['caregiver_payout_rate', '60', 'number', 'commission', 'Tỷ lệ thù lao chuyển trả cho người chăm sóc (%)'],
+      ['platform_commission_rate', '40', 'number', 'commission', 'Tỷ lệ hoa hồng vận hành sàn CARE-MATCH (%)'],
       ['base_shift_rate_4h', '400000', 'number', 'pricing', 'Mức thù lao chuẩn ca ngày 4 tiếng (VNĐ)'],
       ['night_shift_multiplier', '1.5', 'number', 'pricing', 'Hệ số tính ca đêm (12 tiếng) so với ca ngày'],
       ['hourly_divisor', '4', 'number', 'pricing', 'Số giờ quy đổi từ ca 4 tiếng sang đơn giá theo giờ (Đơn giá/h = Ca / 4)'],
@@ -659,7 +659,7 @@ async function initSystemSettingsTable() {
       ['require_online_interview', '1', 'boolean', 'verification', 'Bắt buộc phỏng vấn online qua Google Meet trước khi nhận ca'],
       ['home_headline', 'Những người chăm sóc phù hợp nhất', 'string', 'content', 'Tiêu đề hiển thị tại mục tìm kiếm người chăm sóc'],
       ['hotline_support', '1900 6868', 'string', 'support', 'Số điện thoại đường dây nóng CSKH y tế 24/7'],
-      ['slogan_text', 'CARE MATCH — Kết nối yêu thương – Lan tỏa sự quan tâm', 'string', 'content', 'Khẩu hiệu chính của nền tảng CARE-MATCH'],
+      ['slogan_text', 'CARE MATCH — Đồng hành mỗi ngày – An vui tuổi bạc', 'string', 'content', 'Khẩu hiệu chính của nền tảng CARE-MATCH'],
       ['escrow_deposit_percent', '100', 'number', 'payment', 'Tỷ lệ ký quỹ giữ chỗ khi đặt ca chăm sóc (%)'],
       ['cancel_free_hours_notice', '6', 'number', 'policy', 'Số giờ báo trước tối thiểu để hủy ca được hoàn 100% tiền cọc (giờ)'],
       ['max_shifts_per_caregiver_day', '3', 'number', 'safety', 'Giới hạn số ca làm tối đa trong 1 ngày của điều dưỡng viên'],
@@ -2679,8 +2679,8 @@ app.post('/api/schedules', async (req, res) => {
       let bookingPaymentId = null;
       const txCode = 'ESC-2026-' + String(result.insertId).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
       try {
-        const fee = Math.round(schedOrigPrice * 0.15); // 15% phí sàn tính trên giá gốc
-        const earnings = schedOrigPrice - fee;        // 85% thực nhận của Người chăm sóc tính trên giá gốc (Nền tảng bù voucher)
+        const fee = Math.round(schedOrigPrice * 0.40); // 40% phí sàn tính trên giá gốc
+        const earnings = schedOrigPrice - fee;        // 60% thực nhận của Người chăm sóc tính trên giá gốc (Nền tảng bù voucher)
         const systemSubsidy = vDiscount;
         const [escResult] = await pool.execute(
           `INSERT INTO booking_escrow_payments 
@@ -2782,7 +2782,7 @@ app.patch('/api/schedules/:id', async (req, res) => {
           // CẢ HAI BÊN ĐÃ XÁC NHẬN -> CHÍNH THỨC HOÀN TẤT VÀ GIẢI NGÂN
           await pool.execute("UPDATE schedules SET status = 'completed' WHERE id = ?", [id]);
 
-          // Tự động giải ngân ký quỹ 85% cho người chăm sóc, trích 15% phí sàn
+          // Tự động giải ngân ký quỹ 60% cho người chăm sóc, trích 40% phí sàn
           try {
             const ref = 'PAYOUT-' + Math.floor(10000000 + Math.random() * 90000000);
             await pool.execute(
@@ -2790,18 +2790,18 @@ app.patch('/api/schedules/:id', async (req, res) => {
                SET escrow_status = 'paid_out', 
                    released_at = NOW(), 
                    bank_reference = ?,
-                   notes = 'Cả hai bên đã xác nhận hoàn thành ca. Hệ thống đã giải ngân tự động 85% thù lao vào tài khoản ngân hàng' 
+                   notes = 'Cả hai bên đã xác nhận hoàn thành ca. Hệ thống đã giải ngân tự động 60% thù lao vào tài khoản ngân hàng' 
                WHERE schedule_id = ?`,
               [ref, id]
             );
 
             if (item.caregiver_user_id) {
-              const netEarn = Math.round((Number(item.price) || 400000) * 0.85);
+              const netEarn = Math.round((Number(item.price) || 400000) * 0.60);
               await createNotification(
                 item.caregiver_user_id,
                 'payment',
                 '✅ Thù lao đã chuyển về tài khoản ngân hàng!',
-                `Cả hai bên đã xác nhận hoàn thành ca #${id}. Hệ thống đã tự động chuyển ${netEarn.toLocaleString('vi-VN')} đ (85% thù lao) vào tài khoản ngân hàng của bạn.`,
+                `Cả hai bên đã xác nhận hoàn thành ca #${id}. Hệ thống đã tự động chuyển ${netEarn.toLocaleString('vi-VN')} đ (60% thù lao) vào tài khoản ngân hàng của bạn.`,
                 '/payments'
               );
             }
@@ -3226,8 +3226,8 @@ app.get('/api/settings', async (req, res) => {
   const fallback = {
     cancellation_fee_regular: 10000,
     vip_monthly_price: 300000,
-    caregiver_payout_rate: 85,
-    platform_commission_rate: 15,
+    caregiver_payout_rate: 60,
+    platform_commission_rate: 40,
     base_shift_rate_4h: 400000,
     night_shift_multiplier: 1.5,
     hourly_divisor: 4,
@@ -4598,7 +4598,7 @@ app.get('/api/payments/caregiver/:userId', async (req, res) => {
 
     for (const s of shifts) {
       const gross = Number(s.total_amount) || 0;
-      const fee = Number(s.platform_fee) || Math.round(gross * 0.15);
+      const fee = Number(s.platform_fee) || Math.round(gross * 0.40);
       const net = Number(s.caregiver_earnings) || (gross - fee);
 
       grossEarnings += gross;
@@ -4620,8 +4620,8 @@ app.get('/api/payments/caregiver/:userId', async (req, res) => {
       stats: {
         total_shifts: totalShifts,
         gross_earnings: grossEarnings,
-        platform_fee: platformFee,        // 15% trích lại cho nền tảng
-        net_earnings: netEarnings,        // 85% thực nhận
+        platform_fee: platformFee,        // 40% trích lại cho nền tảng
+        net_earnings: netEarnings,        // 60% thực nhận
         paid_out_amount: paidOutAmount,   // Đã nhận về TK ngân hàng
         in_escrow_amount: inEscrowAmount, // Chờ nhận (tiền đã ký quỹ, chờ ca xong)
         pending_family_amount: pendingFamilyAmount // Gia đình chưa thanh toán
@@ -4905,10 +4905,10 @@ app.get('/api/admin/payments/dashboard', async (req, res) => {
     return res.json({
       stats: {
         total_gmv: Number(er.total_gmv) + totalVipRev,
-        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (15% ca + 300k VIP)
-        platform_fee_total: totalShiftFees,             // 15% từ các ca
+        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (40% ca + 300k VIP)
+        platform_fee_total: totalShiftFees,             // 40% từ các ca
         vip_revenue: totalVipRev,                       // Doanh thu VIP 300k
-        caregiver_paid_total: Number(er.total_caregiver_paid), // Đã giải ngân cho Người chăm sóc (85%)
+        caregiver_paid_total: Number(er.total_caregiver_paid), // Đã giải ngân cho Người chăm sóc (60%)
         escrow_holding_total: Number(er.total_in_escrow),      // Tiền đang giữ trung gian
         pending_family_total: Number(er.total_pending_payment),// Gia đình chưa trả trước ca
         active_vip_count: Number(sr.active_vip_count),
@@ -4934,7 +4934,7 @@ app.post('/api/admin/payments/:id/release-payout', async (req, res) => {
        SET escrow_status = 'paid_out', 
            released_at = NOW(), 
            bank_reference = ?,
-           notes = 'Admin xác nhận đối soát & giải ngân thù lao 85% cho Người chăm sóc' 
+           notes = 'Admin xác nhận đối soát & giải ngân thù lao 60% cho Người chăm sóc' 
        WHERE id = ?`,
       [ref, id]
     );
@@ -5658,8 +5658,8 @@ app.get('/api/export/transactions-csv', async (req, res) => {
       'Người Chăm Sóc',
       'SĐT Điều Dưỡng',
       'Tổng Tiền Ký Quỹ (VNĐ)',
-      'Phí Nền Tảng 15% (VNĐ)',
-      'Thực Nhận Điều Dưỡng 85% (VNĐ)',
+      'Phí Nền Tảng 40% (VNĐ)',
+      'Thực Nhận Điều Dưỡng 60% (VNĐ)',
       'Trạng Thái Ký Quỹ',
       'Phương Thức Thanh Toán',
       'Mã Đối Soát Ngân Hàng',
@@ -5670,7 +5670,7 @@ app.get('/api/export/transactions-csv', async (req, res) => {
     ];
 
     const statusMap = {
-      'paid_out': 'Đã Giải Ngân (85%)',
+      'paid_out': 'Đã Giải Ngân (60%)',
       'in_escrow': 'Đang Giữ Ký Quỹ (Escrow Bảo Đảm)',
       'pending_payment': 'Chờ Gia Đình Ký Quỹ',
       'refunded': 'Đã Hoàn Tiền'

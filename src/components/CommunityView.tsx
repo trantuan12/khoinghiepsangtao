@@ -123,7 +123,7 @@ export function CommunityView({ notify = (_msg: string) => {} }: { notify?: (msg
             Cộng Đồng Tuổi Vàng & Gia Đình Đồng Hành
           </div>
           <h1 className="mt-4 font-display text-[30px] sm:text-[38px] font-semibold leading-[1.15] tracking-tight">
-            Luôn có người để sẻ chia & cùng vui khỏe mỗi ngày.
+            Luôn có người để sẻ chia & cùng vui khỏe mỗi ngày
           </h1>
           <p className="mt-3 text-[14px] leading-relaxed text-white/80">
             Không gian kết nối các câu lạc bộ dưỡng sinh, aerobic, đi bộ buổi sáng, yoga và trà đạo đàm tâm. 

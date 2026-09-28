@@ -304,7 +304,7 @@ function LogoMark({
             </span>
           </div>
           <span className={`mt-1.5 font-bold leading-tight tracking-normal ${sloganSizes[size]} ${light ? 'text-[#c6e5ab]' : 'text-[#486b26]'}`}>
-            Kết nối yêu thương – Lan tỏa sự quan tâm
+            Đồng hành mỗi ngày – An vui tuổi bạc
           </span>
         </div>
       )}
@@ -889,11 +889,11 @@ function Landing() {
             <span className="h-2 w-2 rounded-full bg-[#4d6d2e] animate-pulse" />
             <span className="text-[12px] font-bold text-[#34531d]">CARE MATCH</span>
             <span className="h-3 w-px bg-[#4d6d2e]/25" />
-            <span className="text-[12px] font-medium text-[#4d6d2e]">Kết nối yêu thương – Lan tỏa sự quan tâm</span>
+            <span className="text-[12px] font-medium text-[#4d6d2e]">Đồng hành mỗi ngày – An vui tuổi bạc</span>
           </div>
 
           <h1 className="mt-6 max-w-[650px] font-display text-[46px] font-bold leading-[1.05] tracking-tight text-[#1e2f13] sm:text-[62px]">
-            Chăm sóc cha mẹ, <span className="text-[#4e712a]">kết nối yêu thương.</span>
+            Chăm sóc cha mẹ – <span className="text-[#4e712a]">kết nối yêu thương</span>
           </h1>
           <p className="mt-6 max-w-[530px] text-[16px] leading-7 text-[#465a3f]">
             CARE MATCH kết nối thông minh gia đình với người chăm sóc tận tâm, quản lý hồ sơ sức khỏe và luôn có nhân viên công tác xã hội đồng hành trong suốt hành trình.
@@ -935,7 +935,7 @@ function Landing() {
         <div className="max-w-[620px]">
           <p className="text-[12px] font-bold uppercase tracking-[.16em] text-[#4d6d2e]">Ba bước nhẹ nhàng</p>
           <h2 className="mt-3 font-display text-[40px] font-bold leading-[1.1] tracking-tight text-[#1e2f13] sm:text-[50px]">
-            Để việc chăm sóc <span className="text-[#4e712a]">bớt một mình.</span>
+            Để việc chăm sóc <span className="text-[#4e712a]">bớt một mình</span>
           </h2>
         </div>
         <div className="mt-14 grid gap-6 md:grid-cols-3">
@@ -970,7 +970,7 @@ function Landing() {
         <div className="mx-auto flex max-w-[1040px] flex-col items-start justify-between gap-8 md:flex-row md:items-center">
           <div>
             <p className="text-[12px] font-bold uppercase tracking-[.16em] text-[#d69f3a]">Bắt đầu bằng một cuộc trò chuyện</p>
-            <h2 className="mt-3 max-w-[570px] font-display text-[38px] font-bold leading-[1.1] sm:text-[46px]">Gia đình bạn không cần tự xoay xở.</h2>
+            <h2 className="mt-3 max-w-[570px] font-display text-[38px] font-bold leading-[1.1] sm:text-[46px]">Gia đình bạn không cần tự xoay xở</h2>
           </div>
           <Button onClick={() => setLocation('/register')} className="bg-[#faedd4] text-[#243818] font-bold hover:bg-[#fff4e0] px-6 py-3 text-[15px]" testId="button-footer-start">
             Tạo hồ sơ chăm sóc <ArrowRight size={17} />
@@ -983,7 +983,7 @@ function Landing() {
           <img src="/logo.jpg" alt="CARE MATCH" className="h-9 w-9 rounded-[10px] object-cover border border-[#4d6d2e]/20" />
           <div>
             <p className="font-bold text-[14.5px] text-[#243818] leading-tight">CARE MATCH</p>
-            <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Kết nối yêu thương – Lan tỏa sự quan tâm</p>
+            <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Đồng hành mỗi ngày – An vui tuổi bạc</p>
           </div>
         </div>
         <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH · Sáng lập viên: Tống Thanh Dương</span>
@@ -1089,8 +1089,8 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
           </Pill>
           <h1 className="mt-6 font-display text-[44px] font-bold leading-[1.1] tracking-tight text-white">
             {selectedRole === 'family'
-              ? <>Chăm sóc tốt hơn khi có người <span className="text-[#a4e078]">đồng hành.</span></>
-              : <>Lan tỏa sự tận tâm, <span className="text-[#a4e078]">nhận việc an tâm.</span></>}
+              ? <>Chăm sóc tốt hơn khi có người <span className="text-[#a4e078]">đồng hành</span></>
+              : <>Lan tỏa sự tận tâm, <span className="text-[#a4e078]">nhận việc an tâm</span></>}
           </h1>
           <p className="mt-6 max-w-[380px] text-[16px] leading-relaxed text-[#e0ece0]">
             {selectedRole === 'family'
@@ -1102,7 +1102,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
             <span>{selectedRole === 'family' ? 'Hồ sơ người chăm sóc được xác minh 100%' : 'Bảo mật thông tin & Kiểm định tiêu chuẩn'}</span>
           </div>
         </div>
-        <p className="text-[13px] text-[#c0e0b0] font-semibold tracking-wide">CARE MATCH · Kết nối yêu thương – Lan tỏa sự quan tâm</p>
+        <p className="text-[13px] text-[#c0e0b0] font-semibold tracking-wide">CARE MATCH · Đồng hành mỗi ngày – An vui tuổi bạc</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-5 py-10 sm:px-10">
@@ -3660,7 +3660,7 @@ function AdminScheduleView({ notify }: { notify: (message: string) => void }) {
     <>
       <PageHeading
         eyebrow="Quản Trị Lịch Trình Toàn Hệ Thống · Admin"
-        title="Lịch Chăm Sóc Toàn Hệ Thống."
+        title="Lịch Chăm Sóc Toàn Hệ Thống"
         description="Giám sát mọi ca chăm sóc đang diễn ra, tra cứu nhanh theo tên người chăm sóc và điều phối trực tiếp trên hệ thống."
         action={
           <div className="flex items-center gap-2">
@@ -4645,7 +4645,7 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
     <>
       <PageHeading
         eyebrow={`${clock.fullDateStr} · ${clock.timeStr} (Realtime)`}
-        title="Mọi việc đúng lúc, nhẹ đầu hơn."
+        title="Mọi việc đúng lúc, nhẹ đầu hơn"
         description="Theo dõi các cuộc hẹn, ca chăm sóc và những mốc gia đình đã thống nhất trực tiếp với người chăm sóc (đồng bộ thời gian thực)."
         action={
           <Button
@@ -6542,7 +6542,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
     <>
       <PageHeading
         eyebrow="Tin nhắn trực tiếp 1-1"
-        title="Trò chuyện & Đồng hành."
+        title="Trò chuyện & Đồng hành"
         description="Tin nhắn được bảo mật riêng tư, kết nối trực tiếp giữa bạn và đối tác chăm sóc hoặc Admin hệ thống."
         action={
           <Button variant="outline" onClick={() => notify('Tổng đài hỗ trợ 24/7 luôn sẵn sàng.')} testId="button-message-call">
@@ -6900,7 +6900,7 @@ function AdminPaymentsView({ notify }: { notify: (message: string) => void }) {
     <>
       <PageHeading
         eyebrow="Tài Chính & Doanh Thu Hệ Thống · Admin"
-        title="Quản Lý Doanh Thu & Thanh Toán."
+        title="Quản Lý Doanh Thu & Thanh Toán"
         description="Kiểm soát dòng tiền: tổng doanh thu, các khoản đã thanh toán, chưa thanh toán của gia đình và lịch sử trả công người chăm sóc."
         action={
           <div className="flex items-center gap-2">
@@ -7167,7 +7167,7 @@ function Payments({
 function SocialWork({ notify }: { notify: (message: string) => void }) {
   const [requested, setRequested] = useState(false);
   return (
-    <><PageHeading eyebrow="Hỗ trợ xã hội" title="Luôn có người để hỏi." description="Nhân viên công tác xã hội giúp gia đình nhìn toàn cảnh và đi từng bước vừa sức." action={<Button onClick={() => { setRequested(true); notify('Đã gửi yêu cầu trò chuyện với chuyên gia.'); }} disabled={requested} testId="button-request-social-work">{requested ? <><Check size={16} /> Đã gửi yêu cầu</> : <>Đặt lịch trò chuyện <ArrowRight size={16} /></>}</Button>} /><div className="grid gap-5 lg:grid-cols-[1.05fr_.95fr]"><Card className="bg-[#dce8e5] p-7 sm:p-8" testId="card-social-worker"><div className="flex items-start justify-between"><div><Pill tone="slate">Người đồng hành của gia đình</Pill><h2 className="mt-5 font-display text-[35px] leading-[1.02] tracking-[-.04em] text-[#304e47]">Chị Trần Thu Hương</h2><p className="mt-2 text-[13px] text-[#607a74]">Nhân viên công tác xã hội · 7 năm kinh nghiệm</p></div><Initials text="TH" color="linear-gradient(145deg,#c4d3bf,#789678)" size="lg" /></div><div className="mt-8 flex flex-wrap gap-2"><Pill tone="slate">Lắng nghe gia đình</Pill><Pill tone="slate">Kết nối nguồn lực</Pill><Pill tone="slate">Lập kế hoạch chăm sóc</Pill></div><div className="mt-8 rounded-[18px] bg-[#f5fbf7]/65 p-5"><p className="text-[13px] leading-6 text-[#527069]">“Chăm sóc không chỉ là làm thay. Đó còn là giúp cả gia đình cảm thấy được hiểu và có thêm lựa chọn.”</p><p className="mt-3 text-[11px] font-bold text-[#69877d]">— Chị Hương</p></div><div className="mt-7 flex flex-col gap-3 sm:flex-row"><Button onClick={() => { setRequested(true); notify('Đã đặt lịch trò chuyện vào 14:30 hôm nay.'); }} disabled={requested} className="bg-[#43685c] hover:bg-[#37594e]" testId="button-book-social-call">{requested ? 'Đã đặt lịch 14:30' : 'Đặt lịch 14:30 hôm nay'}</Button><Button variant="outline" onClick={() => notify('Bạn có thể viết câu hỏi để chị Hương chuẩn bị trước.')} testId="button-write-social-question">Viết câu hỏi trước</Button></div></Card><div className="space-y-5"><Card className="p-6" testId="card-social-updates"><div className="flex items-center justify-between"><h2 className="font-display text-[25px]">Cập nhật cho gia đình</h2><Pill tone="olive">Mới nhất</Pill></div><div className="mt-6 space-y-5"><div className="flex gap-3"><div className="relative mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#7b9868]"><span className="absolute left-1/2 top-3 h-14 w-px -translate-x-1/2 bg-[#dbe5d8]" /></div><div><p className="text-[13px] font-bold">Đã xem xét hồ sơ của mẹ Lan</p><p className="mt-1 text-[11px] leading-5 text-[hsl(var(--muted-foreground))]">Chị Hương đã ghi nhận nhu cầu hỗ trợ đi lại và ăn uống của mẹ.</p><p className="mt-2 text-[10px] text-[hsl(var(--muted-foreground))]">Hôm nay, 09:15</p></div></div><div className="flex gap-3"><div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#d0a15b]" /><div><p className="text-[13px] font-bold">Đã gửi tài liệu chuẩn bị buổi gặp</p><p className="mt-1 text-[11px] leading-5 text-[hsl(var(--muted-foreground))]">Ba câu hỏi giúp gia đình và người chăm sóc bắt đầu dễ dàng hơn.</p><p className="mt-2 text-[10px] text-[hsl(var(--muted-foreground))]">Hôm qua, 16:40</p></div></div></div></Card><Card className="p-6" testId="card-social-topics"><h2 className="font-display text-[25px]">Gia đình có thể hỏi</h2><div className="mt-4 space-y-2"><button onClick={() => notify('Đã mở chủ đề: Chuẩn bị buổi gặp đầu tiên.')} className="flex w-full items-center justify-between rounded-xl bg-[hsl(var(--secondary)/.6)] p-3 text-left text-[12px] font-semibold hover:bg-[hsl(var(--secondary))]" data-testid="button-topic-first-meeting">Chuẩn bị buổi gặp đầu tiên <ChevronRight size={15} /></button><button onClick={() => notify('Đã mở chủ đề: Chăm sóc khi mẹ không muốn hợp tác.')} className="flex w-full items-center justify-between rounded-xl bg-[hsl(var(--secondary)/.6)] p-3 text-left text-[12px] font-semibold hover:bg-[hsl(var(--secondary))]" data-testid="button-topic-resistance">Khi mẹ chưa muốn nhận hỗ trợ <ChevronRight size={15} /></button><button onClick={() => notify('Đã mở chủ đề: Chia sẻ việc chăm sóc trong gia đình.')} className="flex w-full items-center justify-between rounded-xl bg-[hsl(var(--secondary)/.6)] p-3 text-left text-[12px] font-semibold hover:bg-[hsl(var(--secondary))]" data-testid="button-topic-family">Chia sẻ việc chăm sóc trong gia đình <ChevronRight size={15} /></button></div></Card></div></div></>
+    <><PageHeading eyebrow="Hỗ trợ xã hội" title="Luôn có người để hỏi" description="Nhân viên công tác xã hội giúp gia đình nhìn toàn cảnh và đi từng bước vừa sức." action={<Button onClick={() => { setRequested(true); notify('Đã gửi yêu cầu trò chuyện với chuyên gia.'); }} disabled={requested} testId="button-request-social-work">{requested ? <><Check size={16} /> Đã gửi yêu cầu</> : <>Đặt lịch trò chuyện <ArrowRight size={16} /></>}</Button>} /><div className="grid gap-5 lg:grid-cols-[1.05fr_.95fr]"><Card className="bg-[#dce8e5] p-7 sm:p-8" testId="card-social-worker"><div className="flex items-start justify-between"><div><Pill tone="slate">Người đồng hành của gia đình</Pill><h2 className="mt-5 font-display text-[35px] leading-[1.02] tracking-[-.04em] text-[#304e47]">Chị Trần Thu Hương</h2><p className="mt-2 text-[13px] text-[#607a74]">Nhân viên công tác xã hội · 7 năm kinh nghiệm</p></div><Initials text="TH" color="linear-gradient(145deg,#c4d3bf,#789678)" size="lg" /></div><div className="mt-8 flex flex-wrap gap-2"><Pill tone="slate">Lắng nghe gia đình</Pill><Pill tone="slate">Kết nối nguồn lực</Pill><Pill tone="slate">Lập kế hoạch chăm sóc</Pill></div><div className="mt-8 rounded-[18px] bg-[#f5fbf7]/65 p-5"><p className="text-[13px] leading-6 text-[#527069]">“Chăm sóc không chỉ là làm thay. Đó còn là giúp cả gia đình cảm thấy được hiểu và có thêm lựa chọn.”</p><p className="mt-3 text-[11px] font-bold text-[#69877d]">— Chị Hương</p></div><div className="mt-7 flex flex-col gap-3 sm:flex-row"><Button onClick={() => { setRequested(true); notify('Đã đặt lịch trò chuyện vào 14:30 hôm nay.'); }} disabled={requested} className="bg-[#43685c] hover:bg-[#37594e]" testId="button-book-social-call">{requested ? 'Đã đặt lịch 14:30' : 'Đặt lịch 14:30 hôm nay'}</Button><Button variant="outline" onClick={() => notify('Bạn có thể viết câu hỏi để chị Hương chuẩn bị trước.')} testId="button-write-social-question">Viết câu hỏi trước</Button></div></Card><div className="space-y-5"><Card className="p-6" testId="card-social-updates"><div className="flex items-center justify-between"><h2 className="font-display text-[25px]">Cập nhật cho gia đình</h2><Pill tone="olive">Mới nhất</Pill></div><div className="mt-6 space-y-5"><div className="flex gap-3"><div className="relative mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#7b9868]"><span className="absolute left-1/2 top-3 h-14 w-px -translate-x-1/2 bg-[#dbe5d8]" /></div><div><p className="text-[13px] font-bold">Đã xem xét hồ sơ của mẹ Lan</p><p className="mt-1 text-[11px] leading-5 text-[hsl(var(--muted-foreground))]">Chị Hương đã ghi nhận nhu cầu hỗ trợ đi lại và ăn uống của mẹ.</p><p className="mt-2 text-[10px] text-[hsl(var(--muted-foreground))]">Hôm nay, 09:15</p></div></div><div className="flex gap-3"><div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#d0a15b]" /><div><p className="text-[13px] font-bold">Đã gửi tài liệu chuẩn bị buổi gặp</p><p className="mt-1 text-[11px] leading-5 text-[hsl(var(--muted-foreground))]">Ba câu hỏi giúp gia đình và người chăm sóc bắt đầu dễ dàng hơn.</p><p className="mt-2 text-[10px] text-[hsl(var(--muted-foreground))]">Hôm qua, 16:40</p></div></div></div></Card><Card className="p-6" testId="card-social-topics"><h2 className="font-display text-[25px]">Gia đình có thể hỏi</h2><div className="mt-4 space-y-2"><button onClick={() => notify('Đã mở chủ đề: Chuẩn bị buổi gặp đầu tiên.')} className="flex w-full items-center justify-between rounded-xl bg-[hsl(var(--secondary)/.6)] p-3 text-left text-[12px] font-semibold hover:bg-[hsl(var(--secondary))]" data-testid="button-topic-first-meeting">Chuẩn bị buổi gặp đầu tiên <ChevronRight size={15} /></button><button onClick={() => notify('Đã mở chủ đề: Chăm sóc khi mẹ không muốn hợp tác.')} className="flex w-full items-center justify-between rounded-xl bg-[hsl(var(--secondary)/.6)] p-3 text-left text-[12px] font-semibold hover:bg-[hsl(var(--secondary))]" data-testid="button-topic-resistance">Khi mẹ chưa muốn nhận hỗ trợ <ChevronRight size={15} /></button><button onClick={() => notify('Đã mở chủ đề: Chia sẻ việc chăm sóc trong gia đình.')} className="flex w-full items-center justify-between rounded-xl bg-[hsl(var(--secondary)/.6)] p-3 text-left text-[12px] font-semibold hover:bg-[hsl(var(--secondary))]" data-testid="button-topic-family">Chia sẻ việc chăm sóc trong gia đình <ChevronRight size={15} /></button></div></Card></div></div></>
   );
 }
 
@@ -7232,8 +7232,8 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
   const [systemSettings, setSystemSettings] = useState<Record<string, any>>({
     cancellation_fee_regular: 10000,
     vip_family_monthly_price: 300000,
-    caregiver_payout_percentage: 85,
-    platform_commission_percentage: 15,
+    caregiver_payout_percentage: 60,
+    platform_commission_percentage: 40,
     base_shift_rate_4h: 400000,
     night_shift_multiplier: 1.5,
     hourly_rate_divisor: 4,
@@ -7910,7 +7910,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
     <>
       <PageHeading
         eyebrow="Cổng Quản Trị Hệ Thống · Admin"
-        title="Bàn Quản Trị Hệ Thống CARE-MATCH."
+        title="Bàn Quản Trị Hệ Thống CARE-MATCH"
         description="Kiểm soát toàn diện: duyệt hồ sơ người chăm sóc, kiểm tra giấy tờ eKYC, giám sát người bệnh và các ca chăm sóc."
         action={
           <Button variant="outline" onClick={handleExportMonthlyReport}>
@@ -9695,9 +9695,9 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                       <div className="relative">
                         <input
                           type="number"
-                          min="50"
+                          min="40"
                           max="100"
-                          value={systemSettings.caregiver_payout_percentage ?? 85}
+                          value={systemSettings.caregiver_payout_percentage ?? 60}
                           onChange={e => setSystemSettings({ ...systemSettings, caregiver_payout_percentage: Number(e.target.value) })}
                           className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-emerald-900 outline-none focus:border-emerald-600"
                         />
@@ -9713,8 +9713,8 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                         <input
                           type="number"
                           min="0"
-                          max="50"
-                          value={systemSettings.platform_commission_percentage ?? 15}
+                          max="60"
+                          value={systemSettings.platform_commission_percentage ?? 40}
                           onChange={e => setSystemSettings({ ...systemSettings, platform_commission_percentage: Number(e.target.value) })}
                           className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-gray-700 outline-none focus:border-emerald-600"
                         />

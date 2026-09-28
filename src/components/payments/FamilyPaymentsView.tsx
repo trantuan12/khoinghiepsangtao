@@ -176,7 +176,7 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
         })
       });
       if (res.ok) {
-        notify('✅ Đã xác nhận hoàn thành ca! CARE-MATCH đã tự động tất toán 85% thù lao cho Người chăm sóc.');
+        notify('✅ Đã xác nhận hoàn thành ca! CARE-MATCH đã tự động tất toán 60% thù lao cho Người chăm sóc.');
         loadData();
       }
     } catch {
@@ -193,7 +193,7 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
             Quản Lý Thanh Toán & Ký Quỹ An Toàn · Gia Đình
           </span>
           <h1 className="mt-1 font-display text-[28px] sm:text-[32px] font-bold text-[#1f3323] leading-tight">
-            Minh Bạch Từng Khoản Chi & Lịch Trình.
+            Minh Bạch Từng Khoản Chi & Lịch Trình
           </h1>
           <p className="mt-1 text-[13px] text-gray-600 max-w-2xl">
             Theo dõi tất cả các ca chăm sóc đã đặt, thời hạn thanh toán giữ chỗ và cơ chế bảo lãnh ký quỹ an toàn 100%.
@@ -235,7 +235,7 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
               </span>
             </div>
             <p className="mt-1 text-[12.5px] leading-relaxed text-amber-900/90">
-              <strong>Yêu cầu thanh toán trước ca tối thiểu 1 ngày:</strong> Khi đặt lịch, gia đình cần thanh toán trước để giữ chỗ chuyên viên chăm sóc. Số tiền được <strong>CARE-MATCH giữ an toàn trung gian</strong> cho đến khi ca hoàn thành và được cả hai bên xác nhận. Thù lao sau đó sẽ tự động chuyển vào tài khoản ngân hàng của Người chăm sóc (khấu trừ 15% phí nền tảng sàn).
+              <strong>Yêu cầu thanh toán trước ca tối thiểu 1 ngày:</strong> Khi đặt lịch, gia đình cần thanh toán trước để giữ chỗ chuyên viên chăm sóc. Số tiền được <strong>CARE-MATCH giữ an toàn trung gian</strong> cho đến khi ca hoàn thành và được cả hai bên xác nhận. Thù lao sau đó sẽ tự động chuyển vào tài khoản ngân hàng của Người chăm sóc (khấu trừ 40% phí nền tảng sàn).
             </p>
           </div>
         </div>

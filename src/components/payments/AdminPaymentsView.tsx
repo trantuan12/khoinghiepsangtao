@@ -156,8 +156,8 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
       'Người Chăm Sóc',
       'Bệnh Nhân/Người Thân',
       'Tổng Tiền Ký Quỹ (VNĐ)',
-      'Phí Nền Tảng 15% (VNĐ)',
-      'Thực Nhận Điều Dưỡng 85% (VNĐ)',
+      'Phí Nền Tảng 40% (VNĐ)',
+      'Thực Nhận Điều Dưỡng 60% (VNĐ)',
       'Trạng Thái Ký Quỹ',
       'Phương Thức',
       'Mã Đối Soát'
@@ -204,7 +204,7 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
             Trung Tâm Tài Chính & Dòng Tiền Nền Tảng · Admin Portal
           </span>
           <h1 className="mt-1 font-display text-[28px] sm:text-[32px] font-bold text-[#1f3323] leading-tight">
-            Quản Lý Doanh Thu & Ký Quỹ Toàn Hệ Thống.
+            Quản Lý Doanh Thu & Ký Quỹ Toàn Hệ Thống
           </h1>
           <p className="mt-1 text-[13px] text-gray-600 max-w-2xl">
             Biểu đồ cột phân tích thu nhập qua từng tháng: thể hiện rõ khoản đã thanh toán và khoản chưa thanh toán / đang giữ ký quỹ an toàn.
@@ -249,7 +249,7 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
           </div>
         </div>
 
-        {/* DOANH THU SÀN (15% PHÍ + VIP) */}
+        {/* DOANH THU SÀN (40% PHÍ + VIP) */}
         <div className="rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-50/90 to-white p-5 shadow-2xs">
           <div className="flex items-center justify-between text-[10.5px] font-bold uppercase tracking-wider text-emerald-800">
             <span>Lợi Nhuận Nền Tảng</span>
@@ -259,16 +259,16 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
             {stats.total_revenue.toLocaleString('vi-VN')} đ
           </p>
           <div className="mt-2 text-[10.5px] text-emerald-700 flex justify-between border-t border-emerald-200/60 pt-1.5">
-            <span>15% Phí ca: {stats.platform_fee_total.toLocaleString('vi-VN')} đ</span>
+            <span>40% Phí ca: {stats.platform_fee_total.toLocaleString('vi-VN')} đ</span>
             <span>VIP: {stats.vip_revenue.toLocaleString('vi-VN')} đ</span>
           </div>
         </div>
 
-        {/* TIỀN ĐÃ GIẢI NGÂN CHO NGƯỜI CHĂM SÓC (85%) */}
+        {/* TIỀN ĐÃ GIẢI NGÂN CHO NGƯỜI CHĂM SÓC (60%) */}
         <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50/80 to-white p-5 shadow-2xs">
           <div className="flex items-center justify-between text-[10.5px] font-bold uppercase tracking-wider text-blue-800">
             <span>Đã Giải Ngân Cho Caregiver</span>
-            <span className="rounded-full bg-blue-100 text-blue-900 px-2 py-0.5 text-[9px]">85% Thù lao</span>
+            <span className="rounded-full bg-blue-100 text-blue-900 px-2 py-0.5 text-[9px]">60% Thù lao</span>
           </div>
           <p className="mt-2.5 font-display text-[24px] sm:text-[26px] font-bold text-blue-950">
             {stats.caregiver_paid_total.toLocaleString('vi-VN')} đ
@@ -389,7 +389,7 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
                 <th className="py-2.5 px-3">Tổng Thu Ca & Gói</th>
                 <th className="py-2.5 px-3 text-emerald-800">Khoản Đã Thanh Toán</th>
                 <th className="py-2.5 px-3 text-amber-800">Khoản Chưa Thanh Toán / Ký Quỹ</th>
-                <th className="py-2.5 px-3">Phí Nền Tảng (15%)</th>
+                <th className="py-2.5 px-3">Phí Nền Tảng (40%)</th>
                 <th className="py-2.5 px-3">Gói VIP (300k)</th>
                 <th className="py-2.5 px-4 text-right">Tỷ Lệ Thu Hồi</th>
               </tr>
@@ -483,8 +483,8 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
                 <th className="py-3.5 px-4">Gia Đình Thanh Toán</th>
                 <th className="py-3.5 px-4">Người Chăm Sóc</th>
                 <th className="py-3.5 px-3">Tổng Thu</th>
-                <th className="py-3.5 px-3">Phí Sàn 15%</th>
-                <th className="py-3.5 px-3">Thù Lao 85%</th>
+                <th className="py-3.5 px-3">Phí Sàn 40%</th>
+                <th className="py-3.5 px-3">Thù Lao 60%</th>
                 <th className="py-3.5 px-4">Trạng Thái Ký Quỹ</th>
                 <th className="py-3.5 px-5 text-right">Thao Tác Admin</th>
               </tr>
@@ -536,7 +536,7 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
                     <td className="py-4 px-4 whitespace-nowrap">
                       {isPaidOut && (
                         <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10.5px] font-bold bg-blue-100 text-blue-900 border border-blue-300">
-                          <CheckCircle2 size={11} /> Đã giải ngân (85%)
+                          <CheckCircle2 size={11} /> Đã giải ngân (60%)
                         </span>
                       )}
                       {isInEscrow && (

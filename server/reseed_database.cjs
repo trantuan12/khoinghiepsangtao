@@ -300,8 +300,8 @@ async function reseed() {
       shift_date: '2026-09-27',
       shift_time: '08:00 - 12:00',
       total_amount: 400000,
-      platform_fee: 60000,      // 15%
-      caregiver_earnings: 340000, // 85%
+      platform_fee: 160000,      // 40%
+      caregiver_earnings: 240000, // 60%
       escrow_status: 'paid_out',
       created_at: '2026-09-27 08:00:00'
     },
@@ -316,8 +316,8 @@ async function reseed() {
       shift_date: '2026-09-25',
       shift_time: '13:00 - 17:00',
       total_amount: 500000,
-      platform_fee: 75000,
-      caregiver_earnings: 425000,
+      platform_fee: 200000,      // 40%
+      caregiver_earnings: 300000, // 60%
       escrow_status: 'paid_out',
       created_at: '2026-09-25 13:00:00'
     },
@@ -332,8 +332,8 @@ async function reseed() {
       shift_date: '2026-09-24',
       shift_time: '08:00 - 12:00',
       total_amount: 450000,
-      platform_fee: 67500,
-      caregiver_earnings: 382500,
+      platform_fee: 180000,      // 40%
+      caregiver_earnings: 270000, // 60%
       escrow_status: 'paid_out',
       created_at: '2026-09-24 08:00:00'
     },
@@ -348,8 +348,8 @@ async function reseed() {
       shift_date: '2026-09-22',
       shift_time: '14:00 - 18:00',
       total_amount: 400000,
-      platform_fee: 60000,
-      caregiver_earnings: 340000,
+      platform_fee: 160000,      // 40%
+      caregiver_earnings: 240000, // 60%
       escrow_status: 'in_escrow',
       created_at: '2026-09-22 14:00:00'
     },
@@ -364,8 +364,8 @@ async function reseed() {
       shift_date: '2026-09-19',
       shift_time: '08:00 - 12:00',
       total_amount: 350000,
-      platform_fee: 52500,
-      caregiver_earnings: 297500,
+      platform_fee: 140000,      // 40%
+      caregiver_earnings: 210000, // 60%
       escrow_status: 'in_escrow',
       created_at: '2026-09-19 08:00:00'
     }

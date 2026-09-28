@@ -139,7 +139,7 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
         })
       });
       if (res.ok) {
-        notify(`🎉 Ca hoàn thành! Hệ thống đã tự động chuyển ${Number(shift.caregiver_earnings).toLocaleString('vi-VN')} đ (85%) vào tài khoản ${data.bank_account?.bank_name || 'ngân hàng'}.`);
+        notify(`🎉 Ca hoàn thành! Hệ thống đã tự động chuyển ${Number(shift.caregiver_earnings).toLocaleString('vi-VN')} đ (60%) vào tài khoản ${data.bank_account?.bank_name || 'ngân hàng'}.`);
         loadData();
       }
     } catch {
@@ -156,10 +156,10 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
             Quản Lý Thù Lao & Thu Nhập · Người Chăm Sóc
           </span>
           <h1 className="mt-1 font-display text-[28px] sm:text-[32px] font-bold text-[#1f3323] leading-tight">
-            Thu Nhập Tự Động & Minh Bạch.
+            Thu Nhập Tự Động & Minh Bạch
           </h1>
           <p className="mt-1 text-[13px] text-gray-600 max-w-2xl">
-            Theo dõi chi tiết số ca đã làm, thù lao thực nhận (85%), phí nền tảng (15%) và tài khoản ngân hàng nhận chuyển khoản tự động.
+            Theo dõi chi tiết số ca đã làm, thù lao thực nhận (60%), phí nền tảng (40%) và tài khoản ngân hàng nhận chuyển khoản tự động.
           </p>
         </div>
 
@@ -206,18 +206,18 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
         </div>
 
         <div className="mt-4 pt-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-emerald-200/90">
-          <span>⚡ <strong>Cơ chế tự động:</strong> Khi ca chăm sóc hoàn thành và được 2 bên xác nhận, hệ thống tự động giải ngân 85% vào tài khoản này trong vòng 1-3 phút.</span>
-          <span className="text-[#deb87a] font-semibold">Khấu trừ 15% phí nền tảng vận hành & bảo hiểm ca</span>
+          <span>⚡ <strong>Cơ chế tự động:</strong> Khi ca chăm sóc hoàn thành và được 2 bên xác nhận, hệ thống tự động giải ngân 60% vào tài khoản này trong vòng 1-3 phút.</span>
+          <span className="text-[#deb87a] font-semibold">Khấu trừ 40% phí nền tảng vận hành & bảo hiểm ca</span>
         </div>
       </div>
 
       {/* 4 FINANCIAL KPI CARDS THÁNG NÀY */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {/* THỰC NHẬN CỦA NGƯỜI CHĂM SÓC (85%) */}
+        {/* THỰC NHẬN CỦA NGƯỜI CHĂM SÓC (60%) */}
         <div className="rounded-2xl border border-emerald-300 bg-gradient-to-br from-emerald-50/90 to-white p-5 shadow-2xs">
           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-emerald-800">
-            <span>Tổng Thực Nhận (85%)</span>
-            <span className="rounded-full bg-emerald-200 text-emerald-950 px-2 py-0.5 text-[9.5px]">Sau trừ 15%</span>
+            <span>Tổng Thực Nhận (60%)</span>
+            <span className="rounded-full bg-emerald-200 text-emerald-950 px-2 py-0.5 text-[9.5px]">Sau trừ 40%</span>
           </div>
           <p className="mt-3 font-display text-[26px] sm:text-[30px] font-bold text-emerald-950">
             {data.stats.net_earnings.toLocaleString('vi-VN')} đ
@@ -256,17 +256,17 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
           </p>
         </div>
 
-        {/* SỐ CA & CHIẾT KHẤU SÀN 15% */}
+        {/* SỐ CA & CHIẾT KHẤU SÀN 40% */}
         <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50/80 to-white p-5 shadow-2xs">
           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-gray-600">
             <span>Ca Tháng Này & Phí Sàn</span>
-            <span className="rounded-full bg-gray-200 text-gray-800 px-2 py-0.5 text-[9.5px]">15% Sàn</span>
+            <span className="rounded-full bg-gray-200 text-gray-800 px-2 py-0.5 text-[9.5px]">40% Sàn</span>
           </div>
           <p className="mt-3 font-display text-[26px] sm:text-[30px] font-bold text-gray-900">
             {data.stats.total_shifts} ca
           </p>
           <div className="mt-2 text-[11px] text-gray-600 flex items-center justify-between border-t border-gray-200 pt-1.5">
-            <span>Phí sàn điều phối (15%):</span>
+            <span>Phí sàn điều phối (40%):</span>
             <strong className="text-amber-900">{data.stats.platform_fee.toLocaleString('vi-VN')} đ</strong>
           </div>
         </div>
@@ -280,7 +280,7 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
               Bảng Kê Chi Tiết Thù Lao Từng Ca Làm Việc
             </h3>
             <p className="text-[12px] text-gray-500 mt-0.5">
-              Phân tích từng ca: Giá ca gộp (100%), Phí nền tảng (15%), Thực nhận (85%) và Trạng thái giải ngân về số tài khoản.
+              Phân tích từng ca: Giá ca gộp (100%), Phí nền tảng (40%), Thực nhận (60%) và Trạng thái giải ngân về số tài khoản.
             </p>
           </div>
         </div>
@@ -307,8 +307,8 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
                   <th className="py-3.5 px-4">Lịch Trình Ca</th>
                   <th className="py-3.5 px-4">Gia Đình Thuê</th>
                   <th className="py-3.5 px-4">Giá Ca (100%)</th>
-                  <th className="py-3.5 px-4">Phí Sàn (15%)</th>
-                  <th className="py-3.5 px-4">Thực Nhận (85%)</th>
+                  <th className="py-3.5 px-4">Phí Sàn (40%)</th>
+                  <th className="py-3.5 px-4">Thực Nhận (60%)</th>
                   <th className="py-3.5 px-4">Trạng Thái Giải Ngân</th>
                   <th className="py-3.5 px-5 text-right">Hành Động</th>
                 </tr>
@@ -552,7 +552,7 @@ export function CaregiverPaymentsView({ currentUser, notify }: CaregiverPayments
                 <strong>{Number(viewingPayout.total_amount).toLocaleString('vi-VN')} đ</strong>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Phí sàn CARE-MATCH (15%):</span>
+                <span className="text-gray-500">Phí sàn CARE-MATCH (40%):</span>
                 <strong className="text-amber-800">-{Number(viewingPayout.platform_fee).toLocaleString('vi-VN')} đ</strong>
               </div>
               <div className="flex justify-between border-t border-blue-200 pt-2 text-[13.5px]">
