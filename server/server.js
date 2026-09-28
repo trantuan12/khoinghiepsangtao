@@ -315,7 +315,7 @@ async function initFamilyProfilesTable() {
   }
 }
 
-// Khởi tạo bảng gói đăng ký Premium cho Gia Đình (50.000đ/tháng)
+// Khởi tạo bảng gói đăng ký Premium cho Gia Đình (300.000đ/tháng)
 async function initFamilySubscriptionsTable() {
   if (!pool || !isMySqlConnected) return;
   try {
@@ -324,7 +324,7 @@ async function initFamilySubscriptionsTable() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL,
         plan_name VARCHAR(64) DEFAULT 'Gói Gia Đình Premium',
-        price INT DEFAULT 50000,
+        price INT DEFAULT 300000,
         billing_cycle VARCHAR(32) DEFAULT 'monthly',
         status VARCHAR(32) DEFAULT 'active',
         start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -363,7 +363,7 @@ async function initFamilySubscriptionsTable() {
         await pool.execute(
           `INSERT INTO family_subscriptions 
            (user_id, plan_name, price, billing_cycle, status, start_date, end_date, payment_method, transaction_code, notes)
-           VALUES (?, 'Gói Gia Đình Premium', 50000, 'monthly', 'active', NOW(), ?, 'Chuyển khoản QR (VietQR)', 'PREM-VIP-9001', 'Gói Premium trải nghiệm VIP')`,
+           VALUES (?, 'Gói Gia Đình Premium', 300000, 'monthly', 'active', NOW(), ?, 'Chuyển khoản QR (VietQR)', 'PREM-VIP-9001', 'Gói Premium trải nghiệm VIP')`,
           [f.id, endDate]
         );
         await pool.execute(
@@ -649,7 +649,7 @@ async function initSystemSettingsTable() {
 
     const defaults = [
       ['cancellation_fee_regular', '10000', 'number', 'fees', 'Phí đổi / hủy ca đối với tài khoản thường (VNĐ)'],
-      ['vip_monthly_price', '50000', 'number', 'membership', 'Giá gói Hội viên VIP Gia đình (VNĐ/tháng)'],
+      ['vip_monthly_price', '300000', 'number', 'membership', 'Giá gói Hội viên VIP Gia đình (VNĐ/tháng)'],
       ['caregiver_payout_rate', '85', 'number', 'commission', 'Tỷ lệ thù lao chuyển trả cho người chăm sóc (%)'],
       ['platform_commission_rate', '15', 'number', 'commission', 'Tỷ lệ hoa hồng vận hành sàn CARE-MATCH (%)'],
       ['base_shift_rate_4h', '400000', 'number', 'pricing', 'Mức thù lao chuẩn ca ngày 4 tiếng (VNĐ)'],
@@ -3225,7 +3225,7 @@ app.post('/api/vouchers/apply', async (req, res) => {
 app.get('/api/settings', async (req, res) => {
   const fallback = {
     cancellation_fee_regular: 10000,
-    vip_monthly_price: 50000,
+    vip_monthly_price: 300000,
     caregiver_payout_rate: 85,
     platform_commission_rate: 15,
     base_shift_rate_4h: 400000,
@@ -4075,7 +4075,7 @@ app.patch('/api/admin/caregiver-documents/:id/status', async (req, res) => {
 });
 
 // ========================================================
-// API QUẢN LÝ GÓI ĐĂNG KÝ PREMIUM GIA ĐÌNH (50.000đ/tháng)
+// API QUẢN LÝ GÓI ĐĂNG KÝ PREMIUM GIA ĐÌNH (300.000đ/tháng)
 // ========================================================
 
 // 1. Lấy thông tin gói Premium của 1 gia đình
@@ -4114,9 +4114,17 @@ app.get('/api/family-premium/status', async (req, res) => {
 app.get('/api/family/subscription/:userId', async (req, res) => {
   const userId = Number(req.params.userId);
   if (!isMySqlConnected) {
-    return res.json({ hasSubscription: false, is_premium: false, monthlyPrice: 50000 });
+    return res.json({ hasSubscription: false, is_premium: false, monthlyPrice: 300000 });
   }
   try {
+    let currentVipPrice = 300000;
+    try {
+      const [vRows] = await pool.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'vip_monthly_price' LIMIT 1");
+      if (vRows.length > 0 && vRows[0].setting_value) {
+        currentVipPrice = Number(vRows[0].setting_value) || 300000;
+      }
+    } catch (_) {}
+
     const [rows] = await pool.execute(
       `SELECT s.*, 
               DATEDIFF(s.end_date, NOW()) AS days_remaining,
@@ -4141,7 +4149,7 @@ app.get('/api/family/subscription/:userId', async (req, res) => {
       return res.json({
         hasSubscription: false,
         is_premium: false,
-        monthlyPrice: 50000,
+        monthlyPrice: currentVipPrice,
         planName: 'Gói Gia Đình Premium',
         benefits
       });
@@ -4155,7 +4163,7 @@ app.get('/api/family/subscription/:userId', async (req, res) => {
       is_premium: isPremium,
       subscription: sub,
       days_remaining: Math.max(0, sub.days_remaining || 0),
-      monthlyPrice: 50000,
+      monthlyPrice: currentVipPrice,
       planName: 'Gói Gia Đình Premium',
       benefits
     });
@@ -4165,7 +4173,7 @@ app.get('/api/family/subscription/:userId', async (req, res) => {
   }
 });
 
-// 2. Gia đình đăng ký / gia hạn gói Premium (50.000đ/tháng)
+// 2. Gia đình đăng ký / gia hạn gói Premium (300.000đ/tháng)
 app.post('/api/family/subscribe', async (req, res) => {
   const { userId, paymentMethod, transactionCode, notes } = req.body;
   const uid = Number(userId);
@@ -4182,7 +4190,14 @@ app.post('/api/family/subscribe', async (req, res) => {
 
     const code = transactionCode || ('PREM-' + Date.now().toString().slice(-6));
     const method = paymentMethod || 'Chuyển khoản QR (VietQR)';
-    const price = 50000;
+    
+    let price = 300000;
+    try {
+      const [vRows] = await pool.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'vip_monthly_price' LIMIT 1");
+      if (vRows.length > 0 && vRows[0].setting_value) {
+        price = Number(vRows[0].setting_value) || 300000;
+      }
+    } catch (_) {}
 
     // Tính ngày kết thúc: Nếu còn hạn thì cộng dồn 30 ngày, ngược lại từ hôm nay + 30 ngày
     const [curSub] = await pool.execute(
@@ -4200,7 +4215,7 @@ app.post('/api/family/subscribe', async (req, res) => {
       `INSERT INTO family_subscriptions 
        (user_id, plan_name, price, billing_cycle, status, start_date, end_date, payment_method, transaction_code, notes)
        VALUES (?, 'Gói Gia Đình Premium', ?, 'monthly', 'active', NOW(), ?, ?, ?, ?)`,
-      [uid, price, endDate, method, code, notes || 'Đăng ký Gói Gia Đình Premium 50.000đ/tháng']
+      [uid, price, endDate, method, code, notes || 'Đăng ký Gói Gia Đình Premium 300.000đ/tháng']
     );
 
     // Cập nhật profile
@@ -4214,7 +4229,7 @@ app.post('/api/family/subscribe', async (req, res) => {
       await pool.execute(
         `INSERT INTO transactions 
          (transaction_code, schedule_id, family_user_id, caregiver_user_id, service_name, total_amount, platform_fee, payout_amount, family_payment_status, caregiver_payout_status, payment_method, paid_at, notes)
-         VALUES (?, NULL, ?, 1, 'Gói Gia Đình Premium (50.000đ/tháng)', ?, ?, 0, 'paid', 'paid', ?, NOW(), 'Thanh toán gói hội viên VIP')`,
+         VALUES (?, NULL, ?, 1, 'Gói Gia Đình Premium (300.000đ/tháng)', ?, ?, 0, 'paid', 'paid', ?, NOW(), 'Thanh toán gói hội viên VIP')`,
         [code, uid, price, price, method]
       );
     } catch (tErr) {
@@ -4223,7 +4238,7 @@ app.post('/api/family/subscribe', async (req, res) => {
 
     // Tự động gửi tin nhắn chào mừng đặc quyền từ Admin vào hộp thoại của gia đình
     const convId = `conv_1_${uid}`;
-    const welcomeMsg = `Chúc mừng bạn ${user.full_name} đã nâng cấp thành công GÓI GIA ĐÌNH PREMIUM (50.000đ/tháng)!\n\nToàn bộ đặc quyền VIP đã kích hoạt:\n⭐ 1. Ưu tiên tìm kiếm người chăm sóc hàng đầu (CARE SCORE cao nhất)\n⭐ 2. Ưu tiên đặt lịch & giữ chỗ khung giờ cao điểm / Lễ Tết\n⭐ 3. Đội ngũ CSKH hỗ trợ & xử lý sự cố trong vòng 15 phút\n⭐ 4. Đường dây nóng y tế & Chuyên gia tư vấn chăm sóc 24/7\n⭐ 5. Miễn phí đổi người chăm sóc trong 24h đầu nếu chưa hài lòng.\n\nCảm ơn bạn đã tin tưởng đồng hành cùng CARE-MATCH!`;
+    const welcomeMsg = `Chúc mừng bạn ${user.full_name} đã nâng cấp thành công GÓI GIA ĐÌNH PREMIUM (300.000đ/tháng)!\n\nToàn bộ đặc quyền VIP đã kích hoạt:\n⭐ 1. Ưu tiên tìm kiếm người chăm sóc hàng đầu (CARE SCORE cao nhất)\n⭐ 2. Ưu tiên đặt lịch & giữ chỗ khung giờ cao điểm / Lễ Tết\n⭐ 3. Đội ngũ CSKH hỗ trợ & xử lý sự cố trong vòng 15 phút\n⭐ 4. Đường dây nóng y tế & Chuyên gia tư vấn chăm sóc 24/7\n⭐ 5. Miễn phí đổi người chăm sóc trong 24h đầu nếu chưa hài lòng.\n\nCảm ơn bạn đã tin tưởng đồng hành cùng CARE-MATCH!`;
 
     await pool.execute(
       `INSERT INTO messages (conversation_id, sender_user_id, sender_name, sender_role, recipient_user_id, recipient_name, content, is_read)
@@ -4243,7 +4258,7 @@ app.post('/api/family/subscribe', async (req, res) => {
       1,
       'subscription',
       'Gia đình mới đăng ký Premium',
-      `${user.full_name} (#${uid}) đã đăng ký Gói Gia Đình Premium (50.000đ/tháng).`,
+      `${user.full_name} (#${uid}) đã đăng ký Gói Gia Đình Premium (300.000đ/tháng).`,
       '/admin'
     );
 
@@ -4302,6 +4317,14 @@ app.get('/api/admin/subscriptions', async (req, res) => {
     const expiredSubscribers = rows.filter(r => r.current_status === 'expired').length;
     const totalRevenue = rows.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
 
+    let currentVipPrice = 300000;
+    try {
+      const [vRows] = await pool.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'vip_monthly_price' LIMIT 1");
+      if (vRows.length > 0 && vRows[0].setting_value) {
+        currentVipPrice = Number(vRows[0].setting_value) || 300000;
+      }
+    } catch (_) {}
+
     return res.json({
       subscriptions: rows,
       stats: {
@@ -4309,7 +4332,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
         activeSubscribers,
         expiredSubscribers,
         totalRevenue,
-        monthlyPrice: 50000
+        monthlyPrice: currentVipPrice
       }
     });
   } catch (err) {
@@ -4882,9 +4905,9 @@ app.get('/api/admin/payments/dashboard', async (req, res) => {
     return res.json({
       stats: {
         total_gmv: Number(er.total_gmv) + totalVipRev,
-        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (15% ca + 50k VIP)
+        total_revenue: netPlatformRevenue,               // Doanh thu nền tảng (15% ca + 300k VIP)
         platform_fee_total: totalShiftFees,             // 15% từ các ca
-        vip_revenue: totalVipRev,                       // Doanh thu VIP 50k
+        vip_revenue: totalVipRev,                       // Doanh thu VIP 300k
         caregiver_paid_total: Number(er.total_caregiver_paid), // Đã giải ngân cho Người chăm sóc (85%)
         escrow_holding_total: Number(er.total_in_escrow),      // Tiền đang giữ trung gian
         pending_family_total: Number(er.total_pending_payment),// Gia đình chưa trả trước ca

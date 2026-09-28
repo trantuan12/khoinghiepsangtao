@@ -213,7 +213,7 @@ export function FamilyPaymentsView({ currentUser, notify, onOpenVipModal }: Fami
               className="rounded-xl bg-gradient-to-r from-[#996a1b] to-[#784d08] text-white px-4 py-2 text-[12px] font-bold shadow-xs hover:brightness-110 transition flex items-center gap-1.5 cursor-pointer"
             >
               <Crown size={14} className="fill-white" />
-              <span>{data.is_premium ? 'Đặc quyền VIP (Đang bật)' : 'Gói Premium (50k)'}</span>
+              <span>{data.is_premium ? 'Đặc quyền VIP (Đang bật)' : 'Gói Premium (300k)'}</span>
             </button>
           )}
         </div>

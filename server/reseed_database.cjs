@@ -269,22 +269,22 @@ async function reseed() {
   }
   console.log('  ✓ Đã nạp 8 hồ sơ người chăm sóc khác biệt & tài khoản ngân hàng');
 
-  // 5. TÀI CHÍNH & DOANH THU ĐỒNG BỘ: TỔNG DOANH THU = 2.150.000 đ
+  // 5. TÀI CHÍNH & DOANH THU ĐỒNG BỘ: TỔNG DOANH THU = 2.400.000 đ
   // Yêu cầu:
-  // - 1 người đăng ký VIP = 50.000 đ
+  // - 1 người đăng ký VIP = 300.000 đ
   // - 5 ca chăm sóc = 400k + 500k + 450k + 400k + 350k = 2.100.000 đ
-  // - Tổng cộng: 2.150.000 đ
+  // - Tổng cộng: 2.400.000 đ
   // - Tất cả phát sinh trong Tháng 9/2026. Tháng 5, 6, 7, 8 hoàn toàn TRỐNG (0 đ)!
 
-  // 1 VIP Subscription = 50.000 đ
+  // 1 VIP Subscription = 300.000 đ
   await conn.execute(
     `INSERT INTO family_subscriptions (
       user_id, plan_name, price, billing_cycle, status, start_date, end_date, payment_method, transaction_code, priority_matching, priority_booking, priority_support, dedicated_support_247, notes, created_at
     ) VALUES (
-      10, 'Gói Gia Đình VIP', 50000, 'monthly', 'active', '2026-09-01', '2026-10-01', 'Chuyển khoản QR', 'VIP-20260901-001', 1, 1, 1, 1, 'Đăng ký nâng cấp gói VIP gia đình', '2026-09-20 09:15:00'
+      10, 'Gói Gia Đình VIP', 300000, 'monthly', 'active', '2026-09-01', '2026-10-01', 'Chuyển khoản QR', 'VIP-20260901-001', 1, 1, 1, 1, 'Đăng ký nâng cấp gói VIP gia đình', '2026-09-20 09:15:00'
     )`
   );
-  console.log('  ✓ Đã nạp 1 gói VIP: 50.000 đ');
+  console.log('  ✓ Đã nạp 1 gói VIP: 300.000 đ');
 
   // 5 ca chăm sóc: Tổng tiền ca = 2.100.000 đ
   // 3 ca đã hoàn tất & giải ngân (paid_out), 2 ca đang ký quỹ (in_escrow)

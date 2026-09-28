@@ -390,7 +390,7 @@ export function AdminPaymentsView({ notify }: AdminPaymentsViewProps) {
                 <th className="py-2.5 px-3 text-emerald-800">Khoản Đã Thanh Toán</th>
                 <th className="py-2.5 px-3 text-amber-800">Khoản Chưa Thanh Toán / Ký Quỹ</th>
                 <th className="py-2.5 px-3">Phí Nền Tảng (15%)</th>
-                <th className="py-2.5 px-3">Gói VIP (50k)</th>
+                <th className="py-2.5 px-3">Gói VIP (300k)</th>
                 <th className="py-2.5 px-4 text-right">Tỷ Lệ Thu Hồi</th>
               </tr>
             </thead>

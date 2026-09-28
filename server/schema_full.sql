@@ -211,7 +211,7 @@ CREATE TABLE `family_subscriptions` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `user_id` int(11) NOT NULL,
   `plan_name` varchar(64) DEFAULT 'Gói Gia Đình Premium',
-  `price` int(11) DEFAULT 50000,
+  `price` int(11) DEFAULT 300000,
   `billing_cycle` varchar(32) DEFAULT 'monthly',
   `status` varchar(32) DEFAULT 'active',
   `start_date` timestamp NOT NULL DEFAULT current_timestamp(),

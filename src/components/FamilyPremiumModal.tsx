@@ -46,7 +46,7 @@ export function FamilyPremiumModal({
     hasSubscription: false,
     is_premium: false,
     days_remaining: 0,
-    monthlyPrice: 50000
+    monthlyPrice: 300000
   });
 
   const [paymentStep, setPaymentStep] = useState<'compare' | 'payment' | 'verifying' | 'success'>('compare');
@@ -159,7 +159,7 @@ export function FamilyPremiumModal({
       const data = await res.json();
       if (data.success) {
         setPaymentStep('success');
-        notify('🎉 Đã xác nhận giao dịch thành công! Gói Gia Đình VIP 50k đã được kích hoạt.');
+        notify('🎉 Đã xác nhận giao dịch thành công! Gói Gia Đình VIP 300k đã được kích hoạt.');
         if (onSubscribed) onSubscribed();
         // Cập nhật lại trạng thái local
         setSubData(prev => ({
@@ -278,10 +278,10 @@ export function FamilyPremiumModal({
             <div className="text-left sm:text-right shrink-0 bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/15">
               <span className="text-[10.5px] uppercase font-bold text-amber-200/90 tracking-wider block">Chi phí định kỳ</span>
               <div className="flex items-baseline gap-1 mt-0.5">
-                <span className="text-[26px] font-black text-amber-300 font-display">50.000đ</span>
+                <span className="text-[26px] font-black text-amber-300 font-display">300.000đ</span>
                 <span className="text-[12px] text-white/80 font-medium">/ tháng</span>
               </div>
-              <span className="text-[10px] text-white/60 block mt-0.5">Chỉ ~1.600đ mỗi ngày</span>
+              <span className="text-[10px] text-white/60 block mt-0.5">Chỉ ~10.000đ mỗi ngày</span>
             </div>
           </div>
         </div>
@@ -309,7 +309,7 @@ export function FamilyPremiumModal({
                 onClick={() => setPaymentStep('payment')}
                 className="shrink-0 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white px-4 py-2 text-[12px] font-bold transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <RefreshCw size={13} /> Gia hạn thêm 30 ngày (50k)
+                <RefreshCw size={13} /> Gia hạn thêm 30 ngày (300k)
               </button>
             </div>
           )}
@@ -435,7 +435,7 @@ export function FamilyPremiumModal({
             </div>
           )}
 
-          {/* STEP 2: THANH TOÁN GÓI 50.000Đ/THÁNG (VIETQR / CHUYỂN KHOẢN) */}
+          {/* STEP 2: THANH TOÁN GÓI 300.000Đ/THÁNG (VIETQR / CHUYỂN KHOẢN) */}
           {paymentStep === 'payment' && (
             <div className="space-y-5 animate-fadeIn">
               <div className="rounded-2xl border border-amber-200 bg-[#fdfaf3] p-4 flex items-center justify-between">
@@ -445,7 +445,7 @@ export function FamilyPremiumModal({
                   <p className="text-[12px] text-gray-600 mt-0.5">Áp dụng cho tài khoản gia đình: <strong>{currentUser?.full_name || 'Người nhà'}</strong></p>
                 </div>
                 <div className="text-right">
-                  <span className="text-[24px] font-black text-amber-800 font-display">50.000đ</span>
+                  <span className="text-[24px] font-black text-amber-800 font-display">300.000đ</span>
                   <span className="block text-[10.5px] text-gray-500 font-medium">Đã bao gồm VAT</span>
                 </div>
               </div>
@@ -465,7 +465,7 @@ export function FamilyPremiumModal({
                     ) : (
                       <div className="relative">
                         <img 
-                          src={`https://img.vietqr.io/image/MB-${paymentConfig.bank_account.replace(/\s+/g, '')}-compact2.png?amount=50000&addInfo=CAREMATCH%20PREM%20${currentUser?.id || 1}&accountName=${encodeURIComponent(paymentConfig.bank_owner)}`}
+                          src={`https://img.vietqr.io/image/MB-${paymentConfig.bank_account.replace(/\s+/g, '')}-compact2.png?amount=300000&addInfo=CAREMATCH%20PREM%20${currentUser?.id || 1}&accountName=${encodeURIComponent(paymentConfig.bank_owner)}`}
                           alt="VietQR Napas 247"
                           className="w-32 h-32 object-contain rounded-md my-1 bg-white p-1 border border-emerald-100 shadow-2xs"
                           onError={(e) => {
@@ -477,7 +477,7 @@ export function FamilyPremiumModal({
                         <div id="prem-qr-fallback" className="hidden h-28 w-28 bg-[#1f3625] rounded-md flex-col items-center justify-center text-white my-1">
                           <Crown size={24} className="text-amber-300" />
                           <span className="text-[9px] font-mono text-amber-200 mt-1">CARE-MATCH</span>
-                          <span className="text-[8px] text-gray-300 font-mono">50.000 VND</span>
+                          <span className="text-[8px] text-gray-300 font-mono">300.000 VND</span>
                         </div>
                       </div>
                     )}
@@ -500,7 +500,7 @@ export function FamilyPremiumModal({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Số tiền:</span>
-                    <strong className="font-bold text-amber-900">50.000 VNĐ</strong>
+                    <strong className="font-bold text-amber-900">300.000 VNĐ</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Nội dung chuyển khoản:</span>
@@ -571,7 +571,7 @@ export function FamilyPremiumModal({
 
               <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 border border-amber-200 px-3.5 py-1 text-[11px] text-amber-900 font-semibold">
                 <Crown size={13} className="text-amber-600" />
-                <span>Số tiền: 50.000 VNĐ · Mã: PREM-{currentUser?.id || 1}</span>
+                <span>Số tiền: 300.000 VNĐ · Mã: PREM-{currentUser?.id || 1}</span>
               </div>
             </div>
           )}
@@ -587,7 +587,7 @@ export function FamilyPremiumModal({
                   Kích Hoạt Gói Gia Đình Premium Thành Công!
                 </h3>
                 <p className="text-[13px] text-gray-600 max-w-md mx-auto">
-                  Hệ thống tự động đã ghi nhận thanh toán 50.000đ thành công. Toàn bộ đặc quyền VIP: Ưu tiên tìm người, ưu tiên đặt lịch và hỗ trợ chuyên biệt 24/7 đã có hiệu lực ngay!
+                  Hệ thống tự động đã ghi nhận thanh toán 300.000đ thành công. Toàn bộ đặc quyền VIP: Ưu tiên tìm người, ưu tiên đặt lịch và hỗ trợ chuyên biệt 24/7 đã có hiệu lực ngay!
                 </p>
               </div>
 
@@ -633,7 +633,7 @@ export function FamilyPremiumModal({
                   className="rounded-xl bg-gradient-to-r from-[#996a1b] to-[#7a4f08] hover:from-[#875d16] hover:to-[#6a4405] text-white px-5 py-2.5 text-[12.5px] font-bold shadow-md transition cursor-pointer flex items-center gap-1.5"
                 >
                   <Crown size={15} className="fill-white" />
-                  {subData.is_premium ? 'Gia hạn gói (50.000đ/tháng)' : 'Đăng ký gói Premium ngay (50.000đ/tháng)'}
+                  {subData.is_premium ? 'Gia hạn gói (300.000đ/tháng)' : 'Đăng ký gói Premium ngay (300.000đ/tháng)'}
                   <ArrowRight size={14} />
                 </button>
               </>

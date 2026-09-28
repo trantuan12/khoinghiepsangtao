@@ -502,7 +502,7 @@ function AppShell({
   const [familyProfile, setFamilyProfile] = useState<FamilyProfileData | null>(null);
   const [showFamilyModal, setShowFamilyModal] = useState(false);
 
-  // Trạng thái Gói Gia Đình Premium (50.000đ/tháng)
+  // Trạng thái Gói Gia Đình Premium (300.000đ/tháng)
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [isFamilyPremium, setIsFamilyPremium] = useState(false);
   const [premiumDaysRemaining, setPremiumDaysRemaining] = useState(0);
@@ -747,11 +747,11 @@ function AppShell({
                     ? 'bg-gradient-to-r from-emerald-700 to-emerald-800 text-white border border-emerald-600 hover:brightness-105'
                     : 'bg-gradient-to-r from-[#fef7e6] via-[#fcf3dc] to-[#f7eed2] text-[#7a500f] border border-[#e8c87c] hover:bg-[#faeed0]'
                   }`}
-                title="Đặc quyền Gói Gia Đình Premium (50.000đ/tháng)"
+                title="Đặc quyền Gói Gia Đình Premium (300.000đ/tháng)"
               >
                 <Crown size={14} className={isFamilyPremium ? 'text-amber-300 fill-amber-300' : 'text-amber-600 fill-amber-500'} />
-                <span className="hidden xs:inline">{isFamilyPremium ? `VIP Premium (${premiumDaysRemaining}d)` : 'Gói Premium (50k/tháng)'}</span>
-                <span className="xs:hidden">{isFamilyPremium ? 'VIP' : 'Gói 50k'}</span>
+                <span className="hidden xs:inline">{isFamilyPremium ? `VIP Premium (${premiumDaysRemaining}d)` : 'Gói Premium (300k/tháng)'}</span>
+                <span className="xs:hidden">{isFamilyPremium ? 'VIP' : 'Gói 300k'}</span>
                 {!isFamilyPremium && (
                   <span className="rounded-full bg-[#996a1b] text-white text-[9px] px-1.5 py-0.2 font-black uppercase tracking-wider">
                     VIP
@@ -852,7 +852,7 @@ function AppShell({
         />
       )}
 
-      {/* MODAL GÓI GIA ĐÌNH PREMIUM (50.000Đ/THÁNG) */}
+      {/* MODAL GÓI GIA ĐÌNH PREMIUM (300.000Đ/THÁNG) */}
       {showPremiumModal && currentUser && (
         <FamilyPremiumModal
           isOpen={showPremiumModal}
@@ -1436,7 +1436,7 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
         onOpenPremiumModal={() => window.dispatchEvent(new CustomEvent('open-family-premium-modal'))}
       />
 
-      {/* BANNER QUẢNG CÁO GÓI GIA ĐÌNH PREMIUM 50K (TỰ ĐỘNG ẨN KHI ĐÃ CÓ GÓI VIP THEO YÊU CẦU CỦA USER) */}
+      {/* BANNER QUẢNG CÁO GÓI GIA ĐÌNH PREMIUM 300K (TỰ ĐỘNG ẨN KHI ĐÃ CÓ GÓI VIP THEO YÊU CẦU CỦA USER) */}
       {!isFamilyPremium && (
         <div
           onClick={() => window.dispatchEvent(new CustomEvent('open-family-premium-modal'))}
@@ -1452,10 +1452,10 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
                   ĐẶC QUYỀN VIP
                 </span>
                 <h4 className="font-display font-bold text-gray-900 text-[15px] sm:text-[16px]">
-                  Gói Gia Đình Premium · 50.000đ/tháng
+                  Gói Gia Đình Premium · 300.000đ/tháng
                 </h4>
                 <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.2 text-[10.5px] font-bold">
-                  Chỉ ~1.600đ/ngày
+                  Chỉ ~10.000đ/ngày
                 </span>
               </div>
               <p className="text-[12.5px] text-gray-600 mt-1 leading-relaxed">
@@ -5809,7 +5809,7 @@ function Schedule({ notify, currentUser, userRole = 'family' }: { notify: (messa
                 {isFamilyPremium ? (
                   <p>Bạn là Hội viên VIP: <strong>Miễn phí 100% mọi yêu cầu hủy ca và đổi lịch.</strong></p>
                 ) : (
-                  <p>Phí hủy ca: <strong>10.000 đ</strong>. Đăng ký VIP chỉ 50.000đ/tháng để được miễn 100% không giới hạn!</p>
+                  <p>Phí hủy ca: <strong>10.000 đ</strong>. Đăng ký VIP chỉ 300.000đ/tháng để được miễn 100% không giới hạn!</p>
                 )}
               </div>
             </div>
@@ -7231,7 +7231,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
   // System Settings state
   const [systemSettings, setSystemSettings] = useState<Record<string, any>>({
     cancellation_fee_regular: 10000,
-    vip_family_monthly_price: 50000,
+    vip_family_monthly_price: 300000,
     caregiver_payout_percentage: 85,
     platform_commission_percentage: 15,
     base_shift_rate_4h: 400000,
@@ -7248,7 +7248,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
   const [interviews, setInterviews] = useState<any[]>([]);
   const [interviewFilter, setInterviewFilter] = useState<'all' | 'scheduled' | 'passed' | 'failed'>('all');
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
-  const [subStats, setSubStats] = useState<any>({ totalSubscribers: 0, activeSubscribers: 0, expiredSubscribers: 0, totalRevenue: 0, monthlyPrice: 50000 });
+  const [subStats, setSubStats] = useState<any>({ totalSubscribers: 0, activeSubscribers: 0, expiredSubscribers: 0, totalRevenue: 0, monthlyPrice: 300000 });
   const [subFilter, setSubFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [subSearch, setSubSearch] = useState('');
   const [showBenefitModal, setShowBenefitModal] = useState(false);
@@ -7889,8 +7889,8 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
       ['Số người chăm sóc sẵn sàng nhận ca', caregiverUsers.filter(c => c.verification_status === 'approved').length, 'Người', 'Đạt chuẩn phỏng vấn & giấy tờ y tế'],
       ['Số ca phỏng vấn chuyên môn Online hoàn thành', caregiverUsers.filter(c => c.interview_status === 'passed').length, 'Buổi', 'Thẩm định hồ sơ & đối soát bằng cấp'],
       ['Tổng số gia đình đăng ký hồ sơ', familyUsers.length, 'Gia đình', 'Hồ sơ người cao tuổi'],
-      ['Gia đình hội viên VIP Premium', subStats.activeSubscribers || 1, 'Hội viên', 'Gói 50.000đ/tháng'],
-      ['Doanh thu hội viên VIP', `${(subStats.totalRevenue || 50000).toLocaleString('vi-VN')} đ`, 'VNĐ', 'Thanh toán trực tuyến'],
+      ['Gia đình hội viên VIP Premium', subStats.activeSubscribers || 1, 'Hội viên', 'Gói 300.000đ/tháng'],
+      ['Doanh thu hội viên VIP', `${(subStats.totalRevenue || 300000).toLocaleString('vi-VN')} đ`, 'VNĐ', 'Thanh toán trực tuyến'],
       ['Thời điểm trích xuất báo cáo', new Date().toLocaleString('vi-VN'), 'Thời gian thực', 'Bản quyền hệ thống CARE-MATCH 2026']
     ];
     const csvLines = [header.join(','), ...rows.map(r => r.map(escape).join(','))];
@@ -8820,7 +8820,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
         </div>
       )}
 
-      {/* ===== TAB: GÓI GIA ĐÌNH PREMIUM VIP (50.000Đ/THÁNG) ===== */}
+      {/* ===== TAB: GÓI GIA ĐÌNH PREMIUM VIP (300.000Đ/THÁNG) ===== */}
       {activeTab === 'subscriptions' && (
         <div className="space-y-5">
           {/* Header Card với Gold / Emerald VIP Gradient */}
@@ -8832,7 +8832,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                   <span>Chính Sách Hội Viên VIP</span>
                 </div>
                 <h2 className="font-display text-[22px] font-bold text-[#2a2012] mt-0.5">
-                  Quản Lý Gói Gia Đình Premium (50.000đ/tháng)
+                  Quản Lý Gói Gia Đình Premium (300.000đ/tháng)
                 </h2>
                 <p className="text-[12.5px] text-[#715423] max-w-2xl mt-1 leading-relaxed">
                   Theo dõi danh sách gia đình đăng ký gói Premium, thời hạn sử dụng, doanh thu định kỳ và bảo đảm các đặc quyền: Ưu tiên tìm người, ưu tiên đặt lịch Lễ Tết và hỗ trợ y tế 24/7.
@@ -8893,9 +8893,9 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                 <Award size={18} className="text-[#8a6829]" />
               </div>
               <p className="mt-2 text-[28px] font-extrabold text-[#3d2f17] font-display">
-                50.000đ
+                300.000đ
               </p>
-              <p className="text-[11px] text-amber-800 font-semibold mt-0.5">Mặc định / tháng (~1.600đ/ngày)</p>
+              <p className="text-[11px] text-amber-800 font-semibold mt-0.5">Mặc định / tháng (~10.000đ/ngày)</p>
             </Card>
           </div>
 
@@ -8954,7 +8954,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                       <td colSpan={6} className="py-12 text-center text-gray-400">
                         <Crown size={32} className="mx-auto text-gray-300 mb-2" />
                         <p className="font-bold text-[14px] text-gray-600">Không có gói Premium nào phù hợp bộ lọc</p>
-                        <p className="text-[12px] text-gray-400 mt-0.5">Khi người nhà đăng ký gói 50.000đ/tháng, thông tin sẽ lập tức hiển thị tại đây.</p>
+                        <p className="text-[12px] text-gray-400 mt-0.5">Khi người nhà đăng ký gói 300.000đ/tháng, thông tin sẽ lập tức hiển thị tại đây.</p>
                       </td>
                     </tr>
                   ) : (
@@ -8987,7 +8987,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                         <td className="py-3.5 px-4 align-top">
                           <span className="font-bold text-[#8f6319]">{s.plan_name || 'Gói Gia Đình Premium'}</span>
                           <span className="block font-black text-emerald-800 text-[13px] mt-0.5">
-                            {(Number(s.price) || 50000).toLocaleString('vi-VN')}đ / tháng
+                            {(Number(s.price) || 300000).toLocaleString('vi-VN')}đ / tháng
                           </span>
                           <span className="text-[10.5px] text-gray-400 block mt-0.5">
                             {s.payment_method || 'Chuyển khoản QR'}
@@ -9084,7 +9084,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                       <tr className="bg-[#f9faf7] border-b text-gray-700">
                         <th className="py-2.5 px-3 font-bold">Hạng Mục Quyền Lợi</th>
                         <th className="py-2.5 px-3 font-bold text-center text-gray-500">Gói Tiêu Chuẩn</th>
-                        <th className="py-2.5 px-3 font-bold text-center text-amber-900 bg-amber-50/70">Gói Premium (50k)</th>
+                        <th className="py-2.5 px-3 font-bold text-center text-amber-900 bg-amber-50/70">Gói Premium (300k)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
@@ -9678,7 +9678,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                         type="number"
                         min="0"
                         step="5000"
-                        value={systemSettings.vip_family_monthly_price ?? 50000}
+                        value={systemSettings.vip_family_monthly_price ?? 300000}
                         onChange={e => setSystemSettings({ ...systemSettings, vip_family_monthly_price: Number(e.target.value) })}
                         className="w-full h-11 rounded-xl border border-gray-300 px-3.5 text-[13.5px] font-bold text-amber-900 outline-none focus:border-amber-600 focus:ring-2 focus:ring-amber-600/10"
                       />

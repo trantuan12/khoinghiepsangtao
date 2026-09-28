@@ -39,10 +39,10 @@ export function DashboardBannerCarousel({ onOpenPremiumModal, isFamilyPremium = 
     },
     {
       id: "premium_subscription",
-      tag: "⭐ ĐẶC QUYỀN VIP · GÓI GIA ĐÌNH PREMIUM 50.000Đ/THÁNG",
+      tag: "⭐ ĐẶC QUYỀN VIP · GÓI GIA ĐÌNH PREMIUM 300.000Đ/THÁNG",
       title: "Ưu Tiên Tìm Người, Giữ Chỗ Đặt Lịch & Hỗ Trợ Y Tế 24/7",
-      description: "Chỉ 50.000đ/tháng: Ưu tiên kết nối Điều dưỡng/Người chăm sóc hàng đầu (CARE SCORE 95đ+), ưu tiên đặt lịch giờ cao điểm/Lễ Tết, đội ngũ CSKH hỗ trợ trong 15 phút và hotline y tế 24/7.",
-      ctaText: "Xem bảng quyền lợi & Đăng ký (50.000đ)",
+      description: "Chỉ 300.000đ/tháng (~10.000đ/ngày): Ưu tiên kết nối Điều dưỡng/Người chăm sóc hàng đầu (CARE SCORE 95đ+), ưu tiên đặt lịch giờ cao điểm/Lễ Tết, đội ngũ CSKH hỗ trợ trong 15 phút và hotline y tế 24/7.",
+      ctaText: "Xem bảng quyền lợi & Đăng ký (300.000đ)",
       ctaLink: "#premium",
       isPremiumTrigger: true,
       icon: Crown,
