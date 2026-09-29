@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/react';
 import { LandingBannerCarousel } from '@/components/LandingBannerCarousel';
 import { DashboardBannerCarousel } from '@/components/DashboardBannerCarousel';
 import { CaregiverPortal } from '@/components/CaregiverPortal';
@@ -11805,7 +11806,21 @@ function Router() {
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><ErrorBoundary resetKey={window.location.pathname}><Router /></ErrorBoundary></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  return (
+    <>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <ErrorBoundary resetKey={window.location.pathname}>
+              <Router />
+            </ErrorBoundary>
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+      <Analytics />
+    </>
+  );
 }
 
 export default App;
