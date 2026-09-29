@@ -24,6 +24,11 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(uploadsDir));
 
+// Google Search Console Verification Endpoint
+app.get('/google4f3cf9857c040986.html', (req, res) => {
+  res.type('text/html').send('google-site-verification: google4f3cf9857c040986.html');
+});
+
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
