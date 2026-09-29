@@ -2,28 +2,28 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <!-- Trang chủ CARE-MATCH -->
   <url>
-    <loc>https://carematch.io.vn/</loc>
+    <loc>https://www.carematch.io.vn/</loc>
     <lastmod>2026-09-29</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <!-- Tìm kiếm người chăm sóc phù hợp -->
   <url>
-    <loc>https://carematch.io.vn/matches</loc>
+    <loc>https://www.carematch.io.vn/matches</loc>
     <lastmod>2026-09-29</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <!-- Cổng thông tin dành cho Điều dưỡng & Người chăm sóc -->
   <url>
-    <loc>https://carematch.io.vn/caregiver</loc>
+    <loc>https://www.carematch.io.vn/caregiver</loc>
     <lastmod>2026-09-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <!-- Bảng điều khiển Quản lý chăm sóc Gia đình -->
   <url>
-    <loc>https://carematch.io.vn/dashboard</loc>
+    <loc>https://www.carematch.io.vn/dashboard</loc>
     <lastmod>2026-09-29</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
