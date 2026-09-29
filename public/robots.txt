@@ -1,2 +1,5 @@
 User-agent: *
 Allow: /
+
+# Sơ đồ trang web dành cho Google Bot & công cụ tìm kiếm
+Sitemap: https://carematch.io.vn/sitemap.xml
