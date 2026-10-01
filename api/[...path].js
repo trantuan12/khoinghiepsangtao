@@ -18,6 +18,7 @@ export default async function handler(req, res) {
     }
   }
 
+  // Đảm bảo URL bắt đầu bằng /api cho Express Router
   if (req.url && !req.url.startsWith('/api')) {
     req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
   }

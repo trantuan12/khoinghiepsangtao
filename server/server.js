@@ -42,6 +42,9 @@ const dbConfig = {
   port: Number(process.env.DB_PORT) || 34650,
   waitForConnections: true,
   connectionLimit: 10,
+  connectTimeout: 15000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
   queueLimit: 0
 };
 
@@ -52,29 +55,41 @@ let isMySqlConnected = false;
 // KHỞI TẠO KẾT NỐI MYSQL
 // ========================================================
 async function initMySql() {
+  if (isMySqlConnected && pool) {
+    return pool;
+  }
   try {
-    pool = mysql.createPool(dbConfig);
+    if (!pool) {
+      pool = mysql.createPool(dbConfig);
+    }
     const conn = await pool.getConnection();
     await conn.ping();
     conn.release();
     isMySqlConnected = true;
-    console.log('✅ [MySQL] Đã kết nối thành công đến cơ sở dữ liệu: care_match_db');
-    await initTransactionsTable();
-    await initCaregiverProfiles();
-    await initFamilyProfilesTable();
-    await initFamilySubscriptionsTable();
-    await initCaregiverBankAccountsTable();
-    await initBookingEscrowPaymentsTable();
-    await initCommunitiesTable();
-    await initCaregiverReviewsTable();
-    await initSchedulesTableMigrations();
-    await initVouchersTable();
-    await initSystemSettingsTable();
-    await initPatientCareLogsTable();
+    console.log(`✅ [MySQL] Đã kết nối thành công đến cơ sở dữ liệu Railway (${dbConfig.host}:${dbConfig.port}/${dbConfig.database})`);
   } catch (err) {
     isMySqlConnected = false;
-    console.error('⚠️ [MySQL] Lỗi kết nối MySQL:', err.message);
+    console.error('⚠️ [MySQL] Lỗi kết nối MySQL Railway:', err.message);
+    return null;
   }
+
+  // Chạy các migration ngầm, không block luồng xử lý chính
+  Promise.allSettled([
+    initTransactionsTable(),
+    initCaregiverProfiles(),
+    initFamilyProfilesTable(),
+    initFamilySubscriptionsTable(),
+    initCaregiverBankAccountsTable(),
+    initBookingEscrowPaymentsTable(),
+    initCommunitiesTable(),
+    initCaregiverReviewsTable(),
+    initSchedulesTableMigrations(),
+    initVouchersTable(),
+    initSystemSettingsTable(),
+    initPatientCareLogsTable()
+  ]).catch(() => {});
+
+  return pool;
 }
 
 // Khởi tạo bảng thanh toán & giao dịch nếu chưa có
@@ -1107,10 +1122,28 @@ async function createNotification(userId, type, title, body, link = '/') {
 // ========================================================
 
 // 0. Kiểm tra trạng thái
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+  if (!pool || !isMySqlConnected) {
+    await initMySql();
+  }
+  let dbStatus = isMySqlConnected ? 'MySQL Connected' : 'Disconnected';
+  let totalUsers = 0;
+  if (pool) {
+    try {
+      const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM users');
+      totalUsers = rows[0]?.total || 0;
+      dbStatus = 'connected';
+    } catch (e) {
+      dbStatus = 'error: ' + e.message;
+    }
+  }
   res.json({
     status: 'ok',
-    database: isMySqlConnected ? 'MySQL Connected' : 'Disconnected',
+    service: 'CARE-MATCH Backend API',
+    database: dbStatus,
+    railwayHost: dbConfig.host,
+    railwayDb: dbConfig.database,
+    totalUsers,
     timestamp: new Date().toISOString()
   });
 });
@@ -1392,7 +1425,11 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
   // Kiểm tra tài khoản tồn tại trong cơ sở dữ liệu
   let user = null;
-  if (isMySqlConnected) {
+  if (!pool || !isMySqlConnected) {
+    await initMySql();
+  }
+
+  if (pool) {
     try {
       const [rows] = await pool.execute(
         'SELECT id, username, email, full_name, role FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1',
@@ -1403,7 +1440,16 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       }
     } catch (e) {
       console.error('Lỗi truy vấn users khi quên mật khẩu:', e.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Lỗi truy vấn cơ sở dữ liệu Railway. Vui lòng thử lại sau.'
+      });
     }
+  } else {
+    return res.status(503).json({
+      success: false,
+      message: 'Không thể kết nối đến cơ sở dữ liệu Railway. Vui lòng kiểm tra lại dịch vụ.'
+    });
   }
 
   if (!user) {
