@@ -87,7 +87,7 @@ async function initMySql() {
     initVouchersTable(),
     initSystemSettingsTable(),
     initPatientCareLogsTable()
-  ]).catch(() => {});
+  ]).catch(() => { });
 
   return pool;
 }
@@ -500,7 +500,7 @@ async function initBookingEscrowPaymentsTable() {
         const fee = Math.round(total * 0.35); // 35% phí nền tảng
         const earnings = total - fee;        // 65% thực nhận
         const txCode = 'ESC-2026-' + String(sched.id).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
-        
+
         let escrowStatus = 'pending_payment';
         let familyPaidAt = null;
         let releasedAt = null;
@@ -670,7 +670,7 @@ async function initSystemSettingsTable() {
 
     try {
       await pool.execute('ALTER TABLE system_settings MODIFY COLUMN setting_value LONGTEXT NOT NULL');
-    } catch (_) {}
+    } catch (_) { }
 
     const defaults = [
       ['cancellation_fee_regular', '10000', 'number', 'fees', 'Phí đổi / hủy ca đối với tài khoản thường (VNĐ)'],
@@ -1308,8 +1308,8 @@ function createMailTransporter() {
 // Hàm gửi email thông báo mã OTP khôi phục mật khẩu với mẫu HTML đẹp mắt
 async function sendForgotPasswordEmail(toEmail, recipientName, otpCode) {
   const transporter = createMailTransporter();
-  const fromAddress = process.env.EMAIL_USER 
-    ? `"CareMatch Vietnam" <${process.env.EMAIL_USER}>` 
+  const fromAddress = process.env.EMAIL_USER
+    ? `"CareMatch Vietnam" <${process.env.EMAIL_USER}>`
     : (process.env.EMAIL_FROM || '"CareMatch Support" <no-reply@carematch.vn>');
 
   const htmlContent = `
@@ -1549,7 +1549,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
   if (Date.now() > stored.expiresAt) {
     passwordResetOtpStore.delete(cleanEmail);
     if (pool) {
-      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => { });
     }
     return res.status(400).json({
       success: false,
@@ -1561,12 +1561,12 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     stored.attempts = (stored.attempts || 0) + 1;
     passwordResetOtpStore.set(cleanEmail, stored);
     if (pool && stored.dbId) {
-      pool.execute('UPDATE password_resets SET attempts = ? WHERE id = ?', [stored.attempts, stored.dbId]).catch(() => {});
+      pool.execute('UPDATE password_resets SET attempts = ? WHERE id = ?', [stored.attempts, stored.dbId]).catch(() => { });
     }
     if (stored.attempts >= 5) {
       passwordResetOtpStore.delete(cleanEmail);
       if (pool) {
-        pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+        pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => { });
       }
       return res.status(400).json({
         success: false,
@@ -1636,7 +1636,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   if (Date.now() > stored.expiresAt) {
     passwordResetOtpStore.delete(cleanEmail);
     if (pool) {
-      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => { });
     }
     return res.status(400).json({
       success: false,
@@ -1671,7 +1671,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
       // Xoá OTP sau khi đã sử dụng thành công
       passwordResetOtpStore.delete(cleanEmail);
-      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => { });
 
       console.log(`🔐 [AUTH] Đặt lại mật khẩu thành công cho tài khoản: ${cleanEmail}`);
 
@@ -1692,6 +1692,12 @@ app.post('/api/auth/reset-password', async (req, res) => {
       message: 'Không thể kết nối đến cơ sở dữ liệu Railway để cập nhật mật khẩu.'
     });
   }
+} catch (err) {
+  return res.status(500).json({
+    success: false,
+    message: 'Lỗi hệ thống khi cập nhật mật khẩu: ' + err.message
+  });
+}
 });
 
 
@@ -2092,8 +2098,8 @@ app.patch('/api/admin/families/:userId/verify', async (req, res) => {
         uid,
         'ekyc',
         status === 'approved' ? 'Xác thực eKYC thành công ✓' : 'Yêu cầu cập nhật hồ sơ eKYC',
-        status === 'approved' 
-          ? 'Hồ sơ CCCD của quý khách đã được Ban Quản Trị phê duyệt. Quý khách có thể tự do đặt ca chăm sóc.' 
+        status === 'approved'
+          ? 'Hồ sơ CCCD của quý khách đã được Ban Quản Trị phê duyệt. Quý khách có thể tự do đặt ca chăm sóc.'
           : `Ban Quản Trị yêu cầu bổ sung thông tin eKYC: ${rejection_reason || 'Vui lòng kiểm tra lại ảnh CCCD và thông tin cá nhân.'}`,
         '/dashboard'
       );
@@ -2995,7 +3001,7 @@ app.patch('/api/caregiver-profile/:id/status', async (req, res) => {
           p.user_id,
           'verification',
           status === 'approved' ? 'Hồ sơ của bạn đã được Admin phê duyệt! ✓' : 'Yêu cầu cập nhật lại hồ sơ xác thực',
-          status === 'approved' 
+          status === 'approved'
             ? `Chúc mừng bạn! Hồ sơ chăm sóc đã được cấp tích xanh với CARE SCORE ${p.care_score}/100 điểm. Bạn đã có thể bắt đầu nhận ca.`
             : 'Hồ sơ xác thực của bạn cần bổ sung thêm giấy tờ. Vui lòng kiểm tra lại.',
           '/caregiver'
@@ -3173,7 +3179,7 @@ app.post('/api/schedules', async (req, res) => {
         if (vCode) {
           try {
             await pool.execute('UPDATE vouchers SET used_count = used_count + 1 WHERE code = ?', [vCode]);
-          } catch {}
+          } catch { }
         }
       } catch (escErr) {
         console.warn('Lỗi ghi nhận booking_escrow_payments khi đặt ca:', escErr.message);
@@ -3322,7 +3328,7 @@ app.patch('/api/schedules/:id', async (req, res) => {
       if (rows.length > 0) {
         const updatedItem = rows[0];
         console.log(`✅ [MySQL] Đã cập nhật trạng thái ca #${id} thành: ${status}`);
-        
+
         if (status === 'confirmed' && updatedItem.family_user_id) {
           await createNotification(
             updatedItem.family_user_id,
@@ -4077,11 +4083,11 @@ app.get('/api/conversations', async (req, res) => {
           [u.id, uid]
         );
 
-        let roleLabel = u.role === 'admin' 
-          ? 'Ban Quản Trị Hệ Thống' 
-          : u.role === 'caregiver' 
-          ? (u.caregiver_title || 'Người chăm sóc chuyên nghiệp') 
-          : 'Gia đình người cao tuổi';
+        let roleLabel = u.role === 'admin'
+          ? 'Ban Quản Trị Hệ Thống'
+          : u.role === 'caregiver'
+            ? (u.caregiver_title || 'Người chăm sóc chuyên nghiệp')
+            : 'Gia đình người cao tuổi';
 
         let nameLabel = u.full_name || u.username;
         if (u.id === 1) {
@@ -4091,11 +4097,11 @@ app.get('/api/conversations', async (req, res) => {
         const nameParts = nameLabel.trim().split(' ').filter(Boolean);
         const initials = u.avatar_initials || (nameParts.length >= 2 ? (nameParts[nameParts.length - 2][0] + nameParts[nameParts.length - 1][0]).toUpperCase() : nameLabel.slice(0, 2).toUpperCase());
 
-        const color = u.role === 'admin' 
-          ? 'linear-gradient(145deg, #749676, #385139)' 
-          : u.role === 'caregiver' 
-          ? 'linear-gradient(145deg, #afc5b0, #638273)' 
-          : 'linear-gradient(145deg, #f1d49b, #c49354)';
+        const color = u.role === 'admin'
+          ? 'linear-gradient(145deg, #749676, #385139)'
+          : u.role === 'caregiver'
+            ? 'linear-gradient(145deg, #afc5b0, #638273)'
+            : 'linear-gradient(145deg, #f1d49b, #c49354)';
 
         contacts.push({
           id: String(u.id),
@@ -4262,7 +4268,7 @@ app.get('/api/admin/users', async (req, res) => {
     }
     query += ' ORDER BY u.created_at DESC';
     const [rows] = await pool.execute(query, params);
-    
+
     // Bổ sung thuộc tính last_activity_date để sắp xếp theo tương tác mới nhất
     const mapped = rows.map(r => {
       const dates = [r.last_schedule_at, r.last_payment_at, r.created_at].filter(Boolean).map(d => new Date(d).getTime());
@@ -4672,7 +4678,7 @@ app.get('/api/family/subscription/:userId', async (req, res) => {
       if (vRows.length > 0 && vRows[0].setting_value) {
         currentVipPrice = Number(vRows[0].setting_value) || 300000;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const [rows] = await pool.execute(
       `SELECT s.*, 
@@ -4739,14 +4745,14 @@ app.post('/api/family/subscribe', async (req, res) => {
 
     const code = transactionCode || ('PREM-' + Date.now().toString().slice(-6));
     const method = paymentMethod || 'Chuyển khoản QR (VietQR)';
-    
+
     let price = 300000;
     try {
       const [vRows] = await pool.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'vip_monthly_price' LIMIT 1");
       if (vRows.length > 0 && vRows[0].setting_value) {
         price = Number(vRows[0].setting_value) || 300000;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Tính ngày kết thúc: Nếu còn hạn thì cộng dồn 30 ngày, ngược lại từ hôm nay + 30 ngày
     const [curSub] = await pool.execute(
@@ -4872,7 +4878,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
       if (vRows.length > 0 && vRows[0].setting_value) {
         currentVipPrice = Number(vRows[0].setting_value) || 300000;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     return res.json({
       subscriptions: rows,
@@ -5080,7 +5086,7 @@ app.post('/api/payments/pay-booking', async (req, res) => {
           `UPDATE transactions SET family_payment_status = 'paid', paid_at = NOW() WHERE schedule_id = ?`,
           [b.schedule_id]
         );
-      } catch {}
+      } catch { }
     }
 
     if (b) {
@@ -5533,7 +5539,7 @@ app.get('/api/communities', async (req, res) => {
 
     query += ' ORDER BY id ASC';
     const [rows] = await pool.execute(query, params);
-    
+
     // Parse tags JSON
     const communities = rows.map(r => ({
       ...r,
