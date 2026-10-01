@@ -1,7 +1,6 @@
 import { LandingBannerCarousel } from '@/components/LandingBannerCarousel';
 import { DashboardBannerCarousel } from '@/components/DashboardBannerCarousel';
 import { CaregiverPortal } from '@/components/CaregiverPortal';
-import { ForgotPasswordModal } from '@/components/ForgotPasswordModal';
 import { FamilyProfileModal, type FamilyProfileData } from '@/components/FamilyProfileModal';
 import { FamilyPremiumModal } from '@/components/FamilyPremiumModal';
 import { FamilyPaymentsView } from '@/components/payments/FamilyPaymentsView';
@@ -42,6 +41,7 @@ import {
   CreditCard,
   Download,
   Eye,
+  EyeOff,
   FileText,
   GraduationCap,
   HeartHandshake,
@@ -1013,7 +1013,201 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
+
+  // Trạng thái quy trình Quên mật khẩu Inline (không dùng popup)
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'EMAIL' | 'OTP' | 'NEW_PASSWORD'>('EMAIL');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [forgotNewPass, setForgotNewPass] = useState('');
+  const [forgotConfirmPass, setForgotConfirmPass] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotCountdown, setForgotCountdown] = useState(0);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    if (forgotCountdown > 0) {
+      const timer = setTimeout(() => setForgotCountdown(c => c - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [forgotCountdown]);
+
+  const handleOtpChange = (index: number, val: string) => {
+    const cleanVal = val.replace(/\D/g, '');
+    if (cleanVal.length > 1) {
+      const pasted = cleanVal.slice(0, 6).split('');
+      const next = [...otpDigits];
+      pasted.forEach((d, i) => {
+        if (i < 6) next[i] = d;
+      });
+      setOtpDigits(next);
+      const focusIdx = Math.min(pasted.length, 5);
+      otpRefs.current[focusIdx]?.focus();
+      return;
+    }
+    const next = [...otpDigits];
+    next[index] = cleanVal ? cleanVal[cleanVal.length - 1] : '';
+    setOtpDigits(next);
+    if (cleanVal && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const getFullOtp = () => otpDigits.join('');
+
+  const getPassStrength = () => {
+    if (!forgotNewPass) return null;
+    let score = 0;
+    if (forgotNewPass.length >= 6) score++;
+    if (forgotNewPass.length >= 8) score++;
+    if (/[0-9]/.test(forgotNewPass)) score++;
+    if (/[a-zA-Z]/.test(forgotNewPass)) score++;
+    if (score <= 2) return { text: 'Yếu', color: 'bg-red-400', textColor: 'text-red-600', step: 1 };
+    if (score <= 3) return { text: 'Trung bình', color: 'bg-amber-400', textColor: 'text-amber-600', step: 2 };
+    return { text: 'Mạnh & An toàn', color: 'bg-emerald-500', textColor: 'text-emerald-600', step: 3 };
+  };
+
+  // Bước 1: Gửi mã OTP qua email
+  const handleForgotEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = forgotEmail.trim();
+    if (!cleanEmail) {
+      setErrorMsg('Vui lòng nhập địa chỉ email của bạn.');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      setErrorMsg('Địa chỉ email không đúng định dạng. Ví dụ: user@carematch.vn');
+      return;
+    }
+
+    setForgotLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${API}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setForgotStep('OTP');
+        setForgotCountdown(60);
+        if (data.devOtp) setDevOtp(data.devOtp);
+        setTimeout(() => otpRefs.current[0]?.focus(), 150);
+      } else {
+        setErrorMsg(data.message || 'Không tìm thấy tài khoản với email này.');
+      }
+    } catch {
+      setErrorMsg('Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại kết nối mạng.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  // Gửi lại mã OTP
+  const handleResendOtp = async () => {
+    if (forgotCountdown > 0 || forgotLoading) return;
+    setForgotLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${API}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setForgotCountdown(60);
+        setOtpDigits(['', '', '', '', '', '']);
+        if (data.devOtp) setDevOtp(data.devOtp);
+        setTimeout(() => otpRefs.current[0]?.focus(), 150);
+      } else {
+        setErrorMsg(data.message || 'Không thể gửi lại mã OTP.');
+      }
+    } catch {
+      setErrorMsg('Lỗi kết nối khi gửi lại mã OTP.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  // Bước 2: Xác nhận mã OTP (Chỉ xác nhận mã, nếu đúng mới chuyển sang bước 3 nhập mật khẩu mới)
+  const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const fullOtp = getFullOtp();
+    if (fullOtp.length < 6) {
+      setErrorMsg('Vui lòng nhập đủ 6 chữ số mã xác nhận OTP.');
+      return;
+    }
+    setForgotLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${API}/auth/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim(), otp: fullOtp })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setForgotStep('NEW_PASSWORD');
+      } else {
+        setErrorMsg(data.message || 'Mã xác nhận không đúng hoặc đã hết hạn.');
+      }
+    } catch {
+      setErrorMsg('Lỗi kết nối khi xác thực mã OTP.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  // Bước 3: Đặt mật khẩu mới & xác nhận
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (forgotNewPass.length < 6) {
+      setErrorMsg('Mật khẩu mới phải có tối thiểu 6 ký tự.');
+      return;
+    }
+    if (forgotNewPass !== forgotConfirmPass) {
+      setErrorMsg('Mật khẩu xác nhận không khớp với mật khẩu mới.');
+      return;
+    }
+    setForgotLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch(`${API}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: forgotEmail.trim(),
+          otp: getFullOtp(),
+          newPassword: forgotNewPass
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setIsForgotPassword(false);
+        setEmail(forgotEmail.trim());
+        setPassword('');
+        setSuccessMsg('Đặt lại mật khẩu thành công! Hãy đăng nhập bằng mật khẩu mới của bạn.');
+      } else {
+        setErrorMsg(data.message || 'Không thể cập nhật mật khẩu.');
+      }
+    } catch {
+      setErrorMsg('Lỗi kết nối khi đổi mật khẩu.');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
   const handleRoleChange = (role: 'family' | 'caregiver') => {
     setSelectedRole(role);
@@ -1117,185 +1311,421 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
             <ArrowLeft size={16} /> Về trang giới thiệu
           </button>
 
-          {/* BỘ CHỌN VAI TRÒ ĐĂNG NHẬP / ĐĂNG KÝ: CHỈ 2 ĐỐI TƯỢNG (GIA ĐÌNH & NGƯỜI CHĂM SÓC) */}
-          <div className="mb-5">
-            <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))] mb-2">
-              Chọn vai trò truy cập của bạn:
-            </p>
-            <div className="grid grid-cols-2 gap-2 rounded-[16px] border border-[hsl(var(--border))] bg-white p-1.5 shadow-xs">
+          {isForgotPassword ? (
+            /* ======================================================== */
+            /* KHUNG KHÔI PHỤC MẬT KHẨU INLINE ĐỒNG BỘ 100% VỚI ĐĂNG NHẬP */
+            /* ======================================================== */
+            <div className="space-y-4 animate-rise">
               <button
                 type="button"
-                onClick={() => handleRoleChange('family')}
-                className={`flex flex-col items-center justify-center py-2.5 px-3 rounded-[12px] text-center transition ${selectedRole === 'family'
-                    ? 'bg-[#435d41] text-white shadow-xs font-bold'
-                    : 'text-[#556758] hover:bg-[#f1f6ef] font-medium'
-                  }`}
-                data-testid="button-role-family"
+                onClick={() => {
+                  setIsForgotPassword(false);
+                  setErrorMsg('');
+                }}
+                className="flex items-center gap-1.5 text-[12.5px] font-bold text-[hsl(var(--primary))] hover:underline transition cursor-pointer"
               >
-                <Users size={17} className="mb-1" />
-                <span className="text-[12px] leading-tight">Gia đình người cao tuổi</span>
+                <ArrowLeft size={16} /> Quay lại đăng nhập
               </button>
 
-              <button
-                type="button"
-                onClick={() => handleRoleChange('caregiver')}
-                className={`flex flex-col items-center justify-center py-2.5 px-3 rounded-[12px] text-center transition ${selectedRole === 'caregiver'
-                    ? 'bg-[#435d41] text-white shadow-xs font-bold'
-                    : 'text-[#556758] hover:bg-[#f1f6ef] font-medium'
-                  }`}
-                data-testid="button-role-caregiver"
-              >
-                <Stethoscope size={17} className="mb-1" />
-                <span className="text-[12px] leading-tight">Người chăm sóc</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="mb-5">
-            <h2 className="font-display text-[30px] sm:text-[34px] leading-tight tracking-[-.04em]">
-              {isLogin
-                ? (selectedRole === 'family' ? 'Đăng nhập Gia đình' : 'Đăng nhập Người chăm sóc')
-                : (selectedRole === 'family' ? 'Tạo tài khoản Gia đình' : 'Đăng ký Người chăm sóc')}
-            </h2>
-            <p className="mt-1.5 text-[13px] leading-5 text-[hsl(var(--muted-foreground))]">
-              {selectedRole === 'family'
-                ? 'Tìm kiếm, đặt lịch và quản lý hồ sơ chăm sóc người thân.'
-                : 'Cổng tải lên chứng chỉ, nhận ca làm việc và thẩm định CARE SCORE.'}
-            </p>
-          </div>
-
-          {/* BANNER XÁC NHẬN VAI TRÒ RÕ RÀNG KHI ĐĂNG KÝ */}
-          {!isLogin && (
-            <div className={`mb-4 flex items-center gap-3 rounded-[14px] border p-3 transition ${selectedRole === 'caregiver'
-                ? 'border-[#3f634b]/40 bg-[#eef6ed] text-[#2c4835]'
-                : 'border-[#d4a868]/40 bg-[#fbf5ea] text-[#6d4d1e]'
-              }`}>
-              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${selectedRole === 'caregiver' ? 'bg-[#3f634b] text-white' : 'bg-[#c49354] text-white'
-                }`}>
-                {selectedRole === 'caregiver' ? <Stethoscope size={16} /> : <Users size={16} />}
-              </div>
-              <div className="min-w-0 flex-1 text-left">
-                <p className="text-[12px] font-bold leading-tight">
-                  {selectedRole === 'caregiver' ? 'Bạn đang đăng ký: TÀI KHOẢN NGƯỜI CHĂM SÓC' : 'Bạn đang đăng ký: TÀI KHOẢN GIA ĐÌNH'}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-tight opacity-80">
-                  {selectedRole === 'caregiver'
-                    ? 'Tự động mở Bàn làm việc & Cổng thẩm định hồ sơ Người chăm sóc.'
-                    : 'Tự động kết nối hồ sơ chăm sóc người thân và điều phối viên.'}
+              <div>
+                <h2 className="font-display text-[28px] sm:text-[32px] leading-tight tracking-[-.04em] font-bold">
+                  {forgotStep === 'EMAIL' && 'Khôi phục mật khẩu'}
+                  {forgotStep === 'OTP' && 'Xác nhận mã OTP'}
+                  {forgotStep === 'NEW_PASSWORD' && 'Thiết lập mật khẩu mới'}
+                </h2>
+                <p className="mt-1.5 text-[13px] leading-5 text-[hsl(var(--muted-foreground))]">
+                  {forgotStep === 'EMAIL' && 'Nhập email tài khoản của bạn để nhận mã xác nhận OTP 6 số qua hộp thư.'}
+                  {forgotStep === 'OTP' && `Mã xác nhận 6 số đã được gửi đến email ${forgotEmail}. Vui lòng nhập mã để xác minh.`}
+                  {forgotStep === 'NEW_PASSWORD' && 'Xác thực mã thành công! Mời bạn tạo mật khẩu mới cho tài khoản.'}
                 </p>
               </div>
+
+              {/* Stepper Progress 3 bước */}
+              <div className="flex items-center gap-2 py-1 text-[11.5px] font-semibold text-[hsl(var(--muted-foreground))]">
+                <div className={`flex items-center gap-1.5 ${forgotStep === 'EMAIL' ? 'text-[hsl(var(--primary))] font-bold' : ''}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10.5px] ${forgotStep === 'EMAIL' ? 'bg-[hsl(var(--primary))] text-white' : 'bg-gray-200 text-gray-600'}`}>1</span>
+                  <span>Nhập email</span>
+                </div>
+                <span className="text-gray-300">→</span>
+                <div className={`flex items-center gap-1.5 ${forgotStep === 'OTP' ? 'text-[hsl(var(--primary))] font-bold' : ''}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10.5px] ${forgotStep === 'OTP' ? 'bg-[hsl(var(--primary))] text-white' : 'bg-gray-200 text-gray-600'}`}>2</span>
+                  <span>Xác nhận mã</span>
+                </div>
+                <span className="text-gray-300">→</span>
+                <div className={`flex items-center gap-1.5 ${forgotStep === 'NEW_PASSWORD' ? 'text-[hsl(var(--primary))] font-bold' : ''}`}>
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10.5px] ${forgotStep === 'NEW_PASSWORD' ? 'bg-[hsl(var(--primary))] text-white' : 'bg-gray-200 text-gray-600'}`}>3</span>
+                  <span>Mật khẩu mới</span>
+                </div>
+              </div>
+
+              {/* THÔNG BÁO LỖI NẾU CÓ */}
+              {errorMsg && (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[12.5px] text-red-700 flex items-center gap-2 animate-rise">
+                  <AlertCircle size={16} className="shrink-0 text-red-600" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* BƯỚC 1: NHẬP EMAIL */}
+              {forgotStep === 'EMAIL' && (
+                <form onSubmit={handleForgotEmailSubmit} className="space-y-3.5">
+                  <label className="block">
+                    <span className="mb-1.5 block text-[11.5px] font-bold">Email tài khoản</span>
+                    <input
+                      type="email"
+                      required
+                      autoFocus
+                      value={forgotEmail}
+                      onChange={e => setForgotEmail(e.target.value)}
+                      placeholder="Nhập email của bạn"
+                      className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                    />
+                  </label>
+
+                  <div className="rounded-xl bg-[#f4f8f3] border border-[#d6e7d4] p-3 text-[12px] text-[#2d5631] flex items-start gap-2.5">
+                    <ShieldCheck size={16} className="text-[#3b6b3e] shrink-0 mt-0.5" />
+                    <p>
+                      Mã OTP 6 số bảo mật sẽ được gửi đến email này để xác thực chủ tài khoản, có hiệu lực trong <strong>10 phút</strong>.
+                    </p>
+                  </div>
+
+                  <Button type="submit" disabled={forgotLoading} className="mt-2 w-full">
+                    {forgotLoading ? 'Đang gửi mã...' : 'Gửi mã xác nhận qua Email'}
+                    {!forgotLoading && <ArrowRight size={16} />}
+                  </Button>
+                </form>
+              )}
+
+              {/* BƯỚC 2: GỬI MÃ, XÁC NHẬN MÃ (CHƯA HIỆN Ô MẬT KHẨU MỚI) */}
+              {forgotStep === 'OTP' && (
+                <form onSubmit={handleVerifyOtpSubmit} className="space-y-4">
+                  <div className="flex items-center justify-between rounded-xl bg-emerald-50/80 border border-emerald-200 px-3.5 py-2.5 text-[12px] text-emerald-800">
+                    <span className="truncate">Gửi đến: <strong>{forgotEmail}</strong></span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForgotStep('EMAIL');
+                        setErrorMsg('');
+                      }}
+                      className="text-[11px] font-bold text-emerald-700 hover:underline shrink-0 cursor-pointer"
+                    >
+                      Đổi email
+                    </button>
+                  </div>
+
+                  {devOtp && (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-2.5 text-[12px] text-amber-900 flex items-center justify-between">
+                      <span>💡 Mã thử nghiệm: <strong>{devOtp}</strong></span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const digits = devOtp.split('').slice(0, 6);
+                          setOtpDigits(digits);
+                        }}
+                        className="text-[10.5px] font-bold bg-amber-200 px-2 py-0.5 rounded hover:bg-amber-300"
+                      >
+                        Điền nhanh
+                      </button>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11.5px] font-bold">Mã xác nhận 6 số</span>
+                      <button
+                        type="button"
+                        disabled={forgotCountdown > 0 || forgotLoading}
+                        onClick={handleResendOtp}
+                        className="text-[11px] font-semibold text-[hsl(var(--primary))] hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                      >
+                        {forgotCountdown > 0 ? `Gửi lại sau (${forgotCountdown}s)` : 'Gửi lại mã OTP'}
+                      </button>
+                    </div>
+
+                    {/* 6 ô OTP */}
+                    <div className="flex items-center justify-between gap-2">
+                      {otpDigits.map((digit, idx) => (
+                        <input
+                          key={idx}
+                          ref={el => (otpRefs.current[idx] = el)}
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={1}
+                          value={digit}
+                          onChange={e => handleOtpChange(idx, e.target.value)}
+                          onKeyDown={e => handleOtpKeyDown(idx, e)}
+                          className="h-12 w-11 sm:h-13 sm:w-12 rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] text-center font-mono text-[20px] font-bold text-gray-900 outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button type="submit" disabled={forgotLoading || getFullOtp().length < 6} className="mt-2 w-full">
+                    {forgotLoading ? 'Đang xác thực mã...' : 'Xác nhận mã OTP'}
+                    {!forgotLoading && <ArrowRight size={16} />}
+                  </Button>
+                </form>
+              )}
+
+              {/* BƯỚC 3: RỒI MỚI HIỆN RA Ô CHO NHẬP MẬT KHẨU MỚI VÀ XÁC NHẬN */}
+              {forgotStep === 'NEW_PASSWORD' && (
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-[12px] text-emerald-800 flex items-center gap-2">
+                    <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+                    <span>Xác thực mã OTP thành công! Mời bạn tạo mật khẩu mới.</span>
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-[11.5px] font-bold">Mật khẩu mới</span>
+                    <div className="relative">
+                      <input
+                        type={showNewPass ? 'text' : 'password'}
+                        required
+                        autoFocus
+                        value={forgotNewPass}
+                        onChange={e => setForgotNewPass(e.target.value)}
+                        placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự)"
+                        className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 pr-10 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPass(!showNewPass)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        {showNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {/* Độ mạnh mật khẩu */}
+                    {getPassStrength() && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="grid grid-cols-3 gap-1 flex-1">
+                          <div className={`h-1.5 rounded-full transition-all ${getPassStrength()!.step >= 1 ? getPassStrength()!.color : 'bg-gray-200'}`} />
+                          <div className={`h-1.5 rounded-full transition-all ${getPassStrength()!.step >= 2 ? getPassStrength()!.color : 'bg-gray-200'}`} />
+                          <div className={`h-1.5 rounded-full transition-all ${getPassStrength()!.step >= 3 ? getPassStrength()!.color : 'bg-gray-200'}`} />
+                        </div>
+                        <span className={`text-[11px] font-bold ${getPassStrength()!.textColor}`}>
+                          {getPassStrength()!.text}
+                        </span>
+                      </div>
+                    )}
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1.5 block text-[11.5px] font-bold">Xác nhận lại mật khẩu mới</span>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPass ? 'text' : 'password'}
+                        required
+                        value={forgotConfirmPass}
+                        onChange={e => setForgotConfirmPass(e.target.value)}
+                        placeholder="Nhập lại mật khẩu mới"
+                        className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 pr-10 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPass(!showConfirmPass)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                      >
+                        {showConfirmPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                    {forgotConfirmPass && (
+                      <p className={`mt-1 text-[11px] font-medium ${forgotNewPass === forgotConfirmPass ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {forgotNewPass === forgotConfirmPass ? '✓ Mật khẩu khớp' : 'Mật khẩu xác nhận chưa khớp'}
+                      </p>
+                    )}
+                  </label>
+
+                  <Button
+                    type="submit"
+                    disabled={forgotLoading || forgotNewPass.length < 6 || forgotNewPass !== forgotConfirmPass}
+                    className="mt-2 w-full"
+                  >
+                    {forgotLoading ? 'Đang cập nhật mật khẩu...' : 'Hoàn tất & Cập nhật mật khẩu'}
+                    {!forgotLoading && <Check size={16} />}
+                  </Button>
+                </form>
+              )}
             </div>
-          )}
+          ) : (
+            /* ======================================================== */
+            /* FORM ĐĂNG NHẬP / ĐĂNG KÝ GỐC (KHI KHÔNG Ở CHẾ ĐỘ QUÊN MK) */
+            /* ======================================================== */
+            <>
+              {/* BỘ CHỌN VAI TRÒ ĐĂNG NHẬP / ĐĂNG KÝ: CHỈ 2 ĐỐI TƯỢNG (GIA ĐÌNH & NGƯỜI CHĂM SÓC) */}
+              <div className="mb-5">
+                <p className="text-[11px] font-bold uppercase tracking-[.14em] text-[hsl(var(--primary))] mb-2">
+                  Chọn vai trò truy cập của bạn:
+                </p>
+                <div className="grid grid-cols-2 gap-2 rounded-[16px] border border-[hsl(var(--border))] bg-white p-1.5 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => handleRoleChange('family')}
+                    className={`flex flex-col items-center justify-center py-2.5 px-3 rounded-[12px] text-center transition ${selectedRole === 'family'
+                        ? 'bg-[#435d41] text-white shadow-xs font-bold'
+                        : 'text-[#556758] hover:bg-[#f1f6ef] font-medium'
+                      }`}
+                    data-testid="button-role-family"
+                  >
+                    <Users size={17} className="mb-1" />
+                    <span className="text-[12px] leading-tight">Gia đình người cao tuổi</span>
+                  </button>
 
-          {/* THÔNG BÁO THÀNH CÔNG NẾU CÓ */}
-          {successMsg && (
-            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[12.5px] text-emerald-800 flex items-center gap-2 animate-rise">
-              <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
-              <span>{successMsg}</span>
-            </div>
-          )}
+                  <button
+                    type="button"
+                    onClick={() => handleRoleChange('caregiver')}
+                    className={`flex flex-col items-center justify-center py-2.5 px-3 rounded-[12px] text-center transition ${selectedRole === 'caregiver'
+                        ? 'bg-[#435d41] text-white shadow-xs font-bold'
+                        : 'text-[#556758] hover:bg-[#f1f6ef] font-medium'
+                      }`}
+                    data-testid="button-role-caregiver"
+                  >
+                    <Stethoscope size={17} className="mb-1" />
+                    <span className="text-[12px] leading-tight">Người chăm sóc</span>
+                  </button>
+                </div>
+              </div>
 
-          {/* THÔNG BÁO LỖI NẾU CÓ */}
-          {errorMsg && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-[12.5px] text-red-700 flex items-center gap-2 animate-rise">
-              <AlertCircle size={16} className="shrink-0 text-red-600" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+              <div className="mb-5">
+                <h2 className="font-display text-[30px] sm:text-[34px] leading-tight tracking-[-.04em]">
+                  {isLogin
+                    ? (selectedRole === 'family' ? 'Đăng nhập Gia đình' : 'Đăng nhập Người chăm sóc')
+                    : (selectedRole === 'family' ? 'Tạo tài khoản Gia đình' : 'Đăng ký Người chăm sóc')}
+                </h2>
+                <p className="mt-1.5 text-[13px] leading-5 text-[hsl(var(--muted-foreground))]">
+                  {selectedRole === 'family'
+                    ? 'Tìm kiếm, đặt lịch và quản lý hồ sơ chăm sóc người thân.'
+                    : 'Cổng tải lên chứng chỉ, nhận ca làm việc và thẩm định CARE SCORE.'}
+                </p>
+              </div>
 
-          <form onSubmit={handleSubmit} className="space-y-3.5">
-            <label className="block">
-              <span className="mb-1.5 block text-[11.5px] font-bold">Email tài khoản</span>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="Nhập email của bạn"
-                className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
-              />
-            </label>
+              {/* BANNER XÁC NHẬN VAI TRÒ RÕ RÀNG KHI ĐĂNG KÝ */}
+              {!isLogin && (
+                <div className={`mb-4 flex items-center gap-3 rounded-[14px] border p-3 transition ${selectedRole === 'caregiver'
+                    ? 'border-[#3f634b]/40 bg-[#eef6ed] text-[#2c4835]'
+                    : 'border-[#d4a868]/40 bg-[#fbf5ea] text-[#6d4d1e]'
+                  }`}>
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${selectedRole === 'caregiver' ? 'bg-[#3f634b] text-white' : 'bg-[#c49354] text-white'
+                    }`}>
+                    {selectedRole === 'caregiver' ? <Stethoscope size={16} /> : <Users size={16} />}
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-[12px] font-bold leading-tight">
+                      {selectedRole === 'caregiver' ? 'Bạn đang đăng ký: TÀI KHOẢN NGƯỜI CHĂM SÓC' : 'Bạn đang đăng ký: TÀI KHOẢN GIA ĐÌNH'}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-tight opacity-80">
+                      {selectedRole === 'caregiver'
+                        ? 'Tự động mở Bàn làm việc & Cổng thẩm định hồ sơ Người chăm sóc.'
+                        : 'Tự động kết nối hồ sơ chăm sóc người thân và điều phối viên.'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
-            {!isLogin && (
-              <label className="block">
-                <span className="mb-1.5 block text-[11.5px] font-bold">
-                  {selectedRole === 'caregiver' ? 'Họ và tên người chăm sóc' : 'Họ và tên đại diện gia đình'}
-                </span>
-                <input
-                  required
-                  value={fullname}
-                  onChange={e => setFullname(e.target.value)}
-                  placeholder={selectedRole === 'caregiver' ? 'Ví dụ: Nguyễn Lan Anh' : 'Ví dụ: Nguyễn Minh Mai'}
-                  className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
-                />
-              </label>
-            )}
+              {/* THÔNG BÁO THÀNH CÔNG NẾU CÓ */}
+              {successMsg && (
+                <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[12.5px] text-emerald-800 flex items-center gap-2 animate-rise">
+                  <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+                  <span>{successMsg}</span>
+                </div>
+              )}
 
-            <label className="block">
-              <span className="mb-1.5 block text-[11.5px] font-bold">Mật khẩu</span>
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Nhập mật khẩu"
-                className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
-              />
-            </label>
+              {/* THÔNG BÁO LỖI NẾU CÓ */}
+              {errorMsg && (
+                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-[12.5px] text-red-700 flex items-center gap-2 animate-rise">
+                  <AlertCircle size={16} className="shrink-0 text-red-600" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
 
-            <div className="flex items-center justify-between pt-1 text-[11.5px]">
-              <label className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]"><input type="checkbox" defaultChecked className="accent-[#536f4b]" /> Ghi nhớ đăng nhập</label>
-              {isLogin && (
+              <form onSubmit={handleSubmit} className="space-y-3.5">
+                <label className="block">
+                  <span className="mb-1.5 block text-[11.5px] font-bold">Email tài khoản</span>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="Nhập email của bạn"
+                    className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                  />
+                </label>
+
+                {!isLogin && (
+                  <label className="block">
+                    <span className="mb-1.5 block text-[11.5px] font-bold">
+                      {selectedRole === 'caregiver' ? 'Họ và tên người chăm sóc' : 'Họ và tên đại diện gia đình'}
+                    </span>
+                    <input
+                      required
+                      value={fullname}
+                      onChange={e => setFullname(e.target.value)}
+                      placeholder={selectedRole === 'caregiver' ? 'Ví dụ: Nguyễn Lan Anh' : 'Ví dụ: Nguyễn Minh Mai'}
+                      className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                    />
+                  </label>
+                )}
+
+                <label className="block">
+                  <span className="mb-1.5 block text-[11.5px] font-bold">Mật khẩu</span>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Nhập mật khẩu"
+                    className="h-11 w-full rounded-[13px] border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 text-[13px] outline-none transition focus:border-[hsl(var(--primary))] focus:ring-4 focus:ring-[hsl(var(--primary)/.10)]"
+                  />
+                </label>
+
+                <div className="flex items-center justify-between pt-1 text-[11.5px]">
+                  <label className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]"><input type="checkbox" defaultChecked className="accent-[#536f4b]" /> Ghi nhớ đăng nhập</label>
+                  {isLogin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setErrorMsg('');
+                        setSuccessMsg('');
+                        setForgotEmail(email.trim());
+                        setForgotStep('EMAIL');
+                        setOtpDigits(['', '', '', '', '', '']);
+                        setForgotNewPass('');
+                        setForgotConfirmPass('');
+                        setIsForgotPassword(true);
+                      }}
+                      className="font-bold text-[hsl(var(--primary))] hover:underline cursor-pointer transition-colors"
+                      data-testid="button-forgot-password"
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  )}
+                </div>
+
+                <Button type="submit" disabled={loading} className="mt-2 w-full" testId="button-auth-submit">
+                  {loading ? 'Đang xử lý...' : isLogin
+                    ? (selectedRole === 'family' ? 'Đăng nhập Gia đình' : 'Đăng nhập Người chăm sóc')
+                    : (selectedRole === 'family' ? 'Hoàn tất Đăng ký Gia đình' : 'Hoàn tất Đăng ký Người chăm sóc')}
+                  {!loading && <ArrowRight size={16} />}
+                </Button>
+              </form>
+
+              <div className="my-6 flex items-center gap-3 text-[11px] text-[hsl(var(--muted-foreground))]"><span className="h-px flex-1 bg-[hsl(var(--border))]" /> hoặc <span className="h-px flex-1 bg-[hsl(var(--border))]" /></div>
+
+              <p className="text-center text-[12.5px] text-[hsl(var(--muted-foreground))]">
+                {isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}{' '}
                 <button
-                  type="button"
                   onClick={() => {
                     setErrorMsg('');
                     setSuccessMsg('');
-                    setShowForgotPassword(true);
+                    setLocation(isLogin ? `/register?role=${selectedRole}` : `/login?role=${selectedRole}`);
                   }}
-                  className="font-bold text-[hsl(var(--primary))] hover:underline cursor-pointer transition-colors"
-                  data-testid="button-forgot-password"
+                  className="font-bold text-[hsl(var(--primary))]"
                 >
-                  Quên mật khẩu?
+                  {isLogin ? 'Đăng ký ngay' : 'Đăng nhập'}
                 </button>
-              )}
-            </div>
-
-            <Button type="submit" disabled={loading} className="mt-2 w-full" testId="button-auth-submit">
-              {loading ? 'Đang xử lý...' : isLogin
-                ? (selectedRole === 'family' ? 'Đăng nhập Gia đình' : 'Đăng nhập Người chăm sóc')
-                : (selectedRole === 'family' ? 'Hoàn tất Đăng ký Gia đình' : 'Hoàn tất Đăng ký Người chăm sóc')}
-              {!loading && <ArrowRight size={16} />}
-            </Button>
-          </form>
-
-          <div className="my-6 flex items-center gap-3 text-[11px] text-[hsl(var(--muted-foreground))]"><span className="h-px flex-1 bg-[hsl(var(--border))]" /> hoặc <span className="h-px flex-1 bg-[hsl(var(--border))]" /></div>
-
-          <p className="text-center text-[12.5px] text-[hsl(var(--muted-foreground))]">
-            {isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}{' '}
-            <button
-              onClick={() => {
-                setErrorMsg('');
-                setSuccessMsg('');
-                setLocation(isLogin ? `/register?role=${selectedRole}` : `/login?role=${selectedRole}`);
-              }}
-              className="font-bold text-[hsl(var(--primary))]"
-            >
-              {isLogin ? 'Đăng ký ngay' : 'Đăng nhập'}
-            </button>
-          </p>
-
-          <ForgotPasswordModal
-            isOpen={showForgotPassword}
-            onClose={() => setShowForgotPassword(false)}
-            initialEmail={email}
-            onSuccess={(updatedEmail) => {
-              setShowForgotPassword(false);
-              setEmail(updatedEmail);
-              setPassword('');
-              setSuccessMsg('Đặt lại mật khẩu thành công! Vui lòng nhập mật khẩu mới để đăng nhập.');
-            }}
-          />
+              </p>
+            </>
+          )}
         </div>
       </div>
     </div>
