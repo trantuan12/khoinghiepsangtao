@@ -24,7 +24,17 @@ export default defineConfig({
   },
   server: {
     port,
-    host: '0.0.0.0'
+    host: '0.0.0.0',
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true
+      },
+      '/uploads': {
+        target: 'http://127.0.0.1:5000',
+        changeOrigin: true
+      }
+    }
   },
   preview: {
     port,

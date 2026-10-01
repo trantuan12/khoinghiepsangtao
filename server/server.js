@@ -6235,7 +6235,7 @@ app.get('/', (req, res) => {
 // ========================================================
 // KHỞI ĐỘNG SERVER
 // ========================================================
-app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 [CARE-MATCH Backend] Server đang chạy tại: http://0.0.0.0:${PORT}`);
+app.listen(PORT, async () => {
+  console.log(`🚀 [CARE-MATCH Backend] Server đang chạy tại: http://localhost:${PORT} (IPv4/IPv6 Dual-Stack)`);
   await initMySql();
 });
