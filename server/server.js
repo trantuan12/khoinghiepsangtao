@@ -15,9 +15,13 @@ const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 
 // Tạo thư mục uploads nếu chưa tồn tại
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'uploads') : path.join(__dirname, 'uploads');
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('Lưu ý thư mục uploads:', e.message);
 }
 
 app.use(cors());
@@ -31,11 +35,11 @@ app.get('/google4f3cf9857c040986.html', (req, res) => {
 });
 
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
+  host: process.env.DB_HOST || 'sakura.proxy.rlwy.net',
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'care_match_db',
-  port: Number(process.env.DB_PORT) || 3306,
+  password: process.env.DB_PASSWORD || 'yzaFTDoNnpetOSEmgnDwqzAgqRBSlggx',
+  database: process.env.DB_NAME || 'railway',
+  port: Number(process.env.DB_PORT) || 34650,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
@@ -1246,8 +1250,8 @@ const passwordResetOtpStore = new Map();
 
 // Khởi tạo Transporter cho Nodemailer
 function createMailTransporter() {
-  const user = process.env.EMAIL_USER || process.env.SMTP_USER;
-  const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+  const user = process.env.EMAIL_USER || process.env.SMTP_USER || 'carematch.io.vn@gmail.com';
+  const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS || 'pzdc nfmi tegb gteg';
 
   if (!user || !pass) {
     return null;
@@ -6235,7 +6239,12 @@ app.get('/', (req, res) => {
 // ========================================================
 // KHỞI ĐỘNG SERVER
 // ========================================================
-app.listen(PORT, async () => {
-  console.log(`🚀 [CARE-MATCH Backend] Server đang chạy tại: http://localhost:${PORT} (IPv4/IPv6 Dual-Stack)`);
-  await initMySql();
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`🚀 [CARE-MATCH Backend] Server đang chạy tại: http://localhost:${PORT} (IPv4/IPv6 Dual-Stack)`);
+    await initMySql();
+  });
+}
+
+export { app, initMySql };
+export default app;

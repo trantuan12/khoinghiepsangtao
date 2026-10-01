@@ -1098,7 +1098,11 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail })
       });
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch { }
+
       if (res.ok && data.success) {
         setForgotStep('OTP');
         setForgotCountdown(60);
@@ -1125,7 +1129,11 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim() })
       });
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch { }
+
       if (res.ok && data.success) {
         setForgotCountdown(60);
         setOtpDigits(['', '', '', '', '', '']);
@@ -1157,7 +1165,11 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim(), otp: fullOtp })
       });
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch { }
+
       if (res.ok && data.success) {
         setForgotStep('NEW_PASSWORD');
       } else {
@@ -1193,7 +1205,11 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
           newPassword: forgotNewPass
         })
       });
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch { }
+
       if (res.ok && data.success) {
         setIsForgotPassword(false);
         setEmail(forgotEmail.trim());
