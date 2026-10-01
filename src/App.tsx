@@ -1076,6 +1076,27 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
     return { text: 'Mạnh & An toàn', color: 'bg-emerald-500', textColor: 'text-emerald-600', step: 3 };
   };
 
+  // Trình gọi API xác thực có cơ chế dự phòng kép (Vercel Serverless + Localhost:5000)
+  const authFetch = async (endpoint: string, options: RequestInit) => {
+    try {
+      const res = await fetch(`${API}${endpoint}`, options);
+      if (res.status === 404 || res.status === 405) {
+        try {
+          const fb = await fetch(`http://localhost:5000/api${endpoint}`, options);
+          if (fb.ok) return fb;
+        } catch { }
+      }
+      return res;
+    } catch (err) {
+      try {
+        const fb = await fetch(`http://localhost:5000/api${endpoint}`, options);
+        return fb;
+      } catch {
+        throw err;
+      }
+    }
+  };
+
   // Bước 1: Gửi mã OTP qua email
   const handleForgotEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1093,7 +1114,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
     setForgotLoading(true);
     setErrorMsg('');
     try {
-      const res = await fetch(`${API}/auth/forgot-password`, {
+      const res = await authFetch('/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail })
@@ -1109,7 +1130,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
         if (data.devOtp) setDevOtp(data.devOtp);
         setTimeout(() => otpRefs.current[0]?.focus(), 150);
       } else {
-        setErrorMsg(data.message || 'Không tìm thấy tài khoản với email này.');
+        setErrorMsg(data.message || (res.status === 404 ? 'Không tìm thấy tài khoản với email này trong hệ thống.' : 'Không thể xử lý yêu cầu lúc này. Vui lòng thử lại sau.'));
       }
     } catch {
       setErrorMsg('Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại kết nối mạng.');
@@ -1124,7 +1145,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
     setForgotLoading(true);
     setErrorMsg('');
     try {
-      const res = await fetch(`${API}/auth/forgot-password`, {
+      const res = await authFetch('/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim() })
@@ -1160,7 +1181,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
     setForgotLoading(true);
     setErrorMsg('');
     try {
-      const res = await fetch(`${API}/auth/verify-otp`, {
+      const res = await authFetch('/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim(), otp: fullOtp })
@@ -1196,7 +1217,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
     setForgotLoading(true);
     setErrorMsg('');
     try {
-      const res = await fetch(`${API}/auth/reset-password`, {
+      const res = await authFetch('/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
