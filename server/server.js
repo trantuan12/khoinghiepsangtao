@@ -1463,7 +1463,19 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
   const expiresAt = Date.now() + 10 * 60 * 1000; // 10 phút
 
-  // Lưu vào bộ nhớ OTP
+  // Lưu vào database Railway (cho Serverless) và bộ nhớ đệm
+  if (pool) {
+    try {
+      await pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]);
+      await pool.execute(
+        'INSERT INTO password_resets (email, otp, expires_at, attempts, full_name, user_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [cleanEmail, otpCode, expiresAt, 0, user.full_name, user.id]
+      );
+    } catch (e) {
+      console.warn('Lỗi lưu OTP vào database Railway:', e.message);
+    }
+  }
+
   passwordResetOtpStore.set(cleanEmail, {
     otp: otpCode,
     expiresAt,
@@ -1496,14 +1508,36 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 });
 
 // 2.2 API: Xác thực mã OTP
-app.post('/api/auth/verify-otp', (req, res) => {
+app.post('/api/auth/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
   if (!email || !otp) {
     return res.status(400).json({ success: false, message: 'Vui lòng cung cấp email và mã OTP.' });
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const stored = passwordResetOtpStore.get(cleanEmail);
+  let stored = passwordResetOtpStore.get(cleanEmail);
+
+  // Đọc từ Railway MySQL nếu chạy trên Serverless nhiều instance
+  if (!stored && pool) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT * FROM password_resets WHERE LOWER(email) = ? ORDER BY id DESC LIMIT 1',
+        [cleanEmail]
+      );
+      if (rows.length > 0) {
+        stored = {
+          dbId: rows[0].id,
+          otp: rows[0].otp,
+          expiresAt: Number(rows[0].expires_at),
+          attempts: Number(rows[0].attempts || 0),
+          fullName: rows[0].full_name,
+          userId: rows[0].user_id
+        };
+      }
+    } catch (e) {
+      console.warn('Lỗi đọc OTP từ MySQL:', e.message);
+    }
+  }
 
   if (!stored) {
     return res.status(400).json({
@@ -1514,6 +1548,9 @@ app.post('/api/auth/verify-otp', (req, res) => {
 
   if (Date.now() > stored.expiresAt) {
     passwordResetOtpStore.delete(cleanEmail);
+    if (pool) {
+      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+    }
     return res.status(400).json({
       success: false,
       message: 'Mã OTP đã hết hiệu lực (10 phút). Vui lòng yêu cầu mã xác nhận mới.'
@@ -1522,8 +1559,15 @@ app.post('/api/auth/verify-otp', (req, res) => {
 
   if (stored.otp !== otp.trim()) {
     stored.attempts = (stored.attempts || 0) + 1;
+    passwordResetOtpStore.set(cleanEmail, stored);
+    if (pool && stored.dbId) {
+      pool.execute('UPDATE password_resets SET attempts = ? WHERE id = ?', [stored.attempts, stored.dbId]).catch(() => {});
+    }
     if (stored.attempts >= 5) {
       passwordResetOtpStore.delete(cleanEmail);
+      if (pool) {
+        pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+      }
       return res.status(400).json({
         success: false,
         message: 'Bạn đã nhập sai mã xác nhận quá 5 lần. Vui lòng yêu cầu mã mới để đảm bảo an toàn.'
@@ -1559,7 +1603,28 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  const stored = passwordResetOtpStore.get(cleanEmail);
+  let stored = passwordResetOtpStore.get(cleanEmail);
+
+  if (!stored && pool) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT * FROM password_resets WHERE LOWER(email) = ? ORDER BY id DESC LIMIT 1',
+        [cleanEmail]
+      );
+      if (rows.length > 0) {
+        stored = {
+          dbId: rows[0].id,
+          otp: rows[0].otp,
+          expiresAt: Number(rows[0].expires_at),
+          attempts: Number(rows[0].attempts || 0),
+          fullName: rows[0].full_name,
+          userId: rows[0].user_id
+        };
+      }
+    } catch (e) {
+      console.warn('Lỗi đọc OTP từ MySQL:', e.message);
+    }
+  }
 
   if (!stored) {
     return res.status(400).json({
@@ -1570,6 +1635,9 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   if (Date.now() > stored.expiresAt) {
     passwordResetOtpStore.delete(cleanEmail);
+    if (pool) {
+      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
+    }
     return res.status(400).json({
       success: false,
       message: 'Mã OTP đã hết hạn. Vui lòng gửi lại yêu cầu mới.'
@@ -1583,10 +1651,14 @@ app.post('/api/auth/reset-password', async (req, res) => {
     });
   }
 
-  if (isMySqlConnected) {
+  if (!pool || !isMySqlConnected) {
+    await initMySql();
+  }
+
+  if (pool) {
     try {
       const [result] = await pool.execute(
-        'UPDATE users SET password_hash = ? WHERE LOWER(email) = ? OR id = ?',
+        'UPDATE users SET password_hash = ?, updated_at = NOW() WHERE LOWER(email) = ? OR id = ?',
         [newPassword, cleanEmail, stored.userId]
       );
 
@@ -1599,6 +1671,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
       // Xoá OTP sau khi đã sử dụng thành công
       passwordResetOtpStore.delete(cleanEmail);
+      pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => {});
 
       console.log(`🔐 [AUTH] Đặt lại mật khẩu thành công cho tài khoản: ${cleanEmail}`);
 
@@ -1613,12 +1686,12 @@ app.post('/api/auth/reset-password', async (req, res) => {
         message: 'Lỗi máy chủ khi cập nhật mật khẩu mới. Vui lòng thử lại.'
       });
     }
+  } else {
+    return res.status(503).json({
+      success: false,
+      message: 'Không thể kết nối đến cơ sở dữ liệu Railway để cập nhật mật khẩu.'
+    });
   }
-
-  return res.status(500).json({
-    success: false,
-    message: 'Chưa thể kết nối tới cơ sở dữ liệu để cập nhật.'
-  });
 });
 
 
