@@ -304,7 +304,7 @@ function LogoMark({
             </span>
           </div>
           <span className={`mt-1.5 font-bold leading-tight tracking-normal ${sloganSizes[size]} ${light ? 'text-[#c6e5ab]' : 'text-[#486b26]'}`}>
-            Đồng hành mỗi ngày – An vui tuổi bạc
+            Đồng hành mỗi ngày – An tâm tuổi bạc
           </span>
         </div>
       )}
@@ -889,7 +889,7 @@ function Landing() {
             <span className="h-2 w-2 rounded-full bg-[#4d6d2e] animate-pulse" />
             <span className="text-[12px] font-bold text-[#34531d]">CARE MATCH</span>
             <span className="h-3 w-px bg-[#4d6d2e]/25" />
-            <span className="text-[12px] font-medium text-[#4d6d2e]">Đồng hành mỗi ngày – An vui tuổi bạc</span>
+            <span className="text-[12px] font-medium text-[#4d6d2e]">Đồng hành mỗi ngày – An tâm tuổi bạc</span>
           </div>
 
           <h1 className="mt-6 max-w-[650px] font-display text-[46px] font-bold leading-[1.05] tracking-tight text-[#1e2f13] sm:text-[62px]">
@@ -983,7 +983,7 @@ function Landing() {
           <img src="/logo.jpg" alt="CARE MATCH" className="h-9 w-9 rounded-[10px] object-cover border border-[#4d6d2e]/20" />
           <div>
             <p className="font-bold text-[14.5px] text-[#243818] leading-tight">CARE MATCH</p>
-            <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Đồng hành mỗi ngày – An vui tuổi bạc</p>
+            <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Đồng hành mỗi ngày – An tâm tuổi bạc</p>
           </div>
         </div>
         <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH · Sáng lập viên: Tống Thanh Dương</span>
@@ -1102,7 +1102,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
             <span>{selectedRole === 'family' ? 'Hồ sơ người chăm sóc được xác minh 100%' : 'Bảo mật thông tin & Kiểm định tiêu chuẩn'}</span>
           </div>
         </div>
-        <p className="text-[13px] text-[#c0e0b0] font-semibold tracking-wide">CARE MATCH · Đồng hành mỗi ngày – An vui tuổi bạc</p>
+        <p className="text-[13px] text-[#c0e0b0] font-semibold tracking-wide">CARE MATCH · Đồng hành mỗi ngày – An tâm tuổi bạc</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-5 py-10 sm:px-10">
