@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import mysql from 'mysql2/promise';
+import nodemailer from 'nodemailer';
 import { config } from 'dotenv';
 import path from 'path';
 import fs from 'fs';
@@ -1235,6 +1236,341 @@ app.post('/api/auth/register', async (req, res) => {
 
   return res.status(500).json({ success: false, message: 'Chưa kết nối MySQL server' });
 });
+
+// ========================================================
+// QUẢN LÝ EMAIL & KHÔI PHỤC MẬT KHẨU (FORGOT PASSWORD)
+// ========================================================
+
+// Bộ nhớ đệm lưu trữ OTP: Map<cleanEmail, { otp, expiresAt, attempts, fullName, userId }>
+const passwordResetOtpStore = new Map();
+
+// Khởi tạo Transporter cho Nodemailer
+function createMailTransporter() {
+  const user = process.env.EMAIL_USER || process.env.SMTP_USER;
+  const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+
+  if (!user || !pass) {
+    return null;
+  }
+
+  if (process.env.SMTP_HOST) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true' || Number(process.env.SMTP_PORT) === 465,
+      auth: { user, pass }
+    });
+  }
+
+  return nodemailer.createTransport({
+    service: process.env.EMAIL_SERVICE || 'gmail',
+    auth: { user, pass }
+  });
+}
+
+// Hàm gửi email thông báo mã OTP khôi phục mật khẩu với mẫu HTML đẹp mắt
+async function sendForgotPasswordEmail(toEmail, recipientName, otpCode) {
+  const transporter = createMailTransporter();
+  const fromAddress = process.env.EMAIL_USER 
+    ? `"CareMatch Vietnam" <${process.env.EMAIL_USER}>` 
+    : (process.env.EMAIL_FROM || '"CareMatch Support" <no-reply@carematch.vn>');
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Khôi phục mật khẩu CareMatch</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #f6f8f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #2d3748;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f6f8f5; padding: 36px 12px;">
+        <tr>
+          <td align="center">
+            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,0.06); border: 1px solid #e2ece0;">
+              <!-- Header -->
+              <tr>
+                <td style="background: linear-gradient(135deg, #1e3516 0%, #2f5223 100%); padding: 32px 28px; text-align: center;">
+                  <div style="font-size: 27px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">
+                    CARE<span style="color: #a4e078;">MATCH</span>
+                  </div>
+                  <div style="font-size: 13px; color: #d7ebd1; margin-top: 6px; font-weight: 500;">
+                    Nền Tảng Chăm Sóc Người Cao Tuổi & Chuyên Viên Tận Tâm
+                  </div>
+                </td>
+              </tr>
+              <!-- Body -->
+              <tr>
+                <td style="padding: 36px 32px;">
+                  <div style="display: inline-block; background-color: #edf7eb; color: #2d6124; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; border: 1px solid #c9e6c2;">
+                    BẢO MẬT TÀI KHOẢN
+                  </div>
+                  <h2 style="font-size: 21px; font-weight: 700; color: #1a202c; margin: 0 0 16px; line-height: 1.3;">
+                    Yêu cầu đặt lại mật khẩu tài khoản
+                  </h2>
+                  <p style="font-size: 14.5px; line-height: 1.6; color: #4a5568; margin: 0 0 14px;">
+                    Xin chào <strong>${recipientName || 'Quý khách'}</strong>,
+                  </p>
+                  <p style="font-size: 14.5px; line-height: 1.6; color: #4a5568; margin: 0 0 22px;">
+                    Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản liên kết với địa chỉ email: <strong style="color: #204017;">${toEmail}</strong>.
+                  </p>
+                  
+                  <!-- OTP Highlight Box -->
+                  <div style="background: linear-gradient(180deg, #f7faf5 0%, #edf5eb 100%); border: 2px dashed #598d47; border-radius: 16px; padding: 24px; text-align: center; margin: 24px 0;">
+                    <div style="font-size: 12px; font-weight: 700; color: #3d682c; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px;">
+                      MÃ XÁC NHẬN CỦA BẠN (OTP)
+                    </div>
+                    <div style="font-size: 36px; font-weight: 800; letter-spacing: 8px; color: #1a3314; font-family: 'SF Pro Display', Consolas, Monaco, monospace;">
+                      ${otpCode}
+                    </div>
+                    <div style="font-size: 12.5px; color: #5a7b4f; margin-top: 8px;">
+                      Mã có hiệu lực trong vòng <strong>10 phút</strong>
+                    </div>
+                  </div>
+
+                  <p style="font-size: 13.5px; line-height: 1.6; color: #718096; margin: 0 0 20px;">
+                    🔒 <strong>Khuyến nghị an toàn:</strong> Tuyệt đối không chia sẻ mã này cho bất kỳ ai, kể cả chuyên viên hỗ trợ. Nếu bạn không gửi yêu cầu này, vui lòng bỏ qua thư hoặc đổi mật khẩu để bảo vệ tài khoản.
+                  </p>
+
+                  <div style="border-top: 1px solid #edf2f7; padding-top: 20px; margin-top: 26px;">
+                    <p style="font-size: 12.5px; color: #a0aec0; margin: 0; line-height: 1.6;">
+                      Email tự động được gửi từ hệ thống <strong>CareMatch</strong>. Mọi thắc mắc xin liên hệ tổng đài hỗ trợ 24/7.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+              <!-- Footer -->
+              <tr>
+                <td style="background-color: #f7faf7; padding: 18px 24px; text-align: center; border-top: 1px solid #e6eee4;">
+                  <p style="font-size: 12px; color: #718096; margin: 0;">
+                    © ${new Date().getFullYear()} CareMatch Vietnam • Trao gửi an tâm, chăm sóc vẹn toàn.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+  `;
+
+  if (!transporter) {
+    console.warn(`⚠️ [CARE-MATCH MAIL] Chưa thiết lập cấu hình EMAIL_USER & EMAIL_PASS trong file .env.`);
+    console.warn(`🔑 [CARE-MATCH MAIL] Mã OTP khôi phục cho [${toEmail}] là: >>> ${otpCode} <<<`);
+    return { sent: false, reason: 'no_smtp_configured' };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to: toEmail,
+      subject: `[CareMatch] ${otpCode} là mã xác nhận đặt lại mật khẩu của bạn`,
+      html: htmlContent
+    });
+    console.log(`✅ [CARE-MATCH MAIL] Đã gửi mail thành công đến ${toEmail} (ID: ${info.messageId})`);
+    return { sent: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`❌ [CARE-MATCH MAIL] Lỗi khi gửi mail qua SMTP đến ${toEmail}:`, err.message);
+    console.warn(`🔑 [CARE-MATCH MAIL FALLBACK] Mã OTP dự phòng cho [${toEmail}] là: >>> ${otpCode} <<<`);
+    return { sent: false, error: err.message };
+  }
+}
+
+// 2.1 API: Yêu cầu gửi mã OTP quên mật khẩu
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email || !email.trim()) {
+    return res.status(400).json({ success: false, message: 'Vui lòng nhập địa chỉ email của bạn.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  // Kiểm tra tài khoản tồn tại trong cơ sở dữ liệu
+  let user = null;
+  if (isMySqlConnected) {
+    try {
+      const [rows] = await pool.execute(
+        'SELECT id, username, email, full_name, role FROM users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1',
+        [cleanEmail, cleanEmail]
+      );
+      if (rows.length > 0) {
+        user = rows[0];
+      }
+    } catch (e) {
+      console.error('Lỗi truy vấn users khi quên mật khẩu:', e.message);
+    }
+  }
+
+  if (!user) {
+    return res.status(404).json({
+      success: false,
+      message: 'Không tìm thấy tài khoản nào với email này. Vui lòng kiểm tra lại địa chỉ email hoặc đăng ký tài khoản mới.'
+    });
+  }
+
+  // Tạo mã OTP 6 chữ số ngẫu nhiên
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 10 * 60 * 1000; // 10 phút
+
+  // Lưu vào bộ nhớ OTP
+  passwordResetOtpStore.set(cleanEmail, {
+    otp: otpCode,
+    expiresAt,
+    attempts: 0,
+    fullName: user.full_name,
+    userId: user.id
+  });
+
+  // Gửi email thực tế hoặc hiển thị mã test dự phòng
+  const sendResult = await sendForgotPasswordEmail(user.email || cleanEmail, user.full_name, otpCode);
+
+  if (sendResult.sent) {
+    return res.json({
+      success: true,
+      emailSent: true,
+      email: user.email,
+      message: `Mã xác nhận (OTP) đã được gửi đến email ${user.email}. Vui lòng kiểm tra hộp thư đến hoặc mục Thư rác/Spam.`
+    });
+  } else {
+    return res.json({
+      success: true,
+      emailSent: false,
+      email: user.email,
+      devOtp: otpCode,
+      message: sendResult.reason === 'no_smtp_configured'
+        ? `Mã xác nhận đã được tạo thành công! (Lưu ý: Chưa cấu hình EMAIL_USER trong .env, mã OTP thử nghiệm là: ${otpCode})`
+        : `Lỗi kết nối máy chủ gửi mail (${sendResult.error || 'SMTP Error'}). Mã OTP thử nghiệm là: ${otpCode}`
+    });
+  }
+});
+
+// 2.2 API: Xác thực mã OTP
+app.post('/api/auth/verify-otp', (req, res) => {
+  const { email, otp } = req.body;
+  if (!email || !otp) {
+    return res.status(400).json({ success: false, message: 'Vui lòng cung cấp email và mã OTP.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const stored = passwordResetOtpStore.get(cleanEmail);
+
+  if (!stored) {
+    return res.status(400).json({
+      success: false,
+      message: 'Yêu cầu không tồn tại hoặc đã hết hạn. Vui lòng gửi lại yêu cầu mới.'
+    });
+  }
+
+  if (Date.now() > stored.expiresAt) {
+    passwordResetOtpStore.delete(cleanEmail);
+    return res.status(400).json({
+      success: false,
+      message: 'Mã OTP đã hết hiệu lực (10 phút). Vui lòng yêu cầu mã xác nhận mới.'
+    });
+  }
+
+  if (stored.otp !== otp.trim()) {
+    stored.attempts = (stored.attempts || 0) + 1;
+    if (stored.attempts >= 5) {
+      passwordResetOtpStore.delete(cleanEmail);
+      return res.status(400).json({
+        success: false,
+        message: 'Bạn đã nhập sai mã xác nhận quá 5 lần. Vui lòng yêu cầu mã mới để đảm bảo an toàn.'
+      });
+    }
+    return res.status(400).json({
+      success: false,
+      message: `Mã OTP không chính xác. Bạn còn ${5 - stored.attempts} lần thử.`
+    });
+  }
+
+  return res.json({
+    success: true,
+    message: 'Xác thực mã OTP thành công. Mời bạn tiến hành nhập mật khẩu mới.'
+  });
+});
+
+// 2.3 API: Đặt lại mật khẩu mới
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Vui lòng điền đầy đủ email, mã OTP và mật khẩu mới.'
+    });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Mật khẩu mới phải có tối thiểu 6 ký tự.'
+    });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const stored = passwordResetOtpStore.get(cleanEmail);
+
+  if (!stored) {
+    return res.status(400).json({
+      success: false,
+      message: 'Phiên khôi phục mật khẩu không tồn tại hoặc đã hết hạn. Vui lòng thực hiện lại từ đầu.'
+    });
+  }
+
+  if (Date.now() > stored.expiresAt) {
+    passwordResetOtpStore.delete(cleanEmail);
+    return res.status(400).json({
+      success: false,
+      message: 'Mã OTP đã hết hạn. Vui lòng gửi lại yêu cầu mới.'
+    });
+  }
+
+  if (stored.otp !== otp.trim()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Mã xác nhận OTP không chính xác.'
+    });
+  }
+
+  if (isMySqlConnected) {
+    try {
+      const [result] = await pool.execute(
+        'UPDATE users SET password_hash = ? WHERE LOWER(email) = ? OR id = ?',
+        [newPassword, cleanEmail, stored.userId]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'Không tìm thấy tài khoản để cập nhật mật khẩu.'
+        });
+      }
+
+      // Xoá OTP sau khi đã sử dụng thành công
+      passwordResetOtpStore.delete(cleanEmail);
+
+      console.log(`🔐 [AUTH] Đặt lại mật khẩu thành công cho tài khoản: ${cleanEmail}`);
+
+      return res.json({
+        success: true,
+        message: 'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập ngay bằng mật khẩu mới.'
+      });
+    } catch (e) {
+      console.error('Lỗi MySQL khi cập nhật mật khẩu mới:', e.message);
+      return res.status(500).json({
+        success: false,
+        message: 'Lỗi máy chủ khi cập nhật mật khẩu mới. Vui lòng thử lại.'
+      });
+    }
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: 'Chưa thể kết nối tới cơ sở dữ liệu để cập nhật.'
+  });
+});
+
 
 // ---- HỒ SƠ NGƯỜI CẦN CHĂM SÓC (ELDERLY PROFILES) ----
 

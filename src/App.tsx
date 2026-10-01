@@ -1,6 +1,7 @@
 import { LandingBannerCarousel } from '@/components/LandingBannerCarousel';
 import { DashboardBannerCarousel } from '@/components/DashboardBannerCarousel';
 import { CaregiverPortal } from '@/components/CaregiverPortal';
+import { ForgotPasswordModal } from '@/components/ForgotPasswordModal';
 import { FamilyProfileModal, type FamilyProfileData } from '@/components/FamilyProfileModal';
 import { FamilyPremiumModal } from '@/components/FamilyPremiumModal';
 import { FamilyPaymentsView } from '@/components/payments/FamilyPaymentsView';
@@ -1011,10 +1012,13 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
   const [fullname, setFullname] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const handleRoleChange = (role: 'family' | 'caregiver') => {
     setSelectedRole(role);
     setErrorMsg('');
+    setSuccessMsg('');
     try {
       localStorage.setItem('carematch_selected_auth_role', role);
       const url = new URL(window.location.href);
@@ -1036,6 +1040,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
 
     setLoading(true);
     setErrorMsg('');
+    setSuccessMsg('');
 
     try {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
@@ -1182,6 +1187,14 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
             </div>
           )}
 
+          {/* THÔNG BÁO THÀNH CÔNG NẾU CÓ */}
+          {successMsg && (
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[12.5px] text-emerald-800 flex items-center gap-2 animate-rise">
+              <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
           {/* THÔNG BÁO LỖI NẾU CÓ */}
           {errorMsg && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-[12.5px] text-red-700 flex items-center gap-2 animate-rise">
@@ -1232,7 +1245,20 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
 
             <div className="flex items-center justify-between pt-1 text-[11.5px]">
               <label className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]"><input type="checkbox" defaultChecked className="accent-[#536f4b]" /> Ghi nhớ đăng nhập</label>
-              {isLogin && <button type="button" className="font-bold text-[hsl(var(--primary))]">Quên mật khẩu?</button>}
+              {isLogin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErrorMsg('');
+                    setSuccessMsg('');
+                    setShowForgotPassword(true);
+                  }}
+                  className="font-bold text-[hsl(var(--primary))] hover:underline cursor-pointer transition-colors"
+                  data-testid="button-forgot-password"
+                >
+                  Quên mật khẩu?
+                </button>
+              )}
             </div>
 
             <Button type="submit" disabled={loading} className="mt-2 w-full" testId="button-auth-submit">
@@ -1250,6 +1276,7 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
             <button
               onClick={() => {
                 setErrorMsg('');
+                setSuccessMsg('');
                 setLocation(isLogin ? `/register?role=${selectedRole}` : `/login?role=${selectedRole}`);
               }}
               className="font-bold text-[hsl(var(--primary))]"
@@ -1257,6 +1284,18 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
               {isLogin ? 'Đăng ký ngay' : 'Đăng nhập'}
             </button>
           </p>
+
+          <ForgotPasswordModal
+            isOpen={showForgotPassword}
+            onClose={() => setShowForgotPassword(false)}
+            initialEmail={email}
+            onSuccess={(updatedEmail) => {
+              setShowForgotPassword(false);
+              setEmail(updatedEmail);
+              setPassword('');
+              setSuccessMsg('Đặt lại mật khẩu thành công! Vui lòng nhập mật khẩu mới để đăng nhập.');
+            }}
+          />
         </div>
       </div>
     </div>
