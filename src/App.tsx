@@ -987,7 +987,7 @@ function Landing() {
             <p className="text-[11px] text-[#4d6d2e] font-semibold mt-0.5">Đồng hành mỗi ngày – An tâm tuổi bạc</p>
           </div>
         </div>
-        <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH · Sáng lập viên: Tống Thanh Dương</span>
+        <span>© 2026 CARE MATCH — Đề án Khởi nghiệp Sáng tạo Sinh viên CTXH trường Đại học Thủ đô Hà Nội · Sáng lập viên: Tống Thanh Dương</span>
       </footer>
     </div>
   );
