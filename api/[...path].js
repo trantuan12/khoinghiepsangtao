@@ -11,10 +11,12 @@ export const config = {
 export default async function handler(req, res) {
   if (!isDbInitialized) {
     try {
-      await initMySql();
-      isDbInitialized = true;
+      const connectedPool = await initMySql();
+      if (connectedPool) {
+        isDbInitialized = true;
+      }
     } catch (err) {
-      console.warn('Lỗi kết nối Railway MySQL trên Serverless:', err.message);
+      console.warn('Lỗi kết nối PostgreSQL/Supabase trên Serverless:', err.message);
     }
   }
 

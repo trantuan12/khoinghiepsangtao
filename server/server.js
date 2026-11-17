@@ -1,11 +1,11 @@
 import express from 'express';
 import cors from 'cors';
-import mysql from 'mysql2/promise';
 import nodemailer from 'nodemailer';
 import { config } from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { pool, getPgPool, getDbSummary } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,62 +34,267 @@ app.get('/google4f3cf9857c040986.html', (req, res) => {
   res.type('text/html').send('google-site-verification: google4f3cf9857c040986.html');
 });
 
-const dbConfig = {
-  host: process.env.DB_HOST || 'sakura.proxy.rlwy.net',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'yzaFTDoNnpetOSEmgnDwqzAgqRBSlggx',
-  database: process.env.DB_NAME || 'railway',
-  port: Number(process.env.DB_PORT) || 34650,
-  waitForConnections: true,
-  connectionLimit: 10,
-  connectTimeout: 15000,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000,
-  queueLimit: 0
-};
-
-let pool = null;
-let isMySqlConnected = false;
+let isMySqlConnected = false; // Giữ tên biến nội bộ cho tương thích các route, kết nối tới PostgreSQL / Supabase
 
 // ========================================================
-// KHỞI TẠO KẾT NỐI MYSQL
+// KHỞI TẠO KẾT NỐI POSTGRESQL / SUPABASE
 // ========================================================
+async function initCoreTables() {
+  if (!isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE OR REPLACE FUNCTION set_updated_at()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(64) NOT NULL UNIQUE,
+        email VARCHAR(128) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(20) NOT NULL DEFAULT 'family' CHECK (role IN ('family', 'caregiver', 'admin')),
+        full_name VARCHAR(128) NOT NULL,
+        phone VARCHAR(20) DEFAULT NULL,
+        avatar_initials VARCHAR(8) DEFAULT 'CM',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(128) NOT NULL,
+        otp VARCHAR(16) NOT NULL,
+        expires_at BIGINT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        full_name VARCHAR(128) DEFAULT NULL,
+        user_id INTEGER DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS elderly_profiles (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        full_name VARCHAR(128) NOT NULL,
+        date_of_birth DATE DEFAULT NULL,
+        gender VARCHAR(10) DEFAULT 'Nữ',
+        address VARCHAR(255) DEFAULT NULL,
+        district VARCHAR(64) DEFAULT NULL,
+        contact_name VARCHAR(128) DEFAULT NULL,
+        contact_phone VARCHAR(20) DEFAULT NULL,
+        care_needs TEXT DEFAULT NULL,
+        notes TEXT DEFAULT NULL,
+        verification_status VARCHAR(20) DEFAULT 'pending',
+        adl_score INTEGER DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS caregiver_profiles (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(128) DEFAULT 'Chuyên viên chăm sóc',
+        id_number VARCHAR(32) DEFAULT NULL,
+        experience_years INTEGER DEFAULT 0,
+        hourly_rate INTEGER DEFAULT 100000,
+        shift_rate INTEGER DEFAULT 400000,
+        night_shift_rate INTEGER DEFAULT 600000,
+        district VARCHAR(128) DEFAULT '',
+        contact_address VARCHAR(255) DEFAULT '',
+        bio TEXT DEFAULT NULL,
+        skills TEXT DEFAULT NULL,
+        documents TEXT DEFAULT NULL,
+        work_history TEXT DEFAULT NULL,
+        care_score INTEGER DEFAULT 0,
+        verification_status VARCHAR(32) DEFAULT 'not_submitted',
+        approved_by_admin_id INTEGER DEFAULT NULL,
+        approved_at TIMESTAMP NULL DEFAULT NULL,
+        rating NUMERIC(3,1) DEFAULT 4.9,
+        reviews_count INTEGER DEFAULT 38,
+        interview_status VARCHAR(32) DEFAULT 'not_scheduled',
+        interview_date VARCHAR(64) DEFAULT NULL,
+        interview_time VARCHAR(64) DEFAULT NULL,
+        interview_meeting_link VARCHAR(255) DEFAULT NULL,
+        interview_notes TEXT DEFAULT NULL,
+        interview_scheduled_at TIMESTAMP NULL DEFAULT NULL,
+        interview_passed_at TIMESTAMP NULL DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS caregiver_documents (
+        id SERIAL PRIMARY KEY,
+        caregiver_id INTEGER NOT NULL REFERENCES caregiver_profiles(id) ON DELETE CASCADE,
+        document_type VARCHAR(64) NOT NULL,
+        document_name VARCHAR(255) NOT NULL,
+        file_url TEXT DEFAULT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS schedules (
+        id SERIAL PRIMARY KEY,
+        family_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        caregiver_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        elderly_profile_id INTEGER DEFAULT NULL,
+        elderly_name VARCHAR(128) DEFAULT NULL,
+        caregiver_name VARCHAR(128) DEFAULT NULL,
+        schedule_date VARCHAR(64) NOT NULL,
+        time_slot VARCHAR(64) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        tasks TEXT DEFAULT NULL,
+        status VARCHAR(32) DEFAULT 'pending',
+        price INTEGER DEFAULT 400000,
+        caregiver_confirmed_completed BOOLEAN DEFAULT FALSE,
+        family_confirmed_completed BOOLEAN DEFAULT FALSE,
+        caregiver_completed_at TIMESTAMP NULL DEFAULT NULL,
+        family_completed_at TIMESTAMP NULL DEFAULT NULL,
+        voucher_code VARCHAR(64) DEFAULT NULL,
+        voucher_discount INTEGER DEFAULT 0,
+        original_price INTEGER DEFAULT NULL,
+        is_rated BOOLEAN DEFAULT FALSE,
+        rating INTEGER DEFAULT NULL,
+        review_id INTEGER DEFAULT NULL,
+        review_text TEXT DEFAULT NULL,
+        care_log_id INTEGER DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        conversation_id VARCHAR(64) NOT NULL,
+        sender_user_id INTEGER NOT NULL,
+        sender_name VARCHAR(128) NOT NULL,
+        sender_role VARCHAR(20) NOT NULL,
+        recipient_user_id INTEGER NOT NULL,
+        recipient_name VARCHAR(128) NOT NULL,
+        content TEXT NOT NULL,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type VARCHAR(32) NOT NULL DEFAULT 'system',
+        title VARCHAR(255) NOT NULL,
+        body TEXT DEFAULT NULL,
+        link VARCHAR(255) DEFAULT '/',
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Nạp tài khoản mẫu nếu database Supabase mới hoàn toàn trống
+    const [uCount] = await pool.execute('SELECT COUNT(*) AS cnt FROM users');
+    if (Number(uCount[0]?.cnt || 0) === 0) {
+      await pool.execute(`
+        INSERT INTO users (id, username, email, password_hash, role, full_name, phone, avatar_initials) VALUES
+          (1, 'admin', 'admin@carematch.vn', '123456', 'admin', 'Admin Quản Trị', '0988 000 999', 'AD'),
+          (2, 'lananh', 'lananh.care@example.com', '123456', 'caregiver', 'Nguyễn Lan Anh', '0912 345 678', 'LA'),
+          (3, 'thuha', 'thuha.care@example.com', '123456', 'caregiver', 'Trần Thu Hà', '0988 765 432', 'TH'),
+          (4, 'maichi', 'maichi.care@example.com', '123456', 'caregiver', 'Lê Mai Chi', '0903 112 233', 'MC'),
+          (5, 'mai', 'mai.nguyen@example.com', '123456', 'family', 'Nguyễn Minh Mai', '0934 567 890', 'ML')
+        ON CONFLICT (id) DO NOTHING
+      `);
+      await pool.execute("SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT MAX(id) FROM users), 1))");
+      console.log('✅ [PostgreSQL] Đã nạp tài khoản mặc định cho database mới');
+    }
+  } catch (err) {
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo bảng lõi:', err.message);
+  }
+}
+
+let initPromise = null;
+
 async function initMySql() {
-  if (isMySqlConnected && pool) {
+  if (isMySqlConnected) {
     return pool;
   }
-  try {
-    if (!pool) {
-      pool = mysql.createPool(dbConfig);
-    }
-    const conn = await pool.getConnection();
-    await conn.ping();
-    conn.release();
-    isMySqlConnected = true;
-    console.log(`✅ [MySQL] Đã kết nối thành công đến cơ sở dữ liệu Railway (${dbConfig.host}:${dbConfig.port}/${dbConfig.database})`);
-  } catch (err) {
-    isMySqlConnected = false;
-    console.error('⚠️ [MySQL] Lỗi kết nối MySQL Railway:', err.message);
-    return null;
+  if (initPromise) {
+    return initPromise;
   }
 
-  // Chạy các migration ngầm, không block luồng xử lý chính
-  Promise.allSettled([
-    initTransactionsTable(),
-    initCaregiverProfiles(),
-    initFamilyProfilesTable(),
-    initFamilySubscriptionsTable(),
-    initCaregiverBankAccountsTable(),
-    initBookingEscrowPaymentsTable(),
-    initCommunitiesTable(),
-    initCaregiverReviewsTable(),
-    initSchedulesTableMigrations(),
-    initVouchersTable(),
-    initSystemSettingsTable(),
-    initPatientCareLogsTable()
-  ]).catch(() => { });
+  initPromise = (async () => {
+    try {
+      const conn = await pool.getConnection();
+      await conn.ping();
+      conn.release();
+      isMySqlConnected = true;
+      const summary = getDbSummary();
+      console.log(`✅ [PostgreSQL/Supabase] Đã kết nối thành công (${summary.host}:${summary.port}/${summary.database})`);
+    } catch (err) {
+      isMySqlConnected = false;
+      console.error('⚠️ [PostgreSQL/Supabase] Lỗi kết nối database:', err.message);
+      return null;
+    }
 
-  return pool;
+    // Đảm bảo bảng lõi (users, profiles, schedules...) tồn tại trước khi chạy các bảng phụ thuộc FK
+    await initCoreTables();
+
+    // Chạy đầy đủ các migration bảng phụ thuộc & đồng bộ
+    await Promise.allSettled([
+      initTransactionsTable(),
+      initCaregiverProfiles(),
+      initFamilyProfilesTable(),
+      initFamilySubscriptionsTable(),
+      initCaregiverBankAccountsTable(),
+      initBookingEscrowPaymentsTable(),
+      initCommunitiesTable(),
+      initCaregiverReviewsTable(),
+      initSchedulesTableMigrations(),
+      initVouchersTable(),
+      initSystemSettingsTable(),
+      initPatientCareLogsTable()
+    ]);
+
+    // Đảm bảo trigger tự động cập nhật updated_at hoạt động trên toàn bộ bảng
+    try {
+      await pool.execute(`
+        DO $$
+        DECLARE t TEXT;
+        BEGIN
+          FOREACH t IN ARRAY ARRAY[
+            'users', 'elderly_profiles', 'family_profiles', 'family_subscriptions',
+            'caregiver_bank_accounts', 'booking_escrow_payments', 'vouchers',
+            'system_settings', 'communities', 'caregiver_reviews', 'patient_care_logs'
+          ]
+          LOOP
+            IF to_regclass('public.' || t) IS NOT NULL THEN
+              EXECUTE format('DROP TRIGGER IF EXISTS trg_%I_updated_at ON %I', t, t);
+              EXECUTE format('CREATE TRIGGER trg_%I_updated_at BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION set_updated_at()', t, t);
+            END IF;
+          END LOOP;
+        END $$;
+      `);
+    } catch (trgErr) {
+      console.warn('Lưu ý kiểm tra trigger updated_at:', trgErr.message);
+    }
+
+    return pool;
+  })().finally(() => {
+    initPromise = null;
+  });
+
+  return initPromise;
 }
 
 // Khởi tạo bảng thanh toán & giao dịch nếu chưa có
@@ -98,24 +303,22 @@ async function initTransactionsTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS transactions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         transaction_code VARCHAR(64) UNIQUE NOT NULL,
-        schedule_id INT NULL,
-        family_user_id INT NOT NULL,
-        caregiver_user_id INT NOT NULL,
+        schedule_id INTEGER NULL,
+        family_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        caregiver_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         service_name VARCHAR(255) NOT NULL,
-        total_amount INT NOT NULL COMMENT 'Số tiền gia đình thanh toán',
-        platform_fee INT DEFAULT 0 COMMENT 'Phí điều phối nền tảng',
-        payout_amount INT NOT NULL COMMENT 'Số tiền trả công người chăm sóc',
-        family_payment_status ENUM('paid', 'pending', 'cancelled') DEFAULT 'paid',
-        caregiver_payout_status ENUM('paid', 'pending', 'processing') DEFAULT 'paid',
+        total_amount INTEGER NOT NULL,
+        platform_fee INTEGER DEFAULT 0,
+        payout_amount INTEGER NOT NULL,
+        family_payment_status VARCHAR(20) DEFAULT 'paid',
+        caregiver_payout_status VARCHAR(20) DEFAULT 'paid',
         payment_method VARCHAR(64) DEFAULT 'Chuyển khoản QR',
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        paid_at TIMESTAMP NULL,
-        FOREIGN KEY (family_user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        paid_at TIMESTAMP NULL
+      );
     `);
 
     const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM transactions');
@@ -200,10 +403,10 @@ async function initTransactionsTable() {
           ]
         );
       }
-      console.log('✅ [MySQL] Đã khởi tạo dữ liệu mẫu cho bảng transactions');
+      console.log('✅ [PostgreSQL] Đã khởi tạo dữ liệu mẫu cho bảng transactions');
     }
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo transactions table:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo transactions table:', err.message);
   }
 }
 
@@ -213,32 +416,17 @@ async function initCaregiverProfiles() {
   try {
     // 1. Đảm bảo các cột ca làm việc và lịch sử công tác tồn tại
     try {
-      const [cols] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'shift_rate'");
-      if (cols.length === 0) {
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN shift_rate INT DEFAULT 400000");
-      }
-      const [colsNight] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'night_shift_rate'");
-      if (colsNight.length === 0) {
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN night_shift_rate INT DEFAULT 600000");
-      }
-      const [colsWork] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'work_history'");
-      if (colsWork.length === 0) {
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN work_history LONGTEXT");
-      }
-      const [colsAddr] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'contact_address'");
-      if (colsAddr.length === 0) {
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN contact_address VARCHAR(255) DEFAULT ''");
-      }
-      const [colsInter] = await pool.execute("SHOW COLUMNS FROM caregiver_profiles LIKE 'interview_status'");
-      if (colsInter.length === 0) {
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_status VARCHAR(32) DEFAULT 'not_scheduled'");
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_date VARCHAR(64) NULL");
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_time VARCHAR(64) NULL");
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_meeting_link VARCHAR(255) NULL");
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_notes TEXT NULL");
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_scheduled_at TIMESTAMP NULL");
-        await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN interview_passed_at TIMESTAMP NULL");
-      }
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS shift_rate INTEGER DEFAULT 400000");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS night_shift_rate INTEGER DEFAULT 600000");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS work_history TEXT");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS contact_address VARCHAR(255) DEFAULT ''");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_status VARCHAR(32) DEFAULT 'not_scheduled'");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_date VARCHAR(64) NULL");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_time VARCHAR(64) NULL");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_meeting_link VARCHAR(255) NULL");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_notes TEXT NULL");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_scheduled_at TIMESTAMP NULL");
+      await pool.execute("ALTER TABLE caregiver_profiles ADD COLUMN IF NOT EXISTS interview_passed_at TIMESTAMP NULL");
       // Đổi mặc định title sang 'Chuyên viên chăm sóc' theo yêu cầu
       await pool.execute("UPDATE caregiver_profiles SET title = 'Chuyên viên chăm sóc' WHERE title = 'Người chăm sóc người cao tuổi' OR title = '' OR title IS NULL");
       // Đảm bảo các caregiver đã approved thì interview_status là passed
@@ -302,23 +490,24 @@ async function initFamilyProfilesTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS family_profiles (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL UNIQUE,
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
         representative_name VARCHAR(128) NOT NULL,
         phone VARCHAR(20),
         email VARCHAR(128),
         id_number VARCHAR(32),
         address VARCHAR(255),
         district VARCHAR(128),
-        id_card_front LONGTEXT,
-        id_card_back LONGTEXT,
-        verification_status ENUM('unverified', 'pending', 'approved', 'rejected') DEFAULT 'unverified',
+        id_card_front TEXT,
+        id_card_back TEXT,
+        verification_status VARCHAR(20) DEFAULT 'unverified',
         rejection_reason TEXT,
         verified_at TIMESTAMP NULL,
+        is_premium BOOLEAN DEFAULT FALSE,
+        premium_until TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Kiểm tra và khởi tạo bản ghi cho các tài khoản gia đình hiện có
@@ -332,11 +521,11 @@ async function initFamilyProfilesTable() {
            VALUES (?, ?, ?, ?, '', 'Số 24 phố Huế, Hàng Bài', 'Hai Bà Trưng', 'unverified')`,
           [f.id, f.full_name, f.phone || '0934 567 890', f.email]
         );
-        console.log(`✅ [MySQL] Đã khởi tạo hồ sơ family_profiles cho user: ${f.full_name} (#${f.id})`);
+        console.log(`✅ [PostgreSQL] Đã khởi tạo hồ sơ family_profiles cho user: ${f.full_name} (#${f.id})`);
       }
     }
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo family_profiles table:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo family_profiles table:', err.message);
   }
 }
 
@@ -346,10 +535,10 @@ async function initFamilySubscriptionsTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS family_subscriptions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         plan_name VARCHAR(64) DEFAULT 'Gói Gia Đình Premium',
-        price INT DEFAULT 300000,
+        price INTEGER DEFAULT 300000,
         billing_cycle VARCHAR(32) DEFAULT 'monthly',
         status VARCHAR(32) DEFAULT 'active',
         start_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -362,18 +551,14 @@ async function initFamilySubscriptionsTable() {
         dedicated_support_247 BOOLEAN DEFAULT TRUE,
         notes TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Thêm các cột is_premium, premium_until vào family_profiles nếu chưa có
     try {
-      const [colPrem] = await pool.execute("SHOW COLUMNS FROM family_profiles LIKE 'is_premium'");
-      if (colPrem.length === 0) {
-        await pool.execute("ALTER TABLE family_profiles ADD COLUMN is_premium BOOLEAN DEFAULT FALSE");
-        await pool.execute("ALTER TABLE family_profiles ADD COLUMN premium_until TIMESTAMP NULL");
-      }
+      await pool.execute("ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE");
+      await pool.execute("ALTER TABLE family_profiles ADD COLUMN IF NOT EXISTS premium_until TIMESTAMP NULL");
     } catch (e) {
       console.warn('Lưu ý kiểm tra cột is_premium bảng family_profiles:', e.message);
     }
@@ -395,11 +580,11 @@ async function initFamilySubscriptionsTable() {
           `UPDATE family_profiles SET is_premium = TRUE, premium_until = ? WHERE user_id = ?`,
           [endDate, f.id]
         );
-        console.log(`⭐ [MySQL] Đã khởi tạo gói Premium mẫu cho gia đình: ${f.full_name} (#${f.id})`);
+        console.log(`⭐ [PostgreSQL] Đã khởi tạo gói Premium mẫu cho gia đình: ${f.full_name} (#${f.id})`);
       }
     }
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo family_subscriptions table:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo family_subscriptions table:', err.message);
   }
 }
 
@@ -409,17 +594,16 @@ async function initCaregiverBankAccountsTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS caregiver_bank_accounts (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        caregiver_user_id INT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        caregiver_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         bank_name VARCHAR(100) NOT NULL,
         account_number VARCHAR(64) NOT NULL,
         account_holder VARCHAR(128) NOT NULL,
         branch VARCHAR(128) DEFAULT '',
         is_default BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Seed tài khoản mẫu cho các caregiver nếu chưa có
@@ -441,10 +625,10 @@ async function initCaregiverBankAccountsTable() {
           [cg.id, b.bank, b.num, (cg.full_name || 'NGUYEN VAN A').toUpperCase()]
         );
       }
-      console.log('✅ [MySQL] Đã khởi tạo tài khoản ngân hàng thụ hưởng cho các Người chăm sóc');
+      console.log('✅ [PostgreSQL] Đã khởi tạo tài khoản ngân hàng thụ hưởng cho các Người chăm sóc');
     }
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo caregiver_bank_accounts:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo caregiver_bank_accounts:', err.message);
   }
 }
 
@@ -454,30 +638,28 @@ async function initBookingEscrowPaymentsTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS booking_escrow_payments (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         transaction_code VARCHAR(64) UNIQUE NOT NULL,
-        schedule_id INT NULL,
-        family_user_id INT NOT NULL,
-        caregiver_user_id INT NOT NULL,
+        schedule_id INTEGER NULL,
+        family_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        caregiver_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         patient_name VARCHAR(128) NOT NULL,
         shift_date VARCHAR(64) NOT NULL,
         shift_time VARCHAR(64) NOT NULL,
-        total_amount INT NOT NULL COMMENT 'Tổng số tiền ca làm (100%)',
-        platform_fee INT NOT NULL COMMENT 'Chiết khấu sàn nền tảng 35%',
-        caregiver_earnings INT NOT NULL COMMENT 'Thực nhận của Người chăm sóc 65%',
-        escrow_status ENUM('pending_payment', 'in_escrow', 'paid_out', 'refunded') DEFAULT 'pending_payment' COMMENT 'Trạng thái ký quỹ',
+        total_amount INTEGER NOT NULL,
+        platform_fee INTEGER NOT NULL,
+        caregiver_earnings INTEGER NOT NULL,
+        escrow_status VARCHAR(32) DEFAULT 'pending_payment',
         payment_method VARCHAR(64) DEFAULT 'VietQR Napas 247',
         family_paid_at TIMESTAMP NULL,
-        released_at TIMESTAMP NULL COMMENT 'Thời gian tự động giải ngân về TK Người chăm sóc',
+        released_at TIMESTAMP NULL,
         bank_reference VARCHAR(128) NULL,
         caregiver_bank_name VARCHAR(100) NULL,
         caregiver_account_number VARCHAR(64) NULL,
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (family_user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Đồng bộ các ca trong schedules chưa có trong booking_escrow_payments
@@ -552,22 +734,22 @@ async function initVouchersTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS vouchers (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         code VARCHAR(64) UNIQUE NOT NULL,
         title VARCHAR(255) NOT NULL,
         description TEXT NULL,
-        discount_type ENUM('percentage', 'fixed') DEFAULT 'percentage',
-        discount_value INT NOT NULL DEFAULT 50,
-        max_discount_amount INT DEFAULT 500000,
-        min_order_amount INT DEFAULT 0,
+        discount_type VARCHAR(20) DEFAULT 'percentage',
+        discount_value INTEGER NOT NULL DEFAULT 50,
+        max_discount_amount INTEGER DEFAULT 500000,
+        min_order_amount INTEGER DEFAULT 0,
         start_date DATE NULL,
         end_date DATE NULL,
-        usage_limit INT DEFAULT 1000,
-        used_count INT DEFAULT 0,
+        usage_limit INTEGER DEFAULT 1000,
+        used_count INTEGER DEFAULT 0,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Kiểm tra và seed voucher mặc định CAREFIRST50
@@ -582,7 +764,7 @@ async function initVouchersTable() {
            'Giảm 50% chi phí ca chăm sóc đầu tiên (tối đa 500.000đ) dành cho khách hàng mới, tặng kèm 01 buổi tư vấn dinh dưỡng và chăm sóc người cao tuổi miễn phí 100% từ chuyên gia.', 
            'percentage', 50, 500000, 0, '2026-01-01', '2026-12-31', 1000, 0, TRUE)
       `);
-      console.log('✅ [MySQL] Đã khởi tạo voucher mặc định CAREFIRST50');
+      console.log('✅ [PostgreSQL] Đã khởi tạo voucher mặc định CAREFIRST50');
     }
 
     const [vipRows] = await pool.execute("SELECT id FROM vouchers WHERE code = 'VIPCARE20' LIMIT 1");
@@ -626,30 +808,24 @@ async function initVouchersTable() {
 
     // Đảm bảo các cột voucher tồn tại trong schedules & booking_escrow_payments
     try {
-      const [colsVoucher] = await pool.execute("SHOW COLUMNS FROM schedules LIKE 'voucher_code'");
-      if (colsVoucher.length === 0) {
-        await pool.execute("ALTER TABLE schedules ADD COLUMN voucher_code VARCHAR(64) NULL");
-        await pool.execute("ALTER TABLE schedules ADD COLUMN voucher_discount INT DEFAULT 0");
-        await pool.execute("ALTER TABLE schedules ADD COLUMN original_price INT NULL");
-      }
+      await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS voucher_code VARCHAR(64) NULL");
+      await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS voucher_discount INTEGER DEFAULT 0");
+      await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS original_price INTEGER NULL");
     } catch (migErr) {
       console.warn('Lưu ý kiểm tra cột voucher schedules:', migErr.message);
     }
 
     try {
-      const [colsEscVoucher] = await pool.execute("SHOW COLUMNS FROM booking_escrow_payments LIKE 'voucher_code'");
-      if (colsEscVoucher.length === 0) {
-        await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN voucher_code VARCHAR(64) NULL");
-        await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN voucher_discount INT DEFAULT 0");
-        await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN original_amount INT NULL");
-        await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN system_subsidy INT DEFAULT 0");
-      }
+      await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN IF NOT EXISTS voucher_code VARCHAR(64) NULL");
+      await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN IF NOT EXISTS voucher_discount INTEGER DEFAULT 0");
+      await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN IF NOT EXISTS original_amount INTEGER NULL");
+      await pool.execute("ALTER TABLE booking_escrow_payments ADD COLUMN IF NOT EXISTS system_subsidy INTEGER DEFAULT 0");
     } catch (migErr2) {
       console.warn('Lưu ý kiểm tra cột voucher booking_escrow_payments:', migErr2.message);
     }
 
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo vouchers table:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo vouchers table:', err.message);
   }
 }
 
@@ -664,13 +840,9 @@ async function initSystemSettingsTable() {
         setting_type VARCHAR(32) DEFAULT 'string',
         setting_group VARCHAR(64) DEFAULT 'general',
         description VARCHAR(255) NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
-    try {
-      await pool.execute('ALTER TABLE system_settings MODIFY COLUMN setting_value LONGTEXT NOT NULL');
-    } catch (_) { }
 
     const defaults = [
       ['cancellation_fee_regular', '10000', 'number', 'fees', 'Phí đổi / hủy ca đối với tài khoản thường (VNĐ)'],
@@ -706,12 +878,12 @@ async function initSystemSettingsTable() {
       await pool.execute(`
         INSERT INTO system_settings (setting_key, setting_value, setting_type, setting_group, description)
         VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE description = VALUES(description)
+        ON CONFLICT (setting_key) DO UPDATE SET description = EXCLUDED.description
       `, [key, val, type, grp, desc]);
     }
-    console.log('✅ [MySQL] Đã khởi tạo bảng system_settings & nạp cấu hình hệ thống');
+    console.log('✅ [PostgreSQL] Đã khởi tạo bảng system_settings & nạp cấu hình hệ thống');
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo system_settings table:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo system_settings table:', err.message);
   }
 }
 
@@ -721,21 +893,21 @@ async function initCommunitiesTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS communities (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         category VARCHAR(100) DEFAULT 'Sức khỏe & Vận động',
         description TEXT,
         meeting_schedule VARCHAR(255) DEFAULT '05:30 - 06:45 Hàng ngày',
         location VARCHAR(255) DEFAULT 'Công viên Cầu Giấy, Hà Nội',
-        member_count INT DEFAULT 120,
+        member_count INTEGER DEFAULT 120,
         zalo_link VARCHAR(255) DEFAULT 'https://zalo.me/g/carematch_community',
         qr_code_url TEXT,
         tags TEXT,
         leader_name VARCHAR(128) DEFAULT 'Chị Thu Hà (NV CTXH)',
-        status ENUM('active', 'inactive') DEFAULT 'active',
+        status VARCHAR(20) DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM communities');
@@ -836,30 +1008,31 @@ async function initCaregiverReviewsTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS caregiver_reviews (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        schedule_id INT NULL,
-        caregiver_user_id INT NOT NULL,
-        family_user_id INT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        schedule_id INTEGER NULL,
+        caregiver_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        family_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         family_name VARCHAR(128) DEFAULT 'Gia đình',
         patient_name VARCHAR(128) DEFAULT 'Người thân',
         service_title VARCHAR(255) DEFAULT 'Ca chăm sóc',
-        rating INT NOT NULL DEFAULT 5,
+        rating INTEGER NOT NULL DEFAULT 5,
         tags TEXT,
         review_text TEXT,
-        status ENUM('approved', 'pending', 'hidden') DEFAULT 'approved',
+        status VARCHAR(20) DEFAULT 'approved',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        FOREIGN KEY (caregiver_user_id) REFERENCES users(id) ON DELETE CASCADE,
-        FOREIGN KEY (family_user_id) REFERENCES users(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM caregiver_reviews');
     if (rows[0].cnt === 0) {
+      const [famRows] = await pool.execute("SELECT id FROM users WHERE role = 'family'");
+      const famIds = new Set(famRows.map(r => Number(r.id)));
+      const fallbackFamId = famRows[0]?.id || 5;
       const defaultReviews = [
         {
           caregiver_id: 2,
-          family_id: 5,
+          family_id: famIds.has(5) ? 5 : fallbackFamId,
           family_name: 'Nguyễn Minh Mai',
           patient: 'Bà Lan',
           service: 'Ca chăm sóc buổi sáng (4 tiếng)',
@@ -870,7 +1043,7 @@ async function initCaregiverReviewsTable() {
         },
         {
           caregiver_id: 2,
-          family_id: 31,
+          family_id: famIds.has(31) ? 31 : fallbackFamId,
           family_name: 'tuantest15',
           patient: 'Cụ Tuấn',
           service: 'Ca chăm sóc test 2 (9 tiếng - Ca đêm)',
@@ -881,7 +1054,7 @@ async function initCaregiverReviewsTable() {
         },
         {
           caregiver_id: 3,
-          family_id: 5,
+          family_id: famIds.has(5) ? 5 : fallbackFamId,
           family_name: 'Vũ Hoàng Long',
           patient: 'Bác Hòa',
           service: 'Ca chăm sóc đồng hành (4 tiếng)',
@@ -892,7 +1065,7 @@ async function initCaregiverReviewsTable() {
         },
         {
           caregiver_id: 3,
-          family_id: 31,
+          family_id: famIds.has(31) ? 31 : fallbackFamId,
           family_name: 'Trần Bích Thủy',
           patient: 'Cụ An',
           service: 'Ca chăm sóc phục hồi vận động',
@@ -911,10 +1084,10 @@ async function initCaregiverReviewsTable() {
           [r.caregiver_id, r.family_id, r.family_name, r.patient, r.service, r.rating, r.tags, r.text, r.date]
         );
       }
-      console.log('✅ [MySQL] Đã khởi tạo các đánh giá sao mẫu cho bảng caregiver_reviews');
+      console.log('✅ [PostgreSQL] Đã khởi tạo các đánh giá sao mẫu cho bảng caregiver_reviews');
     }
   } catch (err) {
-    console.error('⚠️ [MySQL] Lỗi khởi tạo bảng caregiver_reviews:', err.message);
+    console.error('⚠️ [PostgreSQL] Lỗi khởi tạo bảng caregiver_reviews:', err.message);
   }
 }
 
@@ -922,24 +1095,16 @@ async function initCaregiverReviewsTable() {
 async function initSchedulesTableMigrations() {
   if (!pool || !isMySqlConnected) return;
   try {
-    const [colsCg] = await pool.execute("SHOW COLUMNS FROM schedules LIKE 'caregiver_confirmed_completed'");
-    if (colsCg.length === 0) {
-      await pool.execute("ALTER TABLE schedules ADD COLUMN caregiver_confirmed_completed BOOLEAN DEFAULT FALSE");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN family_confirmed_completed BOOLEAN DEFAULT FALSE");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN caregiver_completed_at TIMESTAMP NULL");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN family_completed_at TIMESTAMP NULL");
-      console.log('✅ [MySQL] Đã cập nhật các cột xác nhận 2 chiều cho bảng schedules');
-    }
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS caregiver_confirmed_completed BOOLEAN DEFAULT FALSE");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS family_confirmed_completed BOOLEAN DEFAULT FALSE");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS caregiver_completed_at TIMESTAMP NULL");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS family_completed_at TIMESTAMP NULL");
 
-    const [colsRating] = await pool.execute("SHOW COLUMNS FROM schedules LIKE 'is_rated'");
-    if (colsRating.length === 0) {
-      await pool.execute("ALTER TABLE schedules ADD COLUMN is_rated BOOLEAN DEFAULT FALSE");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN rating INT DEFAULT NULL");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN review_id INT DEFAULT NULL");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN review_text TEXT DEFAULT NULL");
-      await pool.execute("ALTER TABLE schedules ADD COLUMN care_log_id INT DEFAULT NULL");
-      console.log('✅ [MySQL] Đã thêm các cột đánh giá sao và nhật ký chăm sóc cho bảng schedules');
-    }
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS is_rated BOOLEAN DEFAULT FALSE");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS rating INTEGER DEFAULT NULL");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS review_id INTEGER DEFAULT NULL");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS review_text TEXT DEFAULT NULL");
+    await pool.execute("ALTER TABLE schedules ADD COLUMN IF NOT EXISTS care_log_id INTEGER DEFAULT NULL");
   } catch (e) {
     console.warn('Lưu ý kiểm tra cột bảng schedules:', e.message);
   }
@@ -951,40 +1116,40 @@ async function initPatientCareLogsTable() {
   try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS patient_care_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        schedule_id INT NULL,
-        family_user_id INT NOT NULL,
-        caregiver_user_id INT NOT NULL,
-        elderly_profile_id INT NULL,
+        id SERIAL PRIMARY KEY,
+        schedule_id INTEGER NULL,
+        family_user_id INTEGER NOT NULL,
+        caregiver_user_id INTEGER NOT NULL,
+        elderly_profile_id INTEGER NULL,
         elderly_name VARCHAR(128) NOT NULL,
         family_name VARCHAR(128) DEFAULT 'Gia đình',
         caregiver_name VARCHAR(128) NOT NULL,
         log_date DATE NOT NULL,
         time_slot VARCHAR(128) DEFAULT 'Ca ngày (08:00 - 12:00)',
-        blood_pressure_systolic INT DEFAULT 120,
-        blood_pressure_diastolic INT DEFAULT 80,
-        heart_rate INT DEFAULT 75,
-        blood_sugar DECIMAL(5, 2) DEFAULT 5.6,
-        temperature DECIMAL(4, 1) DEFAULT 36.8,
-        spo2 INT DEFAULT 98,
-        weight DECIMAL(5, 1) NULL,
+        blood_pressure_systolic INTEGER DEFAULT 120,
+        blood_pressure_diastolic INTEGER DEFAULT 80,
+        heart_rate INTEGER DEFAULT 75,
+        blood_sugar NUMERIC(5, 2) DEFAULT 5.6,
+        temperature NUMERIC(4, 1) DEFAULT 36.8,
+        spo2 INTEGER DEFAULT 98,
+        weight NUMERIC(5, 1) NULL,
         meal_status VARCHAR(255) DEFAULT 'Ăn hết khẩu phần cháo dinh dưỡng',
         medication_status VARCHAR(255) DEFAULT 'Đã uống đủ thuốc huyết áp sau ăn',
         sleep_mood VARCHAR(255) DEFAULT 'Tâm trạng vui vẻ, tỉnh táo',
         mobility_exercise VARCHAR(255) DEFAULT 'Đi bộ nhẹ nhàng 20 phút quanh vườn',
         tasks_completed TEXT,
-        overall_condition ENUM('good', 'normal', 'attention', 'warning') DEFAULT 'good',
+        overall_condition VARCHAR(20) DEFAULT 'good',
         caregiver_notes TEXT,
         family_acknowledged BOOLEAN DEFAULT FALSE,
         family_note TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX (family_user_id),
-        INDEX (caregiver_user_id),
-        INDEX (elderly_name),
-        INDEX (log_date)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
+    await pool.execute("CREATE INDEX IF NOT EXISTS idx_care_logs_family ON patient_care_logs (family_user_id)");
+    await pool.execute("CREATE INDEX IF NOT EXISTS idx_care_logs_caregiver ON patient_care_logs (caregiver_user_id)");
+    await pool.execute("CREATE INDEX IF NOT EXISTS idx_care_logs_elderly ON patient_care_logs (elderly_name)");
+    await pool.execute("CREATE INDEX IF NOT EXISTS idx_care_logs_date ON patient_care_logs (log_date)");
 
     const [rows] = await pool.execute('SELECT COUNT(*) AS cnt FROM patient_care_logs');
     if (rows[0].cnt === 0) {
@@ -1123,26 +1288,26 @@ async function createNotification(userId, type, title, body, link = '/') {
 
 // 0. Kiểm tra trạng thái
 app.get('/api/health', async (req, res) => {
-  if (!pool || !isMySqlConnected) {
+  if (!isMySqlConnected) {
     await initMySql();
   }
-  let dbStatus = isMySqlConnected ? 'MySQL Connected' : 'Disconnected';
+  let dbStatus = isMySqlConnected ? 'PostgreSQL Connected' : 'Disconnected';
   let totalUsers = 0;
-  if (pool) {
-    try {
-      const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM users');
-      totalUsers = rows[0]?.total || 0;
-      dbStatus = 'connected';
-    } catch (e) {
-      dbStatus = 'error: ' + e.message;
-    }
+  try {
+    const [rows] = await pool.execute('SELECT COUNT(*) AS total FROM users');
+    totalUsers = rows[0]?.total || 0;
+    dbStatus = 'connected';
+  } catch (e) {
+    dbStatus = 'error: ' + e.message;
   }
+  const summary = getDbSummary();
   res.json({
     status: 'ok',
     service: 'CARE-MATCH Backend API',
+    engine: 'PostgreSQL / Supabase',
     database: dbStatus,
-    railwayHost: dbConfig.host,
-    railwayDb: dbConfig.database,
+    dbHost: summary.host,
+    dbName: summary.database,
     totalUsers,
     timestamp: new Date().toISOString()
   });
@@ -1217,7 +1382,7 @@ app.post('/api/auth/register', async (req, res) => {
       }
 
       const [result] = await pool.execute(
-        'INSERT INTO users (username, email, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO users (username, email, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
         [username, email, password, userRole, full_name, phone || '']
       );
 
@@ -1587,6 +1752,7 @@ app.post('/api/auth/verify-otp', async (req, res) => {
 
 // 2.3 API: Đặt lại mật khẩu mới
 app.post('/api/auth/reset-password', async (req, res) => {
+  try {
   const { email, otp, newPassword } = req.body;
   if (!email || !otp || !newPassword) {
     return res.status(400).json({
@@ -1736,7 +1902,7 @@ app.get('/api/elderly-profiles/by-name/:name', async (req, res) => {
   if (isMySqlConnected) {
     try {
       const [rows] = await pool.execute(
-        'SELECT * FROM elderly_profiles WHERE full_name LIKE ? OR full_name = ? LIMIT 1',
+        'SELECT * FROM elderly_profiles WHERE full_name ILIKE ? OR full_name = ? LIMIT 1',
         [`%${rawName}%`, rawName]
       );
       if (rows.length === 0) {
@@ -1792,7 +1958,7 @@ app.post('/api/elderly-profiles', async (req, res) => {
       const [result] = await pool.execute(
         `INSERT INTO elderly_profiles 
           (user_id, full_name, date_of_birth, gender, address, district, contact_name, contact_phone, care_needs, notes, verification_status, adl_score)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0) RETURNING id`,
         [
           Number(user_id),
           full_name.trim(),
@@ -2354,7 +2520,7 @@ app.post('/api/caregiver-profile', async (req, res) => {
         const [result] = await pool.execute(
           `INSERT INTO caregiver_profiles
             (user_id, title, id_number, experience_years, shift_rate, night_shift_rate, work_history, hourly_rate, district, contact_address, bio, skills, documents, verification_status, interview_status, care_score)
-           VALUES (?, 'Chuyên viên chăm sóc', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_scheduled', 0)`,
+           VALUES (?, 'Chuyên viên chăm sóc', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_scheduled', 0) RETURNING id`,
           [
             uid,
             id_number || '',
@@ -2949,7 +3115,7 @@ app.patch('/api/caregiver-profile/:id/status', async (req, res) => {
         const [ins] = await pool.execute(
           `INSERT INTO caregiver_profiles 
            (user_id, title, verification_status, interview_status, interview_passed_at, care_score, experience_years, hourly_rate, district, skills, bio, approved_by_admin_id, approved_at)
-           VALUES (?, 'Chuyên viên chăm sóc', ?, ?, CASE WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, 5, 120000, 'Hà Nội', '[]', '', ?, CURRENT_TIMESTAMP)`,
+           VALUES (?, 'Chuyên viên chăm sóc', ?, ?, CASE WHEN ? = 'approved' THEN CURRENT_TIMESTAMP ELSE NULL END, ?, 5, 120000, 'Hà Nội', '[]', '', ?, CURRENT_TIMESTAMP) RETURNING id`,
           [actualUserId, status, status === 'approved' ? 'passed' : 'not_scheduled', status, care_score !== undefined ? Number(care_score) : 96, admin_id || 1]
         );
         profileId = ins.insertId;
@@ -3045,13 +3211,13 @@ app.get('/api/schedules', async (req, res) => {
         params.push(Number(familyUserId));
       }
       if (caregiverUserId && caregiverName) {
-        query += ' AND (s.caregiver_user_id = ? OR s.caregiver_name LIKE ?)';
+        query += ' AND (s.caregiver_user_id = ? OR s.caregiver_name ILIKE ?)';
         params.push(Number(caregiverUserId), `%${caregiverName}%`);
       } else if (caregiverUserId) {
         query += ' AND s.caregiver_user_id = ?';
         params.push(Number(caregiverUserId));
       } else if (caregiverName) {
-        query += ' AND s.caregiver_name LIKE ?';
+        query += ' AND s.caregiver_name ILIKE ?';
         params.push(`%${caregiverName}%`);
       }
 
@@ -3102,7 +3268,7 @@ app.post('/api/schedules', async (req, res) => {
       const [result] = await pool.execute(
         `INSERT INTO schedules 
           (family_user_id, caregiver_user_id, elderly_profile_id, elderly_name, caregiver_name, schedule_date, time_slot, title, tasks, status, price, voucher_code, voucher_discount, original_price)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [
           Number(family_user_id),
           Number(caregiver_user_id || 2),
@@ -3155,7 +3321,7 @@ app.post('/api/schedules', async (req, res) => {
         const [escResult] = await pool.execute(
           `INSERT INTO booking_escrow_payments 
            (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, original_amount, platform_fee, caregiver_earnings, system_subsidy, voucher_code, voucher_discount, escrow_status, payment_method, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', ?) RETURNING id`,
           [
             txCode,
             result.insertId,
@@ -3480,7 +3646,7 @@ app.get('/api/vouchers', async (req, res) => {
     const { activeOnly } = req.query;
     let sql = 'SELECT * FROM vouchers';
     if (activeOnly === 'true') {
-      sql += ' WHERE is_active = TRUE AND (end_date IS NULL OR end_date >= CURDATE())';
+      sql += ' WHERE is_active = TRUE AND (end_date IS NULL OR end_date >= CURRENT_DATE)';
     }
     sql += ' ORDER BY id DESC';
     const [rows] = await pool.execute(sql);
@@ -3522,7 +3688,7 @@ app.post('/api/vouchers', async (req, res) => {
     const [result] = await pool.execute(
       `INSERT INTO vouchers 
         (code, title, description, discount_type, discount_value, max_discount_amount, min_order_amount, start_date, end_date, usage_limit, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [
         cleanCode,
         title,
@@ -3827,8 +3993,8 @@ const handleSaveSettingsEndpoint = async (req, res) => {
       await pool.execute(
         `INSERT INTO system_settings (setting_key, setting_value) 
          VALUES (?, ?) 
-         ON DUPLICATE KEY UPDATE setting_value = ?`,
-        [key, String(val ?? ''), String(val ?? '')]
+         ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value`,
+        [key, String(val ?? '')]
       );
     }
     console.log('✅ [Settings] Admin đã cập nhật cấu hình hệ thống:', Object.keys(settings));
@@ -4158,7 +4324,7 @@ app.post('/api/messages', async (req, res) => {
     try {
       const [result] = await pool.execute(
         `INSERT INTO messages (conversation_id, sender_user_id, sender_name, sender_role, recipient_user_id, recipient_name, content, is_read)
-         VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, FALSE) RETURNING id`,
         [
           convId,
           sId,
@@ -4485,7 +4651,7 @@ app.post('/api/admin/messages', async (req, res) => {
   try {
     const [result] = await pool.execute(
       `INSERT INTO messages (conversation_id, sender_user_id, sender_name, sender_role, recipient_user_id, recipient_name, content, is_read)
-       VALUES (?, 1, 'Admin', 'admin', ?, ?, ?, FALSE)`,
+       VALUES (?, 1, 'Admin', 'admin', ?, ?, ?, FALSE) RETURNING id`,
       [convId, rId, recipient_name || 'Người dùng', content.trim()]
     );
 
@@ -4573,7 +4739,7 @@ app.get('/api/admin/payments/transactions', async (req, res) => {
     `;
     const params = [];
     if (search && search.trim()) {
-      query += ` AND (t.transaction_code LIKE ? OR u_fam.full_name LIKE ? OR u_cg.full_name LIKE ? OR t.service_name LIKE ?)`;
+      query += ` AND (t.transaction_code ILIKE ? OR u_fam.full_name ILIKE ? OR u_cg.full_name ILIKE ? OR t.service_name ILIKE ?)`;
       const kw = `%${search.trim()}%`;
       params.push(kw, kw, kw, kw);
     }
@@ -4682,7 +4848,7 @@ app.get('/api/family/subscription/:userId', async (req, res) => {
 
     const [rows] = await pool.execute(
       `SELECT s.*, 
-              DATEDIFF(s.end_date, NOW()) AS days_remaining,
+              (s.end_date::date - CURRENT_DATE) AS days_remaining,
               CASE WHEN s.end_date > NOW() AND s.status = 'active' THEN 1 ELSE 0 END AS is_valid
        FROM family_subscriptions s
        WHERE s.user_id = ?
@@ -4769,7 +4935,7 @@ app.post('/api/family/subscribe', async (req, res) => {
     const [subRes] = await pool.execute(
       `INSERT INTO family_subscriptions 
        (user_id, plan_name, price, billing_cycle, status, start_date, end_date, payment_method, transaction_code, notes)
-       VALUES (?, 'Gói Gia Đình Premium', ?, 'monthly', 'active', NOW(), ?, ?, ?, ?)`,
+       VALUES (?, 'Gói Gia Đình Premium', ?, 'monthly', 'active', NOW(), ?, ?, ?, ?) RETURNING id`,
       [uid, price, endDate, method, code, notes || 'Đăng ký Gói Gia Đình Premium 300.000đ/tháng']
     );
 
@@ -4855,7 +5021,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
         fp.representative_name,
         fp.district,
         fp.address,
-        DATEDIFF(s.end_date, NOW()) AS days_remaining,
+        (s.end_date::date - CURRENT_DATE) AS days_remaining,
         CASE 
           WHEN s.end_date > NOW() AND s.status = 'active' THEN 'active'
           WHEN s.end_date <= NOW() THEN 'expired'
@@ -5040,7 +5206,7 @@ app.post('/api/payments/pay-booking', async (req, res) => {
         const [newEsc] = await pool.execute(
           `INSERT INTO booking_escrow_payments 
            (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, original_amount, platform_fee, caregiver_earnings, system_subsidy, voucher_code, voucher_discount, escrow_status, payment_method, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', 'Đặt ca mới - Ký quỹ VietQR')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', 'Đặt ca mới - Ký quỹ VietQR') RETURNING id`,
           [
             txCode,
             sched.id,
@@ -5378,29 +5544,29 @@ app.get('/api/admin/payments/dashboard', async (req, res) => {
     const totalShiftFees = Number(er.total_shift_fees) || 0;
     const netPlatformRevenue = totalShiftFees + totalVipRev;
 
-    // BIỂU ĐỒ CỘT PHÂN TÍCH THU NHẬP QUA TỪNG THÁNG (REAL-TIME ĐỒNG BỘ 100% TỪ MYSQL)
+    // BIỂU ĐỒ CỘT PHÂN TÍCH THU NHẬP QUA TỪNG THÁNG (REAL-TIME ĐỒNG BỘ 100% TỪ POSTGRESQL)
     const [monthlyEscrowRows] = await pool.execute(`
       SELECT 
-        DATE_FORMAT(created_at, '%Y-%m') AS ym,
-        YEAR(created_at) AS y,
-        MONTH(created_at) AS m,
+        TO_CHAR(created_at, 'YYYY-MM') AS ym,
+        EXTRACT(YEAR FROM created_at)::int AS y,
+        EXTRACT(MONTH FROM created_at)::int AS m,
         COALESCE(SUM(CASE WHEN escrow_status = 'paid_out' THEN total_amount ELSE 0 END), 0) AS shift_paid,
         COALESCE(SUM(CASE WHEN escrow_status IN ('in_escrow', 'pending_payment') THEN total_amount ELSE 0 END), 0) AS shift_pending,
         COALESCE(SUM(platform_fee), 0) AS shift_fee,
         COALESCE(SUM(total_amount), 0) AS shift_total
       FROM booking_escrow_payments
       WHERE created_at <= NOW()
-      GROUP BY ym, y, m
+      GROUP BY 1, 2, 3
       ORDER BY ym ASC
     `);
 
     const [monthlyVipRows] = await pool.execute(`
       SELECT 
-        DATE_FORMAT(created_at, '%Y-%m') AS ym,
+        TO_CHAR(created_at, 'YYYY-MM') AS ym,
         COALESCE(SUM(price), 0) AS vip_revenue
       FROM family_subscriptions
       WHERE created_at <= NOW()
-      GROUP BY ym
+      GROUP BY 1
     `);
 
     const vipByMonth = {};
@@ -5532,7 +5698,7 @@ app.get('/api/communities', async (req, res) => {
     }
 
     if (search) {
-      query += ' AND (name LIKE ? OR description LIKE ? OR location LIKE ? OR leader_name LIKE ?)';
+      query += ' AND (name ILIKE ? OR description ILIKE ? OR location ILIKE ? OR leader_name ILIKE ?)';
       const s = `%${search}%`;
       params.push(s, s, s, s);
     }
@@ -5595,7 +5761,7 @@ app.post('/api/communities', async (req, res) => {
     const [result] = await pool.execute(
       `INSERT INTO communities 
        (name, category, description, meeting_schedule, location, member_count, leader_name, tags, zalo_link, qr_code_url, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active') RETURNING id`,
       [
         name.trim(),
         category || 'Sức khỏe & Vận động',
@@ -5779,7 +5945,7 @@ app.post('/api/caregiver-reviews', async (req, res) => {
     const [result] = await pool.execute(
       `INSERT INTO caregiver_reviews 
        (schedule_id, caregiver_user_id, family_user_id, family_name, patient_name, service_title, rating, tags, review_text, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved') RETURNING id`,
       [
         schedId,
         cgId,
@@ -5891,7 +6057,7 @@ app.get('/api/care-logs', async (req, res) => {
       params.push(Number(req.query.scheduleId));
     }
     if (elderlyName) {
-      query += ' AND pcl.elderly_name LIKE ?';
+      query += ' AND pcl.elderly_name ILIKE ?';
       params.push(`%${elderlyName}%`);
     }
     if (condition) {
@@ -5899,7 +6065,7 @@ app.get('/api/care-logs', async (req, res) => {
       params.push(condition);
     }
     if (search) {
-      query += ' AND (pcl.elderly_name LIKE ? OR pcl.family_name LIKE ? OR pcl.caregiver_name LIKE ? OR pcl.caregiver_notes LIKE ?)';
+      query += ' AND (pcl.elderly_name ILIKE ? OR pcl.family_name ILIKE ? OR pcl.caregiver_name ILIKE ? OR pcl.caregiver_notes ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
@@ -6097,7 +6263,7 @@ app.post('/api/care-logs', async (req, res) => {
        (schedule_id, family_user_id, caregiver_user_id, elderly_profile_id, elderly_name, family_name, caregiver_name, 
         log_date, time_slot, blood_pressure_systolic, blood_pressure_diastolic, heart_rate, blood_sugar, temperature, spo2, weight,
         meal_status, medication_status, sleep_mood, mobility_exercise, tasks_completed, overall_condition, caregiver_notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [
         schedId,
         famId,
