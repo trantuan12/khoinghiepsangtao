@@ -100,7 +100,7 @@ export function AiCareMatcherModal({
                 Trợ Lý AI Tư Vấn & Gợi Ý Người Chăm Sóc
               </h3>
               <p className="text-[11.5px] text-emerald-100/85">
-                Phân tích nhu cầu bệnh lý & ghép nối từ hồ sơ chuyên viên thực tế (Gemini AI)
+                Phân tích nhu cầu bệnh lý & ghép nối từ hồ sơ chuyên viên thực tế bằng AI
               </p>
             </div>
           </div>
@@ -169,9 +169,6 @@ export function AiCareMatcherModal({
                     <span className="text-[11px] font-bold uppercase tracking-wider text-[#2f572d] flex items-center gap-1.5">
                       <Sparkles size={13} /> Đánh giá từ Trợ lý AI CareMatch
                     </span>
-                    {result.model && (
-                      <span className="text-[10px] text-gray-500 font-mono">{result.model}</span>
-                    )}
                   </div>
                   <p className="text-[13px] text-gray-800 leading-relaxed">{result.summary}</p>
                 </div>

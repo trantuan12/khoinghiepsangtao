@@ -1618,7 +1618,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 </p>
               )}
 
-              {/* Thanh kiểm tra sơ bộ eKYC bằng Gemini Vision */}
+              {/* Thanh kiểm tra sơ bộ eKYC bằng AI */}
               <div className="mt-3 rounded-2xl bg-[#f3f8f1] border border-[#cde0c8] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="text-[11.5px] text-[#284527]">
                   <strong className="flex items-center gap-1.5">

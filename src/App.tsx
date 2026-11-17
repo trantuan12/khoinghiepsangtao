@@ -10932,17 +10932,17 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
               </Card>
             </div>
 
-            {/* Card AI Gemini & Xuất dữ liệu Fine-tune (Vertex AI JSONL) */}
+            {/* Card AI & Xuất dữ liệu huấn luyện (.JSONL) */}
             <div className="rounded-2xl bg-gradient-to-r from-[#f2f7f0] to-[#faf7ef] border border-[#c8dcc2] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Sparkles size={16} className="text-emerald-700" />
                   <h4 className="font-display font-bold text-[15px] text-gray-900">
-                    Trợ Lý AI Gemini & Xuất Dữ Liệu Fine-Tune (Vertex AI .JSONL)
+                    Trợ Lý AI & Xuất Dữ Liệu Huấn Luyện (.JSONL)
                   </h4>
                 </div>
                 <p className="text-[12px] text-gray-600">
-                  Mọi lượt AI gợi ý người chăm sóc, phân tích sinh hiệu & chuẩn hóa báo cáo ca đều được lưu vào bảng <code>ai_training_logs</code> trên Supabase để xuất file <code>.jsonl</code> huấn luyện mô hình riêng.
+                  Mọi lượt AI gợi ý người chăm sóc, phân tích sinh hiệu & chuẩn hóa báo cáo ca đều được lưu vào bảng <code>ai_training_logs</code> trên Supabase để xuất file <code>.jsonl</code> phục vụ huấn luyện AI.
                 </p>
               </div>
               <a

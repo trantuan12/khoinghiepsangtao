@@ -679,7 +679,7 @@ export function CareLogsView({
         </div>
       )}
 
-      {/* KHỐI AI PHÂN TÍCH XU HƯỚNG SỨC KHỎE (GEMINI) */}
+      {/* KHỐI AI PHÂN TÍCH XU HƯỚNG SỨC KHỎE */}
       {currentSelectedPatient && (
         <div className="rounded-2xl bg-gradient-to-br from-[#f3f8f1] via-white to-[#f7f4ec] border border-[#c9dec2] p-4 sm:p-5 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

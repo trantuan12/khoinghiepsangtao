@@ -24,7 +24,7 @@ export function getGeminiConfig() {
 export async function callGemini({ systemInstruction, parts, responseSchemaJson = true, temperature = 0.4 }) {
   const { configured, apiKey, model } = getGeminiConfig();
   if (!configured) {
-    const err = new Error('Chưa cấu hình GEMINI_API_KEY trong biến môi trường (server/.env hoặc Vercel Environment Variables).');
+    const err = new Error('Trợ lý AI hiện chưa được kích hoạt trên hệ thống.');
     err.code = 'MISSING_GEMINI_KEY';
     err.statusCode = 503;
     throw err;
@@ -67,8 +67,9 @@ export async function callGemini({ systemInstruction, parts, responseSchemaJson 
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = data?.error?.message || `Gemini API trả về lỗi HTTP ${res.status}`;
-        const err = new Error(msg);
+        const msg = data?.error?.message || `Hệ thống AI trả về lỗi HTTP ${res.status}`;
+        console.warn(`⚠️ [AI ${candidateModel}] HTTP ${res.status}:`, msg);
+        const err = new Error('Hệ thống AI đang quá tải hoặc tạm gián đoạn, vui lòng thử lại sau.');
         err.statusCode = res.status >= 400 && res.status < 600 ? res.status : 502;
         lastError = err;
         // Nếu quá tải tạm thời (503/429) hoặc model không khả dụng (404), thử model dự phòng tiếp theo
@@ -85,7 +86,7 @@ export async function callGemini({ systemInstruction, parts, responseSchemaJson 
           .trim() || '';
 
       if (!rawText) {
-        lastError = new Error('Gemini không trả về nội dung phản hồi.');
+        lastError = new Error('Hệ thống AI không trả về nội dung phản hồi.');
         lastError.statusCode = 502;
         continue;
       }
@@ -108,7 +109,7 @@ export async function callGemini({ systemInstruction, parts, responseSchemaJson 
     } catch (err) {
       lastError = err;
       if (err.name === 'AbortError') {
-        lastError = new Error(`Model ${candidateModel} phản hồi quá lâu.`);
+        lastError = new Error('Hệ thống AI phản hồi quá lâu, vui lòng thử lại.');
         lastError.statusCode = 504;
         continue;
       }
@@ -120,7 +121,7 @@ export async function callGemini({ systemInstruction, parts, responseSchemaJson 
     }
   }
 
-  throw lastError || new Error('Không thể kết nối tới Gemini API.');
+  throw lastError || new Error('Không thể kết nối tới dịch vụ AI.');
 }
 
 /**
