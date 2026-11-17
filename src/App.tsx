@@ -404,7 +404,7 @@ type Notif = {
   created_at: string;
 };
 
-import { API, API_BASE_URL } from '@/lib/apiConfig';
+import { API, API_BASE_URL, getAuthToken, setAuthToken } from '@/lib/apiConfig';
 
 // ========================================================
 // HOOK ĐỒNG HỒ THỜI GIAN THỰC TOÀN HỆ THỐNG (LIVE REALTIME)
@@ -996,7 +996,7 @@ function Landing() {
   );
 }
 
-function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (role?: 'family' | 'caregiver' | 'admin', user?: any) => void }) {
+function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (role?: 'family' | 'caregiver' | 'admin', user?: any, token?: string) => void }) {
   const [, setLocation] = useLocation();
   const [selectedRole, setSelectedRole] = useState<'family' | 'caregiver'>(() => {
     try {
@@ -1297,22 +1297,14 @@ function AuthPage({ mode, onLogin }: { mode: 'login' | 'register'; onLogin: (rol
       });
       const data = await res.json();
 
-      if (data.success) {
+      if (data.success && data.token) {
         const effectiveRole = data.user?.role || selectedRole;
-        onLogin(effectiveRole, data.user);
+        onLogin(effectiveRole, data.user, data.token);
       } else {
         setErrorMsg(data.message || 'Thao tác không thành công. Vui lòng kiểm tra lại thông tin.');
       }
     } catch {
-      // Khi server backend (port 5000) chưa bật: dùng chính thông tin người dùng vừa nhập
-      const fallbackUser = {
-        id: Date.now(),
-        full_name: (!isLogin && fullname.trim()) ? fullname.trim() : (email.trim().split('@')[0] || (selectedRole === 'caregiver' ? 'Người Chăm Sóc' : 'Gia Đình')),
-        email: email.trim(),
-        role: selectedRole,
-        phone: ''
-      };
-      onLogin(selectedRole, fallbackUser);
+      setErrorMsg('Không thể kết nối máy chủ xác thực. Vui lòng kiểm tra kết nối mạng và thử lại.');
     } finally {
       setLoading(false);
     }
@@ -12005,7 +11997,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
 // -------------------------------------------------------------
 // TRANG ĐĂNG NHẬP DÀNH RIÊNG CHO ADMIN (TRUY CẬP TRỰC TIẾP /admin)
 // -------------------------------------------------------------
-function AdminLoginPage({ onAdminLogin }: { onAdminLogin: () => void }) {
+function AdminLoginPage({ onAdminLogin }: { onAdminLogin: (token?: string, user?: any) => void }) {
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -12016,7 +12008,6 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: () => void }) {
     e.preventDefault();
     setLoading(true);
     setError('');
-    // Thử xác thực qua API trước
     try {
       const res = await fetch(`${API}/auth/login`, {
         method: 'POST',
@@ -12024,19 +12015,15 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: () => void }) {
         body: JSON.stringify({ username: username.trim(), password, role: 'admin' })
       });
       const data = await res.json();
-      if (data.success && data.user?.role === 'admin') {
-        onAdminLogin();
+      if (data.success && data.user?.role === 'admin' && data.token) {
+        onAdminLogin(data.token, data.user);
         setLoading(false);
         return;
       }
-    } catch { }
-    // Fallback kiểm tra local
-    if ((username.trim() === 'admin' || username.trim() === 'admin@carematch.vn') && (password === '123456' || password === 'admin123')) {
-      onAdminLogin();
-      setLoading(false);
-      return;
+      setError(data.message || 'Tài khoản hoặc mật khẩu không chính xác.');
+    } catch {
+      setError('Không thể kết nối máy chủ xác thực quản trị. Vui lòng thử lại.');
     }
-    setError('Tài khoản hoặc mật khẩu không chính xác.');
     setLoading(false);
   };
 
@@ -12124,7 +12111,14 @@ function Router() {
     try {
       const isLogged = localStorage.getItem('carematch_logged_in') === 'true';
       const hasUser = !!localStorage.getItem('carematch_user');
-      return isLogged && hasUser;
+      const hasToken = !!getAuthToken();
+      if (isLogged && (!hasUser || !hasToken)) {
+        localStorage.removeItem('carematch_logged_in');
+        localStorage.removeItem('carematch_user');
+        localStorage.removeItem('carematch_role');
+        return false;
+      }
+      return isLogged && hasUser && hasToken;
     } catch { return false; }
   });
   const [currentUser, setCurrentUser] = useState<CurrentUser | undefined>(() => {
@@ -12187,11 +12181,12 @@ function Router() {
     }
   };
 
-  const login = (role?: 'family' | 'caregiver' | 'admin', user?: CurrentUser) => {
+  const login = (role?: 'family' | 'caregiver' | 'admin', user?: CurrentUser, token?: string) => {
     // Ưu tiên vai trò thực tế được lưu trong CSDL MySQL
     const effectiveRole = (user?.role as 'family' | 'caregiver' | 'admin') || role || 'family';
     setUserRole(effectiveRole);
     setLoggedIn(true);
+    setAuthToken(token || null);
 
     // Nếu có thông tin user từ API → dùng thật, không dùng hardcode
     let targetUser: CurrentUser;
@@ -12226,10 +12221,13 @@ function Router() {
     }
   };
 
-  const loginAdmin = () => {
+  const loginAdmin = (token?: string, user?: CurrentUser) => {
     setUserRole('admin');
     setLoggedIn(true);
-    const adminUser: CurrentUser = { id: 1, full_name: 'Admin Quản Trị', email: 'admin@carematch.vn', role: 'admin' };
+    setAuthToken(token || null);
+    const adminUser: CurrentUser = user
+      ? { ...user, role: 'admin' }
+      : { id: 1, full_name: 'Admin Quản Trị', email: 'admin@carematch.vn', role: 'admin' };
     setCurrentUser(adminUser);
     try {
       localStorage.setItem('carematch_role', 'admin');
@@ -12244,6 +12242,7 @@ function Router() {
     setLoggedIn(false);
     setUserRole('family');
     setCurrentUser(undefined);
+    setAuthToken(null);
     try {
       localStorage.removeItem('carematch_role');
       localStorage.removeItem('carematch_user');

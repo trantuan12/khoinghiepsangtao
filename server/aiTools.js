@@ -110,8 +110,9 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
     return { error: 'Cơ sở dữ liệu hiện chưa sẵn sàng để tra cứu trực tiếp.' };
   }
 
-  const userRole = context.userRole || 'guest';
-  const userId = Number(context.userId || 0);
+  const authenticated = Boolean(context?.authenticated && Number(context?.userId) > 0);
+  const userRole = authenticated ? context.userRole : 'guest';
+  const userId = authenticated ? Number(context.userId) : 0;
 
   try {
     if (toolName === 'search_caregivers') {
@@ -280,7 +281,7 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
     }
 
     if (toolName === 'get_my_elderly_profiles') {
-      if (userRole === 'guest' || !userId) {
+      if (!authenticated) {
         return { requires_login: true, message: 'Người dùng cần đăng nhập tài khoản Gia đình hoặc Quản trị viên để xem hồ sơ người cao tuổi.' };
       }
       if (userRole === 'caregiver') {
@@ -297,9 +298,15 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       const patientName = String(args?.patient_name || '').trim();
       let sql = `SELECT id, full_name, date_of_birth, gender, district, care_needs, notes, verification_status, adl_score FROM elderly_profiles WHERE 1=1`;
       const params = [];
-      if (userRole !== 'admin') {
+      if (userRole === 'family') {
         sql += ` AND user_id = ?`;
         params.push(userId);
+      } else if (userRole === 'admin') {
+        if (!patientName) {
+          return { message: 'Quản trị viên vui lòng nêu tên cụ thể của người cao tuổi cần tra cứu.' };
+        }
+      } else {
+        return { error: 'Không có quyền truy xuất hồ sơ này.' };
       }
       if (patientName) {
         sql += ` AND LOWER(full_name) LIKE ?`;
@@ -311,7 +318,7 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
     }
 
     if (toolName === 'get_my_schedules') {
-      if (userRole === 'guest' || !userId) {
+      if (!authenticated) {
         return { requires_login: true, message: 'Người dùng cần đăng nhập để tra cứu lịch chăm sóc cá nhân.' };
       }
       const status = String(args?.status || '').trim();
@@ -326,6 +333,8 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       } else if (userRole === 'caregiver') {
         sql += ` AND caregiver_user_id = ?`;
         params.push(userId);
+      } else if (userRole !== 'admin') {
+        return { error: 'Không có quyền truy xuất lịch.' };
       }
       if (status) {
         sql += ` AND status = ?`;
@@ -338,7 +347,7 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
     }
 
     if (toolName === 'get_patient_care_logs') {
-      if (userRole === 'guest' || !userId) {
+      if (!authenticated) {
         return { requires_login: true, message: 'Người dùng cần đăng nhập để xem nhật ký sinh hiệu bệnh nhân.' };
       }
       const patientName = String(args?.patient_name || '').trim();
@@ -360,6 +369,15 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       } else if (userRole === 'caregiver') {
         sql += ` AND caregiver_user_id = ?`;
         params.push(userId);
+      } else if (userRole === 'admin') {
+        if (!patientName) {
+          return {
+            message:
+              'Quản trị viên vui lòng nhập rõ tên bệnh nhân cần kiểm tra sinh hiệu, hoặc xem tại mục Theo dõi sau chăm sóc.',
+          };
+        }
+      } else {
+        return { error: 'Không có quyền truy xuất nhật ký sức khỏe.' };
       }
       if (patientName) {
         sql += ` AND LOWER(COALESCE(elderly_name, '')) LIKE ?`;
@@ -372,8 +390,14 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
     }
 
     if (toolName === 'get_my_payments') {
-      if (userRole === 'guest' || !userId) {
+      if (!authenticated) {
         return { requires_login: true, message: 'Người dùng cần đăng nhập để tra cứu lịch sử thanh toán.' };
+      }
+      if (authenticated && userRole === 'admin') {
+        return {
+          message:
+            'Quản trị viên vui lòng dùng công cụ thống kê hệ thống (get_platform_info) hoặc mở mục Thanh toán & Doanh thu.',
+        };
       }
       const limit = Math.min(Math.max(Number(args?.limit || 6), 1), 15);
       let sql = `
@@ -389,6 +413,8 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       } else if (userRole === 'caregiver') {
         sql += ` AND caregiver_user_id = ?`;
         params.push(userId);
+      } else {
+        return { error: 'Không có quyền truy xuất giao dịch.' };
       }
       sql += ` ORDER BY created_at DESC LIMIT ${limit}`;
       const [rows] = await pool.execute(sql, params);
@@ -413,7 +439,7 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
         caregiver_stats: cgStats[0] || {},
       };
 
-      if (userRole === 'admin') {
+      if (authenticated && userRole === 'admin') {
         const [pendingCg] = await pool.execute(
           "SELECT COUNT(*)::int AS cnt FROM caregiver_profiles WHERE verification_status = 'pending'"
         );

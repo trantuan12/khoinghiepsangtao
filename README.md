@@ -50,17 +50,18 @@ flowchart LR
    - Streaming Server-Sent Events qua `POST /api/ai/chat/stream` phát trạng thái tiến trình (`event: status`), từng cụm từ (`event: chunk`) và metadata (`event: done`).
    - Cache trong bộ nhớ (TTL 10 phút) cho câu hỏi thông tin công khai; tự động bỏ qua cache khi truy vấn dữ liệu cá nhân.
 
-4. **Safety Guardrails, PII Redaction & Observability ([server/aiGuardrails.js](server/aiGuardrails.js), [src/components/CareMatchAiStudioCard.tsx](src/components/CareMatchAiStudioCard.tsx))**
-   - **Prompt Injection Defense:** Phát hiện và chặn các yêu cầu vượt quyền/tiết lộ system prompt trước khi gọi LLM.
-   - **PII Redaction:** Tự động che số điện thoại, số CCCD 12 số và email (`[PHONE_REDACTED]`, `[CCCD_REDACTED]`, `[EMAIL_REDACTED]`) trước khi ghi vào `ai_training_logs`.
+4. **Safety Guardrails, HMAC Auth RBAC, Schema Validation & Observability ([server/auth.js](server/auth.js), [server/aiGuardrails.js](server/aiGuardrails.js), [server/aiSchemas.js](server/aiSchemas.js), [src/components/CareMatchAiStudioCard.tsx](src/components/CareMatchAiStudioCard.tsx))**
+   - **Xác thực phiên HMAC (HS256):** Mọi thao tác truy xuất dữ liệu cá nhân, phân tích sinh hiệu, kiểm tra eKYC và quản trị tri thức/dataset Admin đều xác thực token từ server, chống giả mạo vai trò/ID từ trình duyệt.
+   - **Prompt Injection Defense & PII Redaction:** Chặn yêu cầu vượt quyền/tiết lộ system prompt; che số điện thoại, CCCD/CMND, email, mã tài khoản & tên riêng (`[PHONE_REDACTED]`, `[ID_REDACTED]`, `[EMAIL_REDACTED]`, `[REDACTED]`) trước khi ghi vào `ai_training_logs` (`is_approved = FALSE` mặc định, Admin duyệt thủ công).
+   - **Strict Output Schema Validation:** Kiểm tra cấu trúc JSON trả về từ AI cho từng tác vụ (từ chối phản hồi thiếu trường bắt buộc với HTTP `502` thay vì fallback sai).
    - **Observability Dashboard:** Lưu `prompt_tokens`, `candidates_tokens`, `total_tokens`, `estimated_cost_usd`, `latency_ms`, `tools_used`, `cache_hit`, `guardrail_triggered` vào bảng `ai_metrics_logs` (`GET /api/ai/metrics`).
 
-5. **Automated LLM Evaluation Harness ([evals/run_eval.mjs](evals/run_eval.mjs), [evals/golden_dataset.json](evals/golden_dataset.json))**
-   - Bộ kiểm thử tự động 9 kịch bản (`hybrid_pgvector_rag`, `sql_tool_calling`, `rbac_live_data`, `rbac_isolation`, `medical_safety`, `security_guardrail`, `cache_hit`).
+5. **Automated LLM & Security Evaluation Harness ([evals/run_eval.mjs](evals/run_eval.mjs), [evals/golden_dataset.json](evals/golden_dataset.json))**
+   - Bộ kiểm thử tự động **10 kịch bản + 5 kiểm tra hồi quy bảo mật** (`hybrid_pgvector_rag`, `sql_tool_calling`, `rbac_live_data`, `rbac_isolation`, `auth_spoof_defense`, `medical_safety`, `security_guardrail`, `cache_hit`, `no_fake_vitals`, `schema_validation`).
    - Kết quả đo thực tế gần nhất ([evals/latest_report.json](evals/latest_report.json)):
-     - **Pass Rate:** `100%` (9/9) · **Tool Selection Accuracy:** `100%`
-     - **Cache Hit Check:** `Passed` (`521ms` so với `6096ms` lúc gọi LLM)
-     - **Vector Chunks Indexed:** `17` · **P50 / P95 Latency:** `4307ms` / `5892ms`
+     - **Pass Rate:** `100%` (10/10) · **Tool Selection Accuracy:** `100%` · **Security Assertions:** `5/5 Passed`
+     - **Cache Hit Check:** `Passed` (`1308ms` so với `4595ms` lúc gọi LLM)
+     - **Vector Chunks Indexed:** `17` · **P50 / P95 Latency:** `4063ms` / `11055ms`
 
 6. **Python FastAPI AI Microservice & QLoRA Fine-Tuning Pipeline**
    - **`ai-service/`:** Microservice Python bất đồng bộ (FastAPI + Pydantic v2 + `httpx` + `psycopg`), cung cấp `/health`, `/v1/guardrails/check`, `/v1/embeddings`, `/v1/rag/search`, `/v1/chat`.
@@ -85,12 +86,14 @@ khoinghiepsangtao/
 │   └── index.js                      # Vercel Serverless wrapper cho Express backend
 ├── server/
 │   ├── server.js                     # Express API chính (Auth, Caregivers, Schedules, Messages, Payments, AI)
+│   ├── auth.js                       # Xác thực HMAC token (HS256) & middleware requireAuth
 │   ├── db.js                         # PostgreSQL pool & adapter truy vấn
 │   ├── schema_postgres.sql           # Schema 21 bảng + pgvector + triggers
 │   ├── ai.js                         # LLM gateway, fallback chain, usage tracking, Vision helper
+│   ├── aiSchemas.js                  # Schema validators cho phản hồi JSON của AI
 │   ├── aiTools.js                    # 8 SQL/RAG tools có RBAC & knowledge loader
 │   ├── aiGuardrails.js               # Prompt Injection Guard, PII Redaction, Metrics logger
-│   ├── aiCache.js                    # Response Cache cho truy vấn công khai
+│   ├── aiCache.js                    # Response Cache cô lập theo user cho truy vấn công khai
 │   ├── rag.js                        # Embedding + Vector Sync + pgvector cosine search
 │   └── .env.example                  # Mẫu biến môi trường backend
 ├── src/

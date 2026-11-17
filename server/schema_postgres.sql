@@ -384,7 +384,7 @@ CREATE TABLE IF NOT EXISTS ai_training_logs (
   model_output TEXT NOT NULL,
   edited_output TEXT DEFAULT NULL,
   rating INTEGER DEFAULT NULL,
-  is_approved BOOLEAN DEFAULT TRUE,
+  is_approved BOOLEAN DEFAULT FALSE,
   model_used VARCHAR(128) DEFAULT 'gemini-3.1-flash-lite',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

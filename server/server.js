@@ -8,9 +8,16 @@ import { fileURLToPath } from 'url';
 import { pool, getPgPool, getDbSummary } from './db.js';
 import { callGemini, callGeminiWithTools, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
 import { CAREMATCH_CHAT_TOOL_DECLARATIONS, executeCareMatchTool, loadAiGroundingKnowledge } from './aiTools.js';
-import { inspectInputSafety, recordAiMetric } from './aiGuardrails.js';
+import { inspectInputSafety, recordAiMetric, redactPii } from './aiGuardrails.js';
 import { clearAiChatCache, getCachedChatResponse, setCachedChatResponse } from './aiCache.js';
 import { ensureVectorTable, syncCareMatchKnowledgeVectors } from './rag.js';
+import { extractAuthContext, requireAuth, signAuthToken } from './auth.js';
+import {
+  validateCareLogSummaryOutput,
+  validateCareMatcherOutput,
+  validateShiftReportDraftOutput,
+  validateVerifyDocumentOutput,
+} from './aiSchemas.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1287,11 +1294,15 @@ async function initAiTrainingLogsTable() {
         model_output TEXT NOT NULL,
         edited_output TEXT DEFAULT NULL,
         rating INTEGER DEFAULT NULL,
-        is_approved BOOLEAN DEFAULT TRUE,
+        is_approved BOOLEAN DEFAULT FALSE,
         model_used VARCHAR(128) DEFAULT 'gemini-3.1-flash-lite',
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    await pool.execute("ALTER TABLE ai_training_logs ALTER COLUMN is_approved SET DEFAULT FALSE").catch(() => {});
+    await pool.execute(
+      "UPDATE ai_training_logs SET is_approved = FALSE WHERE COALESCE(model_used, '') != 'admin-curated' AND edited_output IS NULL AND rating IS NULL"
+    ).catch(() => {});
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_ai_training_task ON ai_training_logs (task_type)");
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS ai_metrics_logs (
@@ -1380,10 +1391,11 @@ app.post('/api/auth/login', async (req, res) => {
 
   if (role === 'admin' || username === 'admin' || username === 'admin@carematch.vn') {
     if (password === '123456' || password === 'admin123') {
+      const adminUser = { id: 1, username: 'admin', full_name: 'Admin Quản Trị', role: 'admin', email: 'admin@carematch.vn' };
       return res.json({
         success: true,
-        user: { id: 1, username: 'admin', full_name: 'Admin Quản Trị', role: 'admin', email: 'admin@carematch.vn' },
-        token: 'token-admin-session-xyz'
+        user: adminUser,
+        token: signAuthToken(adminUser),
       });
     }
     return res.status(401).json({ success: false, message: 'Mật khẩu quản trị viên không chính xác.' });
@@ -1411,7 +1423,7 @@ app.post('/api/auth/login', async (req, res) => {
             });
           }
         }
-        return res.json({ success: true, user: u, token: `token-${u.role}-${u.id}` });
+        return res.json({ success: true, user: u, token: signAuthToken(u) });
       }
     } catch (e) {
       console.error('MySQL login error:', e.message);
@@ -1487,7 +1499,7 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(201).json({
         success: true,
         user: newUser,
-        token: `token-${newUser.role}-${newUser.id}`
+        token: signAuthToken(newUser)
       });
     } catch (e) {
       console.error('MySQL register error:', e.message);
@@ -6586,7 +6598,7 @@ app.get('/api/export/schedules-csv', async (req, res) => {
 // TÍCH HỢP GOOGLE GEMINI AI & FINE-TUNE DATASET (CARE-MATCH AI)
 // ========================================================
 
-app.get('/api/ai/status', async (req, res) => {
+app.get('/api/ai/status', requireAuth(['admin']), async (req, res) => {
   const cfg = getGeminiConfig();
   let totalLogs = 0;
   let approvedLogs = 0;
@@ -6611,7 +6623,8 @@ app.get('/api/ai/status', async (req, res) => {
 
 // 1. AI TƯ VẤN & GỢI Ý NGƯỜI CHĂM SÓC (AI CARE MATCHER)
 app.post('/api/ai/match-caregiver', async (req, res) => {
-  const { query, familyUserId, elderlyProfileId } = req.body || {};
+  const { query, elderlyProfileId } = req.body || {};
+  const auth = extractAuthContext(req);
   if (!query || !String(query).trim()) {
     return res.status(400).json({ error: 'Vui lòng mô tả nhu cầu chăm sóc người thân.' });
   }
@@ -6633,13 +6646,26 @@ app.post('/api/ai/match-caregiver', async (req, res) => {
       ORDER BY COALESCE(cp.care_score, 0) DESC, u.id ASC
     `);
 
+    // Chỉ lấy hồ sơ người cao tuổi thuộc đúng tài khoản gia đình đã xác thực qua token
     let elderlyContext = null;
-    if (elderlyProfileId) {
-      const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE id = ? LIMIT 1', [Number(elderlyProfileId)]);
-      if (eRows.length > 0) elderlyContext = eRows[0];
-    } else if (familyUserId) {
-      const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 3', [Number(familyUserId)]);
-      if (eRows.length > 0) elderlyContext = eRows;
+    const extraSecrets = [auth.userName];
+    if (auth.authenticated && auth.userRole === 'family' && auth.userId > 0) {
+      if (elderlyProfileId) {
+        const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE id = ? AND user_id = ? LIMIT 1', [
+          Number(elderlyProfileId),
+          auth.userId,
+        ]);
+        if (eRows.length > 0) elderlyContext = eRows[0];
+      } else {
+        const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 3', [
+          auth.userId,
+        ]);
+        if (eRows.length > 0) elderlyContext = eRows;
+      }
+      const list = Array.isArray(elderlyContext) ? elderlyContext : elderlyContext ? [elderlyContext] : [];
+      for (const ep of list) {
+        extraSecrets.push(ep.full_name, ep.contact_name, ep.contact_phone, ep.address);
+      }
     }
 
     const caregiversSummary = cgRows.map((r) => ({
@@ -6656,6 +6682,7 @@ app.post('/api/ai/match-caregiver', async (req, res) => {
       rating: Number(r.rating) || 4.8,
       verification_status: r.verification_status,
     }));
+    const allowedCaregiverIds = new Set(caregiversSummary.map((c) => c.caregiver_id));
 
     const systemInstruction = `Bạn là chuyên gia điều phối chăm sóc người cao tuổi của nền tảng CARE-MATCH Việt Nam.
 Nhiệm vụ: dựa vào nhu cầu gia đình và danh sách chuyên viên chăm sóc có sẵn trong hệ thống, hãy chọn tối đa 3 người phù hợp nhất.
@@ -6687,6 +6714,7 @@ Trả về JSON đúng cấu trúc:
       parts: [{ text: JSON.stringify(userInputPayload) }],
       responseSchemaJson: true,
       temperature: 0.3,
+      validateOutput: (obj) => validateCareMatcherOutput(obj, allowedCaregiverIds),
     });
 
     await initAiTrainingLogsTable();
@@ -6696,13 +6724,13 @@ Trả về JSON đúng cấu trúc:
       userInput: userInputPayload,
       modelOutput: aiRes.parsed,
       modelUsed: aiRes.model,
+      extraSecrets,
     });
 
     return res.json({
       success: true,
-      model: aiRes.model,
       trainingLogId: logId,
-      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { summary: aiRes.rawText, recommendations: [] }),
+      ...aiRes.parsed,
     });
   } catch (err) {
     console.error('Lỗi AI match-caregiver:', err.message);
@@ -6711,8 +6739,8 @@ Trả về JSON đúng cấu trúc:
 });
 
 // 2. AI PHÂN TÍCH & TÓM TẮT SỔ THEO DÕI SỨC KHỎE SAU CA (PATIENT CARE LOGS)
-app.post('/api/ai/summarize-care-logs', async (req, res) => {
-  const { elderlyProfileId, elderlyName, familyUserId, limit = 10 } = req.body || {};
+app.post('/api/ai/summarize-care-logs', requireAuth(['family', 'caregiver', 'admin']), async (req, res) => {
+  const { elderlyProfileId, elderlyName, limit = 10 } = req.body || {};
   if (!isMySqlConnected) {
     await initMySql();
   }
@@ -6723,15 +6751,25 @@ app.post('/api/ai/summarize-care-logs', async (req, res) => {
   try {
     let sql = 'SELECT * FROM patient_care_logs WHERE 1=1';
     const params = [];
+
+    if (req.auth.userRole === 'family') {
+      sql += ' AND family_user_id = ?';
+      params.push(req.auth.userId);
+    } else if (req.auth.userRole === 'caregiver') {
+      sql += ' AND caregiver_user_id = ?';
+      params.push(req.auth.userId);
+    } else if (req.auth.userRole === 'admin') {
+      if (!elderlyProfileId && (!elderlyName || !String(elderlyName).trim())) {
+        return res.status(400).json({ error: 'Vui lòng chọn bệnh nhân cụ thể để phân tích nhật ký.' });
+      }
+    }
+
     if (elderlyProfileId) {
       sql += ' AND elderly_profile_id = ?';
       params.push(Number(elderlyProfileId));
-    } else if (elderlyName) {
+    } else if (elderlyName && String(elderlyName).trim()) {
       sql += ' AND elderly_name ILIKE ?';
       params.push(`%${String(elderlyName).trim()}%`);
-    } else if (familyUserId) {
-      sql += ' AND family_user_id = ?';
-      params.push(Number(familyUserId));
     }
     sql += ` ORDER BY log_date DESC, created_at DESC LIMIT ${Math.min(20, Math.max(1, Number(limit) || 10))}`;
 
@@ -6785,6 +6823,7 @@ Trả về JSON đúng cấu trúc:
       parts: [{ text: JSON.stringify(userInputPayload) }],
       responseSchemaJson: true,
       temperature: 0.3,
+      validateOutput: validateCareLogSummaryOutput,
     });
 
     await initAiTrainingLogsTable();
@@ -6794,15 +6833,15 @@ Trả về JSON đúng cấu trúc:
       userInput: userInputPayload,
       modelOutput: aiRes.parsed,
       modelUsed: aiRes.model,
+      extraSecrets: [logs[0].elderly_name, logs[0].family_name, req.auth.userName],
     });
 
     return res.json({
       success: true,
-      model: aiRes.model,
       patientName: logs[0].elderly_name,
       analyzedCount: logs.length,
       trainingLogId: logId,
-      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { summary: aiRes.rawText }),
+      ...aiRes.parsed,
     });
   } catch (err) {
     console.error('Lỗi AI summarize-care-logs:', err.message);
@@ -6810,12 +6849,33 @@ Trả về JSON đúng cấu trúc:
   }
 });
 
-// 3A. AI CHUẨN HÓA BÁO CÁO BÀN GIAO SAU CA (CHO ĐIỀU DƯỠNG)
-app.post('/api/ai/draft-shift-report', async (req, res) => {
+// 3A. AI CHUẨN HÓA BÁO CÁO BÀN GIAO SAU CA (CHO ĐIỀU DƯỠNG - KHÔNG TỰ ĐIỀN CHỈ SỐ GIẢ)
+app.post('/api/ai/draft-shift-report', requireAuth(['caregiver', 'admin']), async (req, res) => {
   const { quickNotes, bpSys, bpDia, heartRate, temp, spo2, bloodSugar, condition, patientName } = req.body || {};
+
+  const sBpSys = String(bpSys ?? '').trim();
+  const sBpDia = String(bpDia ?? '').trim();
+  const sHr = String(heartRate ?? '').trim();
+  const sTemp = String(temp ?? '').trim();
+  const sSpo2 = String(spo2 ?? '').trim();
+  const sSugar = String(bloodSugar ?? '').trim();
+  const sCond = String(condition ?? '').trim();
+  const sNotes = String(quickNotes ?? '').trim();
+
+  if ((sBpSys && !sBpDia) || (!sBpSys && sBpDia)) {
+    return res.status(400).json({ error: 'Vui lòng nhập đầy đủ cả huyết áp tâm thu và tâm trương.' });
+  }
+
+  const hasAnyVital = Boolean((sBpSys && sBpDia) || sHr || sTemp || sSpo2 || sSugar);
+  if (!hasAnyVital && !sNotes) {
+    return res.status(400).json({
+      error: 'Vui lòng nhập ít nhất chỉ số sinh hiệu thực tế đã đo hoặc ghi chú ca làm trước khi dùng CareMatchAI soạn báo cáo.',
+    });
+  }
 
   const systemInstruction = `Bạn là trợ lý điều dưỡng của CARE-MATCH.
 Nhiệm vụ: dựa vào chỉ số sinh hiệu và ghi chú vắn tắt của chuyên viên chăm sóc, hãy viết thành một đoạn "Ghi chú & Dặn dò ca tiếp theo" rõ ràng, chuyên nghiệp, ấm áp và dễ hiểu cho người nhà bệnh nhân (3-5 câu).
+QUAN TRỌNG: Chỉ sử dụng đúng các chỉ số sinh hiệu đã có số đo thực tế. Mục nào ghi 'Chưa đo' hoặc 'chưa đánh giá' thì TUYỆT ĐỐI KHÔNG tự suy diễn là bình thường và KHÔNG tự điền con số giả định.
 Trả về JSON:
 {
   "draft_notes": "Nội dung báo cáo bàn giao hoàn chỉnh bằng tiếng Việt",
@@ -6823,16 +6883,16 @@ Trả về JSON:
 }`;
 
   const userInputPayload = {
-    patient_name: patientName || 'Người cao tuổi',
+    patient_name: patientName ? String(patientName).trim() : 'Người cao tuổi',
     vitals: {
-      blood_pressure: `${bpSys || 120}/${bpDia || 80} mmHg`,
-      heart_rate: `${heartRate || 75} bpm`,
-      temperature: `${temp || 36.8} °C`,
-      spo2: spo2 ? `${spo2}%` : 'Không đo',
-      blood_sugar: bloodSugar ? `${bloodSugar} mmol/L` : 'Không đo',
+      blood_pressure: sBpSys && sBpDia ? `${sBpSys}/${sBpDia} mmHg` : 'Chưa đo',
+      heart_rate: sHr ? `${sHr} bpm` : 'Chưa đo',
+      temperature: sTemp ? `${sTemp} °C` : 'Chưa đo',
+      spo2: sSpo2 ? `${sSpo2}%` : 'Chưa đo',
+      blood_sugar: sSugar ? `${sSugar} mmol/L` : 'Chưa đo',
     },
-    current_condition_flag: condition || 'good',
-    quick_notes: quickNotes || 'Ca làm diễn ra bình thường, người bệnh hợp tác tốt.',
+    current_condition_flag: sCond || 'chưa đánh giá',
+    quick_notes: sNotes || 'Chưa có ghi chú thêm',
   };
 
   try {
@@ -6841,6 +6901,7 @@ Trả về JSON:
       parts: [{ text: JSON.stringify(userInputPayload) }],
       responseSchemaJson: true,
       temperature: 0.4,
+      validateOutput: validateShiftReportDraftOutput,
     });
 
     await initAiTrainingLogsTable();
@@ -6850,13 +6911,13 @@ Trả về JSON:
       userInput: userInputPayload,
       modelOutput: aiRes.parsed,
       modelUsed: aiRes.model,
+      extraSecrets: [patientName, req.auth.userName],
     });
 
     return res.json({
       success: true,
-      model: aiRes.model,
       trainingLogId: logId,
-      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { draft_notes: aiRes.rawText }),
+      ...aiRes.parsed,
     });
   } catch (err) {
     console.error('Lỗi AI draft-shift-report:', err.message);
@@ -6864,8 +6925,8 @@ Trả về JSON:
   }
 });
 
-// 3B. AI KIỂM TRA ẢNH eKYC / CHỨNG CHỈ Y TẾ ĐA PHƯƠNG THỨC (GEMINI VISION)
-app.post('/api/ai/verify-document', async (req, res) => {
+// 3B. AI KIỂM TRA ẢNH eKYC / CHỨNG CHỈ Y TẾ ĐA PHƯƠNG THỨC
+app.post('/api/ai/verify-document', requireAuth(['caregiver', 'family', 'admin']), async (req, res) => {
   const { dataUrl, documentType } = req.body || {};
   const imagePart = parseDataUrlToGeminiPart(dataUrl);
   if (!imagePart) {
@@ -6905,6 +6966,7 @@ Trả về JSON đúng cấu trúc:
       ],
       responseSchemaJson: true,
       temperature: 0.1,
+      validateOutput: validateVerifyDocumentOutput,
     });
 
     // Không lưu ảnh CCCD thô vào ai_training_logs để bảo vệ dữ liệu cá nhân
@@ -6915,12 +6977,12 @@ Trả về JSON đúng cấu trúc:
       userInput: { expected_document_type: expectedLabel, image_omitted_for_privacy: true },
       modelOutput: aiRes.parsed,
       modelUsed: aiRes.model,
+      extraSecrets: [aiRes.parsed?.full_name, aiRes.parsed?.id_number, req.auth.userName],
     });
 
     return res.json({
       success: true,
-      model: aiRes.model,
-      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { summary: aiRes.rawText }),
+      ...aiRes.parsed,
     });
   } catch (err) {
     console.error('Lỗi AI verify-document:', err.message);
@@ -6929,9 +6991,13 @@ Trả về JSON đúng cấu trúc:
 });
 
 // 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT + TRUY XUẤT DỮ LIỆU LIVE + GUARDRAIL + CACHE + SSE (CAREMATCHAI)
-async function runCareMatchChatEngine({ message, history = [], userRole = 'guest', userId = null, userName = '', endpoint = '/api/ai/chat', onStatus }) {
+async function runCareMatchChatEngine({ message, history = [], authContext, endpoint = '/api/ai/chat', onStatus }) {
   const userText = String(message || '').trim();
   const reqStart = Date.now();
+  const authenticated = Boolean(authContext?.authenticated && Number(authContext?.userId) > 0);
+  const userRole = authenticated ? authContext.userRole : 'guest';
+  const userId = authenticated ? Number(authContext.userId) : null;
+  const userName = authenticated ? String(authContext.userName || '') : '';
 
   if (!isMySqlConnected) {
     await initMySql();
@@ -6961,9 +7027,9 @@ async function runCareMatchChatEngine({ message, history = [], userRole = 'guest
     };
   }
 
-  // 2. Response Cache cho các câu hỏi thông tin chung lặp lại
+  // 2. Response Cache cô lập theo tài khoản và tắt hoàn toàn khi có lịch sử (history.length > 0)
   const safeHistory = Array.isArray(history) ? history : [];
-  const cached = getCachedChatResponse(userText, userRole, safeHistory.length);
+  const cached = getCachedChatResponse(userText, authContext, safeHistory.length);
   if (cached) {
     const latencyMs = Date.now() - reqStart;
     await recordAiMetric(pool, isMySqlConnected, {
@@ -7004,7 +7070,7 @@ async function runCareMatchChatEngine({ message, history = [], userRole = 'guest
     : '';
 
   const systemInstruction = `Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam.
-Vai trò người dùng đang trò chuyện: ${roleLabel}${userName ? ` (${userName})` : ''}${Number(userId) > 0 ? ` · Mã tài khoản: #${Number(userId)}` : ''}.
+Vai trò người dùng đang trò chuyện: ${roleLabel}.
 
 QUAN TRỌNG VỀ TRUY XUẤT DỮ LIỆU THẬT & VECTOR RAG (TOOL USE):
 - Bạn được trang bị các công cụ tra cứu trực tiếp cơ sở dữ liệu & Vector Store của CARE-MATCH:
@@ -7049,19 +7115,19 @@ Quy tắc trả lời:
       functionDeclarations: CAREMATCH_CHAT_TOOL_DECLARATIONS,
       executeTool: async (name, args) => {
         if (typeof onStatus === 'function') onStatus('CareMatchAI đang tra cứu dữ liệu hệ thống...');
-        return executeCareMatchTool(name, args, { userRole, userId, userName }, { pool, isDbConnected: isMySqlConnected });
+        return executeCareMatchTool(
+          name,
+          args,
+          { authenticated, userRole, userId, userName },
+          { pool, isDbConnected: isMySqlConnected }
+        );
       },
       temperature: 0.35,
       maxToolRounds: 3,
     });
 
-    const reply =
-      typeof aiRes.parsed === 'object' && aiRes.parsed?.reply
-        ? String(aiRes.parsed.reply)
-        : String(aiRes.rawText || 'Xin lỗi, CareMatchAI chưa thể trả lời câu hỏi này lúc này.');
-    const quickReplies = Array.isArray(aiRes.parsed?.quick_replies)
-      ? aiRes.parsed.quick_replies.slice(0, 3).map((q) => String(q))
-      : [];
+    const reply = String(aiRes.parsed.reply);
+    const quickReplies = Array.isArray(aiRes.parsed.quick_replies) ? aiRes.parsed.quick_replies : [];
     const latencyMs = Date.now() - reqStart;
 
     const payload = {
@@ -7075,7 +7141,7 @@ Quy tắc trả lời:
       usage: aiRes.usage || { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 },
     };
 
-    setCachedChatResponse(userText, userRole, safeHistory.length, aiRes.toolsUsed, payload);
+    setCachedChatResponse(userText, authContext, safeHistory.length, aiRes.toolsUsed, payload);
 
     await logAiTrainingSample(pool, isMySqlConnected, {
       taskType: 'chatbot',
@@ -7083,6 +7149,7 @@ Quy tắc trả lời:
       userInput: { role: userRole, message: userText, tools_used: aiRes.toolsUsed },
       modelOutput: { reply, quick_replies: quickReplies },
       modelUsed: aiRes.model,
+      extraSecrets: [userName],
     });
 
     await recordAiMetric(pool, isMySqlConnected, {
@@ -7110,12 +7177,13 @@ Quy tắc trả lời:
 }
 
 app.post('/api/ai/chat', async (req, res) => {
-  const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
+  const { message, history = [] } = req.body || {};
+  const authContext = extractAuthContext(req);
   if (!String(message || '').trim()) {
     return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
   }
   try {
-    const result = await runCareMatchChatEngine({ message, history, userRole, userId, userName, endpoint: '/api/ai/chat' });
+    const result = await runCareMatchChatEngine({ message, history, authContext, endpoint: '/api/ai/chat' });
     return res.json(result);
   } catch (err) {
     console.error('Lỗi CareMatchAI chat:', err.message);
@@ -7125,7 +7193,8 @@ app.post('/api/ai/chat', async (req, res) => {
 
 // Streaming Server-Sent Events (SSE) cho trải nghiệm gõ chữ theo thời gian thực
 app.post('/api/ai/chat/stream', async (req, res) => {
-  const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
+  const { message, history = [] } = req.body || {};
+  const authContext = extractAuthContext(req);
   if (!String(message || '').trim()) {
     return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
   }
@@ -7149,9 +7218,7 @@ app.post('/api/ai/chat/stream', async (req, res) => {
     const result = await runCareMatchChatEngine({
       message,
       history,
-      userRole,
-      userId,
-      userName,
+      authContext,
       endpoint: '/api/ai/chat/stream',
       onStatus: (text) => {
         if (!clientClosed) sendEvent('status', { text });
@@ -7184,7 +7251,7 @@ app.post('/api/ai/chat/stream', async (req, res) => {
 });
 
 // Đồng bộ Vector Store (pgvector) & Thống kê Observability cho Admin
-app.post('/api/ai/rag/reindex', async (req, res) => {
+app.post('/api/ai/rag/reindex', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) {
     await initMySql();
   }
@@ -7198,7 +7265,7 @@ app.post('/api/ai/rag/reindex', async (req, res) => {
   }
 });
 
-app.get('/api/ai/metrics', async (req, res) => {
+app.get('/api/ai/metrics', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) {
     return res.json({
       totalRequests: 0,
@@ -7245,7 +7312,7 @@ app.get('/api/ai/metrics', async (req, res) => {
 });
 
 // 4. QUẢN LÝ TRI THỨC, MẪU HUẤN LUYỆN & XUẤT DATASET FINE-TUNE (.JSONL) CHO ADMIN
-app.get('/api/ai/knowledge', async (req, res) => {
+app.get('/api/ai/knowledge', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) {
     return res.json({ customRules: '', faqSamples: [], totalTrainingLogs: 0 });
   }
@@ -7273,7 +7340,7 @@ app.get('/api/ai/knowledge', async (req, res) => {
   }
 });
 
-app.post('/api/ai/knowledge', async (req, res) => {
+app.post('/api/ai/knowledge', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
   const { customRules } = req.body || {};
   try {
@@ -7283,13 +7350,14 @@ app.post('/api/ai/knowledge', async (req, res) => {
        ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP`,
       [String(customRules ?? '')]
     );
+    clearAiChatCache();
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/ai/training-logs', async (req, res) => {
+app.post('/api/ai/training-logs', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
   const { question, answer } = req.body || {};
   if (!String(question || '').trim() || !String(answer || '').trim()) {
@@ -7302,17 +7370,18 @@ app.post('/api/ai/training-logs', async (req, res) => {
        VALUES ('chatbot_faq', 'Bạn là CareMatchAI — trợ lý ảo chính thức của CARE-MATCH.', ?, ?, ?, 5, TRUE, 'admin-curated')
        RETURNING id`,
       [
-        JSON.stringify({ message: String(question).trim() }),
-        JSON.stringify({ reply: String(answer).trim() }),
-        JSON.stringify({ reply: String(answer).trim() }),
+        redactPii(JSON.stringify({ message: String(question).trim() })),
+        redactPii(JSON.stringify({ reply: String(answer).trim() })),
+        redactPii(JSON.stringify({ reply: String(answer).trim() })),
       ]
     );
+    clearAiChatCache();
     return res.json({ success: true, id: r.insertId });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
-app.get('/api/ai/training-logs', async (req, res) => {
+app.get('/api/ai/training-logs', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) return res.json([]);
   try {
     await initAiTrainingLogsTable();
@@ -7323,7 +7392,7 @@ app.get('/api/ai/training-logs', async (req, res) => {
   }
 });
 
-app.patch('/api/ai/training-logs/:id', async (req, res) => {
+app.patch('/api/ai/training-logs/:id', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
   const id = Number(req.params.id);
   const { edited_output, rating, is_approved } = req.body || {};
@@ -7335,19 +7404,22 @@ app.patch('/api/ai/training-logs/:id', async (req, res) => {
         is_approved = COALESCE(?, is_approved)
        WHERE id = ?`,
       [
-        edited_output !== undefined ? (typeof edited_output === 'string' ? edited_output : JSON.stringify(edited_output)) : null,
+        edited_output !== undefined
+          ? redactPii(typeof edited_output === 'string' ? edited_output : JSON.stringify(edited_output))
+          : null,
         rating !== undefined ? Number(rating) : null,
         is_approved !== undefined ? Boolean(is_approved) : null,
         id,
       ]
     );
+    clearAiChatCache();
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/ai/export-finetune-jsonl', async (req, res) => {
+app.get('/api/ai/export-finetune-jsonl', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) return res.status(500).send('Database not connected');
   try {
     await initAiTrainingLogsTable();
@@ -7359,11 +7431,11 @@ app.get('/api/ai/export-finetune-jsonl', async (req, res) => {
       JSON.stringify({
         systemInstruction: {
           role: 'system',
-          parts: [{ text: r.system_instruction }],
+          parts: [{ text: redactPii(r.system_instruction) }],
         },
         contents: [
-          { role: 'user', parts: [{ text: r.user_input }] },
-          { role: 'model', parts: [{ text: r.edited_output || r.model_output }] },
+          { role: 'user', parts: [{ text: redactPii(r.user_input) }] },
+          { role: 'model', parts: [{ text: redactPii(r.edited_output || r.model_output) }] },
         ],
       })
     );

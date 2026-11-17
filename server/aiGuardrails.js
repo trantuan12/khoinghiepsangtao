@@ -19,16 +19,30 @@ const INJECTION_PATTERNS = [
   /(lấy|xem|xuất|dump)\s*(toàn\s*bộ\s*)?(mật\s*khẩu|password|cccd|api\s*key|secret|database)/i,
 ];
 
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
- * Che PII (SĐT, số CCCD 12 số, email) trước khi lưu dữ liệu log huấn luyện
+ * Che PII (SĐT, số CCCD/CMND, email, mã tài khoản & tên riêng truyền vào) trước khi lưu hoặc xuất dataset
  */
-export function redactPii(input) {
+export function redactPii(input, options = {}) {
   if (input === null || input === undefined) return '';
-  const text = typeof input === 'string' ? input : JSON.stringify(input);
-  return text
-    .replace(/\b0\d{9,10}\b/g, '[PHONE_REDACTED]')
-    .replace(/\b\d{12}\b/g, '[CCCD_REDACTED]')
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[EMAIL_REDACTED]');
+  let text = typeof input === 'string' ? input : JSON.stringify(input);
+  text = text
+    .replace(/(?:\+?84|0)\d{8,10}\b/g, '[PHONE_REDACTED]')
+    .replace(/\b\d{12}\b|\b\d{9}\b/g, '[ID_REDACTED]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[EMAIL_REDACTED]')
+    .replace(/Mã tài khoản:\s*#\d+/gi, 'Mã tài khoản: #[ACCOUNT_REDACTED]');
+
+  const extraSecrets = Array.isArray(options?.extraSecrets) ? options.extraSecrets : [];
+  for (const rawSecret of extraSecrets) {
+    const s = String(rawSecret ?? '').trim();
+    if (s.length < 2) continue;
+    text = text.replace(new RegExp(escapeRegExp(s), 'gi'), '[REDACTED]');
+  }
+
+  return text;
 }
 
 /**

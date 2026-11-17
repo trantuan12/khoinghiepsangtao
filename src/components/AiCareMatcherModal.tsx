@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Sparkles, X, Send, Star, MapPin, ChevronRight, MessageCircle, Loader2, ShieldCheck } from 'lucide-react';
-import { API } from '@/lib/apiConfig';
+import { API, getAuthHeaders } from '@/lib/apiConfig';
 
 interface AiRecommendation {
   caregiver_id: string;
@@ -67,7 +67,7 @@ export function AiCareMatcherModal({
     try {
       const res = await fetch(`${API}/ai/match-caregiver`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           query: text,
           familyUserId: getCurrentFamilyUserId(),

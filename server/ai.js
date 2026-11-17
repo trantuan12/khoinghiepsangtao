@@ -5,6 +5,7 @@
  */
 
 import { redactPii } from './aiGuardrails.js';
+import { isPlainObject, validateChatOutput } from './aiSchemas.js';
 
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite'];
@@ -29,6 +30,13 @@ function tryParseJsonText(rawText) {
   try {
     return JSON.parse(cleaned);
   } catch {
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
+      } catch { }
+    }
     return null;
   }
 }
@@ -107,9 +115,9 @@ async function requestGeminiGenerate(basePayload, preferredModel = null) {
 }
 
 /**
- * Gọi Google Gemini generateContent API (hỗ trợ single-turn parts, multi-turn contents, multimodal inlineData, JSON output và fallback model)
+ * Gọi Google Gemini generateContent API (hỗ trợ single-turn parts, multi-turn contents, multimodal inlineData, JSON output, kiểm tra schema và fallback model)
  */
-export async function callGemini({ systemInstruction, parts, contents, responseSchemaJson = true, temperature = 0.4 }) {
+export async function callGemini({ systemInstruction, parts, contents, responseSchemaJson = true, temperature = 0.4, validateOutput = null }) {
   const normalizedContents =
     Array.isArray(contents) && contents.length > 0
       ? contents
@@ -149,7 +157,16 @@ export async function callGemini({ systemInstruction, parts, contents, responseS
 
   let parsed = rawText;
   if (responseSchemaJson) {
-    parsed = tryParseJsonText(rawText) ?? { raw: rawText };
+    const jsonObj = tryParseJsonText(rawText);
+    if (!isPlainObject(jsonObj)) {
+      const err = new Error('CareMatchAI trả về định dạng JSON không hợp lệ, vui lòng thử lại.');
+      err.statusCode = 502;
+      err.code = 'INVALID_AI_JSON';
+      throw err;
+    }
+    parsed = typeof validateOutput === 'function' ? validateOutput(jsonObj) : jsonObj;
+  } else if (typeof validateOutput === 'function') {
+    parsed = validateOutput(rawText);
   }
 
   return { model: res.model, rawText, parsed, usage: res.usage, latencyMs: Date.now() - startMs };
@@ -198,10 +215,11 @@ export async function callGeminiWithTools({
         .join('')
         .trim();
       const parsed = tryParseJsonText(rawText);
+      const validated = validateChatOutput(parsed, rawText);
       return {
         model: res.model,
         rawText,
-        parsed: parsed || { reply: rawText },
+        parsed: validated,
         toolsUsed: [...new Set(toolsUsed)],
         usage: totalUsage,
         latencyMs: Date.now() - startMs,
@@ -237,17 +255,22 @@ export async function callGeminiWithTools({
 }
 
 /**
- * Lưu lại cặp prompt/output vào bảng ai_training_logs để chuẩn bị dữ liệu Fine-tune (Vertex AI JSONL)
+ * Lưu lại cặp prompt/output vào bảng ai_training_logs (mặc định is_approved = FALSE, che PII cả system/input/output)
  */
-export async function logAiTrainingSample(pool, isDbConnected, { taskType, systemInstruction, userInput, modelOutput, modelUsed }) {
+export async function logAiTrainingSample(
+  pool,
+  isDbConnected,
+  { taskType, systemInstruction, userInput, modelOutput, modelUsed, isApproved = false, extraSecrets = [] }
+) {
   if (!pool || !isDbConnected) return null;
   try {
-    const outputStr = redactPii(typeof modelOutput === 'string' ? modelOutput : JSON.stringify(modelOutput));
-    const inputStr = redactPii(typeof userInput === 'string' ? userInput : JSON.stringify(userInput));
+    const outputStr = redactPii(typeof modelOutput === 'string' ? modelOutput : JSON.stringify(modelOutput), { extraSecrets });
+    const inputStr = redactPii(typeof userInput === 'string' ? userInput : JSON.stringify(userInput), { extraSecrets });
+    const cleanSystem = redactPii(systemInstruction || '', { extraSecrets });
     const [res] = await pool.execute(
       `INSERT INTO ai_training_logs (task_type, system_instruction, user_input, model_output, model_used, is_approved)
-       VALUES (?, ?, ?, ?, ?, TRUE) RETURNING id`,
-      [taskType, systemInstruction || '', inputStr, outputStr, modelUsed || DEFAULT_MODEL]
+       VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+      [taskType, cleanSystem, inputStr, outputStr, modelUsed || DEFAULT_MODEL, Boolean(isApproved)]
     );
     return res.insertId || null;
   } catch (err) {

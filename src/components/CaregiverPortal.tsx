@@ -39,7 +39,7 @@ import {
 import { store, ScheduleItem } from '@/lib/store';
 import { CareShiftReportModal } from './CareShiftReportModal';
 import { PatientMedicalHistoryModal } from './PatientMedicalHistoryModal';
-import { API, API_BASE_URL } from '@/lib/apiConfig';
+import { API, API_BASE_URL, getAuthHeaders } from '@/lib/apiConfig';
 import { compressImage } from '@/lib/imageUtils';
 
 export interface WorkHistoryItem {
@@ -591,7 +591,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     try {
       const res = await fetch(`${API}/ai/verify-document`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           dataUrl: targetDoc.url,
           documentType: targetDoc.type || 'cccd_front',

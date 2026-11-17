@@ -15,7 +15,7 @@ import {
   Sparkles,
   Loader2
 } from 'lucide-react';
-import { API, API_BASE_URL } from '@/lib/apiConfig';
+import { API, API_BASE_URL, getAuthHeaders } from '@/lib/apiConfig';
 
 interface CareShiftReportModalProps {
   isOpen: boolean;
@@ -117,21 +117,38 @@ export function CareShiftReportModal({
   if (!isOpen) return null;
 
   const handleAiDraftReport = async () => {
+    const sBpSys = String(bpSys ?? '').trim();
+    const sBpDia = String(bpDia ?? '').trim();
+    const sHr = String(heartRate ?? '').trim();
+    const sTemp = String(temp ?? '').trim();
+    const sSpo2 = String(spo2 ?? '').trim();
+    const sSugar = String(bloodSugar ?? '').trim();
+    const sNotes = String(notes ?? '').trim();
+
+    if ((sBpSys && !sBpDia) || (!sBpSys && sBpDia)) {
+      notify('Vui lòng nhập đầy đủ cả huyết áp tâm thu và tâm trương.');
+      return;
+    }
+    if (!sBpSys && !sBpDia && !sHr && !sTemp && !sSpo2 && !sSugar && !sNotes) {
+      notify('Vui lòng nhập chỉ số sinh hiệu thực tế đã đo hoặc ghi chú ca làm trước khi chuẩn hóa báo cáo.');
+      return;
+    }
+
     setAiDrafting(true);
     try {
       const res = await fetch(`${API}/ai/draft-shift-report`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           patientName,
-          bpSys,
-          bpDia,
-          heartRate,
-          temp,
-          spo2,
-          bloodSugar,
+          bpSys: sBpSys,
+          bpDia: sBpDia,
+          heartRate: sHr,
+          temp: sTemp,
+          spo2: sSpo2,
+          bloodSugar: sSugar,
           condition,
-          quickNotes: notes.trim(),
+          quickNotes: sNotes,
         }),
       });
       const data = await res.json();

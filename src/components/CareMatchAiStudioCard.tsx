@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, Check, Database, Download, Plus, RefreshCw, ShieldAlert, Sparkles, Zap } from 'lucide-react';
-import { API } from '@/lib/apiConfig';
+import { API, getAuthHeaders } from '@/lib/apiConfig';
 
 interface FaqSample {
   id: number;
@@ -8,6 +8,7 @@ interface FaqSample {
   user_input: string;
   model_output: string;
   edited_output?: string | null;
+  is_approved?: boolean;
   created_at?: string;
 }
 
@@ -56,8 +57,8 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
     setLoading(true);
     try {
       const [kRes, mRes] = await Promise.all([
-        fetch(`${API}/ai/knowledge`),
-        fetch(`${API}/ai/metrics`),
+        fetch(`${API}/ai/knowledge`, { headers: getAuthHeaders() }),
+        fetch(`${API}/ai/metrics`, { headers: getAuthHeaders() }),
       ]);
       if (kRes.ok) {
         const data = await kRes.json();
@@ -90,7 +91,7 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
     try {
       const res = await fetch(`${API}/ai/knowledge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ customRules }),
       });
       if (res.ok) {
@@ -108,7 +109,7 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
   const handleReindexVector = async () => {
     setReindexing(true);
     try {
-      const res = await fetch(`${API}/ai/rag/reindex`, { method: 'POST' });
+      const res = await fetch(`${API}/ai/rag/reindex`, { method: 'POST', headers: getAuthHeaders() });
       const data = await res.json();
       if (res.ok) {
         notify(`Đã đồng bộ ${data.indexed || 0} vector kiến thức & hồ sơ chuyên viên cho CareMatchAI!`);
@@ -132,7 +133,7 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
     try {
       const res = await fetch(`${API}/ai/training-logs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ question: newQuestion.trim(), answer: newAnswer.trim() }),
       });
       if (res.ok) {
@@ -147,6 +148,45 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
       notify('Lỗi kết nối máy chủ.');
     } finally {
       setAddingFaq(false);
+    }
+  };
+
+  const handleToggleApprove = async (sampleId: number, currentApproved: boolean) => {
+    try {
+      const res = await fetch(`${API}/ai/training-logs/${sampleId}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ is_approved: !currentApproved }),
+      });
+      if (res.ok) {
+        notify(!currentApproved ? 'Đã duyệt mẫu vào tập dữ liệu huấn luyện!' : 'Đã bỏ duyệt mẫu khỏi tập dữ liệu.');
+        loadKnowledgeAndMetrics();
+      } else {
+        notify('Không thể cập nhật trạng thái duyệt mẫu.');
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ.');
+    }
+  };
+
+  const handleDownloadDataset = async () => {
+    try {
+      const res = await fetch(`${API}/ai/export-finetune-jsonl`, { headers: getAuthHeaders() });
+      if (!res.ok) {
+        notify('Bạn cần đăng nhập quyền Quản trị viên để tải dataset.');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'carematchai_finetune_dataset.jsonl';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      notify('Lỗi tải xuống dataset.');
     }
   };
 
@@ -178,14 +218,13 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
             <Database size={14} className={reindexing ? 'animate-pulse' : ''} />
             {reindexing ? 'Đang đồng bộ Vector...' : 'Đồng bộ Kho Vector'}
           </button>
-          <a
-            href={`${API}/ai/export-finetune-jsonl`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#294927] hover:bg-[#1f391e] text-white px-4 py-2 text-[12px] font-bold transition shadow-xs"
+          <button
+            type="button"
+            onClick={handleDownloadDataset}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#294927] hover:bg-[#1f391e] text-white px-4 py-2 text-[12px] font-bold transition shadow-xs cursor-pointer"
           >
             <Download size={14} /> Tải Dataset (.JSONL)
-          </a>
+          </button>
         </div>
       </div>
 
@@ -284,18 +323,31 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
         </div>
 
         {faqSamples.length > 0 && (
-          <div className="pt-1 space-y-1.5 max-h-40 overflow-y-auto">
-            {faqSamples.slice(0, 6).map((s) => (
-              <div key={s.id} className="rounded-lg bg-[#f7faf6] border border-[#e3ede0] px-3 py-2 text-[11.5px]">
-                <div className="font-semibold text-[#233d22] truncate">
-                  <span className="text-[10px] uppercase tracking-wider text-emerald-700 mr-1.5">
-                    [{s.task_type === 'chatbot_faq' ? 'Mẫu chuẩn' : 'Hội thoại'}]
-                  </span>
-                  Hỏi: {parsePreviewText(s.user_input, 'message')}
+          <div className="pt-1 space-y-1.5 max-h-48 overflow-y-auto">
+            {faqSamples.slice(0, 8).map((s) => (
+              <div key={s.id} className="rounded-lg bg-[#f7faf6] border border-[#e3ede0] px-3 py-2 text-[11.5px] flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-[#233d22] truncate">
+                    <span className="text-[10px] uppercase tracking-wider text-emerald-700 mr-1.5">
+                      [{s.task_type === 'chatbot_faq' ? 'Mẫu chuẩn' : 'Hội thoại'}]
+                    </span>
+                    Hỏi: {parsePreviewText(s.user_input, 'message')}
+                  </div>
+                  <div className="text-gray-600 truncate mt-0.5">
+                    Đáp: {parsePreviewText(s.edited_output || s.model_output, 'reply')}
+                  </div>
                 </div>
-                <div className="text-gray-600 truncate mt-0.5">
-                  Đáp: {parsePreviewText(s.edited_output || s.model_output, 'reply')}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleApprove(s.id, Boolean(s.is_approved))}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border transition cursor-pointer ${
+                    s.is_approved
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
+                      : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                  }`}
+                >
+                  {s.is_approved ? '✓ Đã duyệt' : 'Chờ duyệt'}
+                </button>
               </div>
             ))}
           </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, MessageCircle, RotateCcw, Send, Sparkles, X } from 'lucide-react';
-import { API } from '@/lib/apiConfig';
+import { API, getAuthHeaders } from '@/lib/apiConfig';
 
 export interface CareMatchChatMessage {
   id: string;
@@ -39,7 +39,7 @@ function getDefaultPrompts(userRole?: string): string[] {
     return [
       'Thống kê hồ sơ chờ duyệt & doanh thu hệ thống',
       'Xem lịch chăm sóc gần nhất trên hệ thống',
-      'Kiểm tra nhật ký sinh hiệu bệnh nhân mới nhất',
+      'Tra cứu danh sách chuyên viên CARE SCORE cao nhất',
     ];
   }
   if (userRole === 'family') {
@@ -150,7 +150,7 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
 
       const res = await fetch(`${API}/ai/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: payloadBody,
       });
 
@@ -210,7 +210,7 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
           // Trường hợp hiếm stream kết thúc không có frame done -> fallback an toàn
           const fallbackRes = await fetch(`${API}/ai/chat`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: payloadBody,
           });
           const fData = await fallbackRes.json();

@@ -23,7 +23,7 @@ import {
   ChevronRight,
   Sparkles
 } from 'lucide-react';
-import { API } from '@/lib/apiConfig';
+import { API, getAuthHeaders } from '@/lib/apiConfig';
 import { useLocation } from 'wouter';
 
 export interface PatientCareLog {
@@ -250,7 +250,7 @@ export function CareLogsView({
     try {
       const res = await fetch(`${API}/ai/summarize-care-logs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           elderlyProfileId: currentSelectedPatient.id,
           elderlyName: currentSelectedPatient.full_name,
