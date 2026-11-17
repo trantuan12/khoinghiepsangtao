@@ -235,9 +235,7 @@ async function initMySql() {
 
   initPromise = (async () => {
     try {
-      const conn = await pool.getConnection();
-      await conn.ping();
-      conn.release();
+      await pool.execute('SELECT 1');
       isMySqlConnected = true;
       const summary = getDbSummary();
       console.log(`✅ [PostgreSQL/Supabase] Đã kết nối thành công (${summary.host}:${summary.port}/${summary.database})`);
@@ -246,6 +244,19 @@ async function initMySql() {
       console.error('⚠️ [PostgreSQL/Supabase] Lỗi kết nối database:', err.message);
       return null;
     }
+
+    // Fast-path cho Serverless/Production: nếu đủ 18 bảng và đã có system_settings, bỏ qua ~90 câu DDL/seed lặp lại khi cold start
+    try {
+      const [tblRows] = await pool.execute(
+        "SELECT COUNT(*)::int AS cnt FROM pg_tables WHERE schemaname = 'public'"
+      );
+      if ((tblRows[0]?.cnt || 0) >= 18) {
+        const [setRows] = await pool.execute('SELECT COUNT(*)::int AS cnt FROM system_settings');
+        if ((setRows[0]?.cnt || 0) >= 20) {
+          return pool;
+        }
+      }
+    } catch (_) { }
 
     // Đảm bảo bảng lõi (users, profiles, schedules...) tồn tại trước khi chạy các bảng phụ thuộc FK
     await initCoreTables();
