@@ -1,115 +1,199 @@
-# 🌿 CARE-MATCH (Khởi Nghiệp Sáng Tạo)
+# 🌿 CARE-MATCH — Nền Tảng Chăm Sóc Người Cao Tuổi Tích Hợp **CareMatchAI**
 
-> **Nền tảng số kết nối người cao tuổi với người chăm sóc tại nhà, đồng hành bởi Nhân viên Công tác Xã hội.**
-
----
-
-## 📌 Giới thiệu dự án
-
-**CARE-MATCH** là giải pháp công nghệ toàn diện hỗ trợ các gia đình tìm kiếm, lựa chọn và kết nối với những người chăm sóc người cao tuổi có chuyên môn, đạo đức và uy tín. Hệ thống tích hợp quy trình thẩm định đa tầng (eKYC, lý lịch tư pháp, chứng chỉ y tế), đánh giá thang điểm độc lập **ADL** và hệ thống chấm điểm tín nhiệm độc quyền **CARE SCORE**.
+> **Nền tảng số kết nối gia đình với điều dưỡng & người chăm sóc người cao tuổi đã qua thẩm định eKYC, đồng hành bởi trợ lý trí tuệ nhân tạo CareMatchAI (Hybrid Vector RAG + Live Database Tool Calling + Observability + Evaluation Harness).**
 
 ---
 
-## 🚀 Công nghệ sử dụng (Tech Stack)
+## 📌 Tổng Quan Dự Án
 
-### Frontend
-- **Framework & Ngôn ngữ:** React 18, TypeScript, Vite
-- **Giao diện & Styling:** TailwindCSS, Radix UI primitives, Lucide Icons, Framer Motion
-- **Quản lý Routing & State:** Wouter, TanStack React Query, Hook Form
+**CARE-MATCH** giải quyết bài toán tìm kiếm, đặt lịch, thanh toán minh bạch và theo dõi sức khỏe người cao tuổi tại nhà theo thời gian thực cho 3 nhóm người dùng:
 
-### Backend & Database
-- **Runtime & Server:** Node.js, Express.js (RESTful API tại cổng `5000`)
-- **Cơ sở dữ liệu:** MySQL 8.x / MariaDB (`mysql2/promise`)
-- **Tự động chuyển đổi:** Hỗ trợ kết nối trực tiếp MySQL, tự động chuyển về In-Memory Store dự phòng nếu chưa bật database.
+| Vai trò | Chức năng cốt lõi | Tính năng **CareMatchAI** tích hợp |
+|---|---|---|
+| **Gia đình (`family`)** | Tạo hồ sơ người thân (thang **ADL**), tìm & đặt ca chăm sóc, thanh toán qua hệ thống, nhắn tin 1-1, theo dõi nhật ký sinh hiệu & nâng cấp gói **Care+ VIP** | • **Chatbot bong bóng toàn trang & mục Tin nhắn** (SSE Streaming + hỏi đáp lịch/sinh hiệu thật)<br>• **Tư vấn tìm chuyên viên bằng CareMatchAI** (`AI Care Matcher`) |
+| **Chuyên viên (`caregiver`)** | Nộp hồ sơ **eKYC** (CCCD, chứng chỉ y tế, lý lịch tư pháp), nhận ca trực, gửi báo cáo sinh hiệu sau ca, tích điểm tín nhiệm **CARE SCORE** & theo dõi thu nhập | • **Kiểm tra sơ bộ ảnh eKYC** bằng Vision OCR (kiểm tra độ nét & tự điền số CCCD)<br>• **Chuẩn hóa báo cáo bàn giao sau ca** từ sinh hiệu + ghi chú nhanh<br>• **Chatbot CareMatchAI** tra lịch nhận ca & thu nhập |
+| **Quản trị viên (`admin`)** | Duyệt hồ sơ eKYC & lịch phỏng vấn, điều phối lịch toàn hệ thống, theo dõi sức khỏe sau ca, quản lý giao dịch/cộng đồng & cấu hình hệ thống | • **Phân tích xu hướng sinh hiệu bệnh nhân**<br>• **Trung tâm Tri thức, Vector RAG & Giám sát CareMatchAI** (cấu hình tri thức tức thì, KPI token/độ trễ/guardrail, đồng bộ `pgvector`, xuất `.JSONL`) |
 
 ---
 
-## 🛠️ Hướng dẫn cài đặt & Khởi động dự án
+## 🧠 Kiến Trúc **CareMatchAI** (AI Engineering Architecture)
 
-### 1. Cài đặt thư viện phụ thuộc
-Mở terminal tại thư mục gốc của dự án:
+Hệ thống AI được thiết kế theo mô hình **Production AI Gateway**, kết hợp truy xuất dữ liệu sống (live SQL), tìm kiếm ngữ nghĩa Vector, kiểm soát an toàn và đo lường tự động:
+
+```mermaid
+flowchart LR
+    UI["React UI<br/>(Chat Bubble, /messages, Matcher, eKYC, Admin Studio)"] -->|"POST /api/ai/chat/stream (SSE)"| GW["Express AI Gateway<br/>(server/server.js)"]
+    GW --> GR["Guardrails & PII Redaction<br/>(server/aiGuardrails.js)"]
+    GR -->|"Blocked"| REFUSE["Safe Refusal + Metric Log"]
+    GR -->|"Safe"| CACHE["Response Cache (TTL 10m)<br/>(server/aiCache.js)"]
+    CACHE -->|"Cache Hit"| UI
+    CACHE -->|"Cache Miss"| LLM["LLM Orchestrator & Fallback<br/>(server/ai.js)"]
+    LLM <-->|"Function Calling (Max 3 Rounds + RBAC)"| TOOLS["8 Live SQL & RAG Tools<br/>(server/aiTools.js)"]
+    TOOLS <-->|"SQL Filters + RBAC"| PG[("Supabase PostgreSQL")]
+    TOOLS <-->|"768d Cosine Similarity (HNSW)"| VEC[("pgvector<br/>ai_knowledge_chunks")]
+    LLM -->|"Tokens, Latency, Cost"| METRICS[("ai_metrics_logs &<br/>ai_training_logs")]
+```
+
+### Các kỹ thuật AI cốt lõi đã triển khai
+
+1. **Agentic Multi-turn Tool Calling + RBAC ([server/ai.js](server/ai.js), [server/aiTools.js](server/aiTools.js))**
+   - Vòng lặp gọi công cụ tối đa 3 bước (bảo toàn `thoughtSignature` qua các lượt), cho phép chatbot tự động gọi 8 công cụ theo phân quyền vai trò (`guest`, `family`, `caregiver`, `admin`):
+     - `search_caregivers`, `get_caregiver_detail`, `search_knowledge_base`
+     - `get_my_elderly_profiles`, `get_my_schedules`, `get_patient_care_logs`, `get_my_payments`, `get_platform_info`
+   - Cô lập quyền truy cập: tài khoản `guest` không thể truy xuất dữ liệu cá nhân; `family` và `caregiver` chỉ đọc đúng bản ghi thuộc `userId` của mình.
+
+2. **Hybrid Semantic RAG trên Supabase `pgvector` ([server/rag.js](server/rag.js))**
+   - Sử dụng `models/gemini-embedding-001` (`768` chiều) kết hợp bảng `ai_knowledge_chunks` (`vector(768)` + index HNSW cosine similarity trên `pgvector`).
+   - Phối hợp **Vector Search + SQL Metadata Filter** để khớp đúng ý nghĩa bệnh lý (ví dụ: tìm *"đột quỵ liệt nửa người"* vẫn tìm ra hồ sơ chuyên viên ghi *"tai biến mạch máu não, phục hồi chức năng"*).
+
+3. **SSE Streaming & Response Cache ([server/aiCache.js](server/aiCache.js), [src/components/CareMatchChatbot.tsx](src/components/CareMatchChatbot.tsx))**
+   - Streaming Server-Sent Events qua `POST /api/ai/chat/stream` phát trạng thái tiến trình (`event: status`), từng cụm từ (`event: chunk`) và metadata (`event: done`).
+   - Cache trong bộ nhớ (TTL 10 phút) cho câu hỏi thông tin công khai; tự động bỏ qua cache khi truy vấn dữ liệu cá nhân.
+
+4. **Safety Guardrails, PII Redaction & Observability ([server/aiGuardrails.js](server/aiGuardrails.js), [src/components/CareMatchAiStudioCard.tsx](src/components/CareMatchAiStudioCard.tsx))**
+   - **Prompt Injection Defense:** Phát hiện và chặn các yêu cầu vượt quyền/tiết lộ system prompt trước khi gọi LLM.
+   - **PII Redaction:** Tự động che số điện thoại, số CCCD 12 số và email (`[PHONE_REDACTED]`, `[CCCD_REDACTED]`, `[EMAIL_REDACTED]`) trước khi ghi vào `ai_training_logs`.
+   - **Observability Dashboard:** Lưu `prompt_tokens`, `candidates_tokens`, `total_tokens`, `estimated_cost_usd`, `latency_ms`, `tools_used`, `cache_hit`, `guardrail_triggered` vào bảng `ai_metrics_logs` (`GET /api/ai/metrics`).
+
+5. **Automated LLM Evaluation Harness ([evals/run_eval.mjs](evals/run_eval.mjs), [evals/golden_dataset.json](evals/golden_dataset.json))**
+   - Bộ kiểm thử tự động 9 kịch bản (`hybrid_pgvector_rag`, `sql_tool_calling`, `rbac_live_data`, `rbac_isolation`, `medical_safety`, `security_guardrail`, `cache_hit`).
+   - Kết quả đo thực tế gần nhất ([evals/latest_report.json](evals/latest_report.json)):
+     - **Pass Rate:** `100%` (9/9) · **Tool Selection Accuracy:** `100%`
+     - **Cache Hit Check:** `Passed` (`521ms` so với `6096ms` lúc gọi LLM)
+     - **Vector Chunks Indexed:** `17` · **P50 / P95 Latency:** `4307ms` / `5892ms`
+
+6. **Python FastAPI AI Microservice & QLoRA Fine-Tuning Pipeline**
+   - **`ai-service/`:** Microservice Python bất đồng bộ (FastAPI + Pydantic v2 + `httpx` + `psycopg`), cung cấp `/health`, `/v1/guardrails/check`, `/v1/embeddings`, `/v1/rag/search`, `/v1/chat`.
+   - **`training/`:** Pipeline chuyển đổi dataset `.jsonl` xuất từ Admin sang định dạng ChatML (`prepare_dataset.py`) và script huấn luyện 4-bit NF4 **QLoRA** (`train_qlora.py`) cho `Qwen/Qwen2.5-3B-Instruct` bằng `transformers` + `peft` + `trl`.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend:** React 18, TypeScript, Vite 5, Tailwind CSS, Radix UI, Wouter, TanStack React Query, Lucide Icons, Framer Motion
+- **Backend API:** Node.js, Express 5 (`server/server.js`), Vercel Serverless Entry (`api/index.js`), Nodemailer
+- **Database & Vector Store:** Supabase PostgreSQL (`pg`) + `pgvector` (21 bảng trong `server/schema_postgres.sql`)
+- **AI & ML Stack:** Google Gemini API (`gemini-3.1-flash-lite`, `gemini-embedding-001`), Python FastAPI (`ai-service/`), PyTorch / HuggingFace `peft` / `trl` (`training/`)
+
+---
+
+## 📁 Cấu Trúc Thư Mục
+
+```text
+khoinghiepsangtao/
+├── api/
+│   └── index.js                      # Vercel Serverless wrapper cho Express backend
+├── server/
+│   ├── server.js                     # Express API chính (Auth, Caregivers, Schedules, Messages, Payments, AI)
+│   ├── db.js                         # PostgreSQL pool & adapter truy vấn
+│   ├── schema_postgres.sql           # Schema 21 bảng + pgvector + triggers
+│   ├── ai.js                         # LLM gateway, fallback chain, usage tracking, Vision helper
+│   ├── aiTools.js                    # 8 SQL/RAG tools có RBAC & knowledge loader
+│   ├── aiGuardrails.js               # Prompt Injection Guard, PII Redaction, Metrics logger
+│   ├── aiCache.js                    # Response Cache cho truy vấn công khai
+│   ├── rag.js                        # Embedding + Vector Sync + pgvector cosine search
+│   └── .env.example                  # Mẫu biến môi trường backend
+├── src/
+│   ├── App.tsx                       # Toàn bộ ứng dụng React (3 portals + Messages + Admin)
+│   └── components/
+│       ├── CareMatchChatbot.tsx      # Bong bóng chat toàn trang & ô chat CareMatchAI trong /messages (SSE)
+│       ├── CareMatchAiStudioCard.tsx # Trung tâm Tri thức, Vector RAG & Observability cho Admin
+│       ├── AiCareMatcherModal.tsx    # Modal tư vấn tìm chuyên viên bằng CareMatchAI
+│       ├── CareLogsView.tsx          # Theo dõi sinh hiệu & CareMatchAI phân tích xu hướng
+│       ├── CareShiftReportModal.tsx  # Báo cáo sau ca & CareMatchAI chuẩn hóa nội dung
+│       └── CaregiverPortal.tsx       # Cổng chuyên viên & kiểm tra ảnh eKYC bằng CareMatchAI
+├── evals/
+│   ├── golden_dataset.json           # Tập kịch bản benchmark chuẩn
+│   ├── run_eval.mjs                  # Script chạy đánh giá tự động CareMatchAI
+│   └── latest_report.json            # Báo cáo kết quả benchmark mới nhất
+├── ai-service/
+│   ├── main.py                       # Python FastAPI AI Microservice
+│   └── requirements.txt
+└── training/
+    ├── prepare_dataset.py            # Chuẩn hóa .jsonl sang ChatML train/val
+    ├── train_qlora.py                # Script fine-tuning QLoRA (Qwen2.5-3B-Instruct)
+    └── requirements.txt
+```
+
+---
+
+## 🚀 Hướng Dẫn Cài Đặt & Chạy Dự Án
+
+### 1. Cài đặt thư viện Node.js
 ```bash
 npm install
 ```
 
-### 2. Thiết lập Cơ sở dữ liệu MySQL
-1. Mở **XAMPP Control Panel** (hoặc MySQL Workbench/Laragon) và bấm **Start** dịch vụ **MySQL** (cổng mặc định `3306`).
-2. Tạo database và nhập dữ liệu mẫu:
-   - Mở cửa sổ **Shell** trong XAMPP hoặc terminal và chạy 2 tệp script:
-     ```bash
-     # Tạo database & các bảng
-     mysql -u root < server/schema.sql
+### 2. Cấu hình môi trường (`server/.env`)
+Sao chép mẫu cấu hình và điền thông số Supabase PostgreSQL + Gemini API Key của bạn:
+```bash
+cp server/.env.example server/.env
+```
+Các biến quan trọng trong `server/.env`:
+```env
+PORT=5000
+NODE_ENV=development
+DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres
+CLIENT_URL=http://localhost:3000
 
-     # Nạp dữ liệu mẫu ban đầu
-     mysql -u root < server/seed.sql
-     ```
-   *(Xem hướng dẫn chi tiết tại [HUONG_DAN_CAI_DAT_MYSQL.md](HUONG_DAN_CAI_DAT_MYSQL.md)).*
-3. Kiểm tra tệp cấu hình `server/.env`:
-   ```env
-   PORT=5000
-   DB_HOST=localhost
-   DB_USER=root
-   DB_PASSWORD=
-   DB_NAME=care_match_db
-   DB_PORT=3306
-   ```
+EMAIL_SERVICE=gmail
+EMAIL_USER=your_email@gmail.com
+EMAIL_PASS=your_app_password
+EMAIL_FROM="CareMatch Vietnam" <no-reply@carematch.vn>
 
-### 3. Khởi động hệ thống (Cần chạy cả 2 tiến trình)
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL=gemini-3.1-flash-lite
+```
 
-Để hệ thống hoạt động đầy đủ tính năng kết nối dữ liệu, bạn cần mở **2 cửa sổ Terminal**:
+### 3. Khởi tạo Schema trên Supabase PostgreSQL
+Chạy nội dung tệp [`server/schema_postgres.sql`](server/schema_postgres.sql) trong **Supabase SQL Editor** (hoặc server tự khởi tạo bảng bổ sung khi kết nối).
 
-* **Terminal 1 - Khởi động Backend API (Port 5000):**
+### 4. Chạy Local (Mở 2 Terminal)
+- **Terminal 1 — Backend Express API (`http://localhost:5000`):**
   ```bash
   npm run server
   ```
-  *(Khi kết nối thành công, console sẽ báo `✅ [MySQL] Đã kết nối thành công đến cơ sở dữ liệu: care_match_db`)*
-
-* **Terminal 2 - Khởi động Giao diện Frontend (Port 3000):**
+- **Terminal 2 — Frontend Vite React (`http://localhost:3000`):**
   ```bash
   npm run dev
   ```
 
-👉 **Truy cập ứng dụng:** Mở trình duyệt tại [http://localhost:3000](http://localhost:3000)
-
----
-
-## 👥 Tài khoản thử nghiệm có sẵn
-
-| Vai trò | Email đăng nhập | Mật khẩu | Mô tả quyền hạn |
-| :--- | :--- | :--- | :--- |
-| **Quản trị viên (Admin)** | `admin@carematch.vn` | `123456` | Thẩm định hồ sơ, cấp chứng chỉ eKYC, quản trị người dùng |
-| **Gia đình (Khách hàng)** | `mai.nguyen@example.com` | `123456` | Quản lý hồ sơ người thân, tìm kiếm và đặt lịch chăm sóc |
-| **Người chăm sóc (Caregiver)** | `lananh.care@example.com` | `123456` | Quản lý lịch ca làm việc, hồ sơ năng lực, điểm CARE SCORE |
-
----
-
-## 📁 Cấu trúc thư mục
-
-```text
-khoinghiepsangtao/
-├── public/                 # Tài nguyên tĩnh, favicon, assets
-├── server/                 # Mã nguồn Backend API & Database
-│   ├── .env                # Biến môi trường kết nối MySQL
-│   ├── schema.sql          # Cấu trúc bảng MySQL
-│   ├── seed.sql            # Dữ liệu khởi tạo ban đầu
-│   ├── migrate.js          # Script migrate dữ liệu tự động
-│   └── server.js           # Server Express.js và API RESTful
-├── src/                    # Mã nguồn Giao diện Frontend
-│   ├── components/         # Các components dùng chung (UI, form, modal)
-│   ├── pages/              # Các trang giao diện (Dashboard, Matching, Admin...)
-│   ├── hooks/              # Custom React Hooks
-│   ├── lib/                # Utilities, cấu hình query client
-│   ├── App.tsx             # Điều hướng chính và xử lý luồng giao diện
-│   └── main.tsx            # Điểm khởi đầu ứng dụng React
-├── HUONG_DAN_CAI_DAT_MYSQL.md # Tài liệu chi tiết hướng dẫn thiết lập DB
-├── package.json            # Scripts và danh sách thư viện
-└── README.md               # Tài liệu hướng dẫn dự án
+### 5. Build Production & Deploy Vercel
+```bash
+npm run build
 ```
+Khi deploy lên **Vercel**:
+- Cấu hình định tuyến đã sẵn sàng trong [`vercel.json`](vercel.json) (`/api/*` trỏ về [`api/index.js`](api/index.js)).
+- Thêm đầy đủ các biến `DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.1-flash-lite`, `CLIENT_URL` và cấu hình email vào **Vercel → Settings → Environment Variables** cho môi trường **Production**, sau đó **Redeploy**.
 
 ---
 
-## 🌟 Các tính năng nổi bật
-- **Matching thông minh:** Gợi ý người chăm sóc phù hợp dựa trên vị trí địa lý, kỹ năng và nhu cầu bệnh lý.
-- **Thẩm định hồ sơ đa tầng (eKYC):** Kiểm duyệt CCCD, Phiếu lý lịch tư pháp số 2, Giấy khám sức khỏe.
-- **Theo dõi lịch trình trực quan:** Quản lý ca chăm sóc theo thời gian thực giữa gia đình và người chăm sóc.
-- **Đánh giá sức khỏe toàn diện:** Khảo sát sinh hoạt hàng ngày (ADL) giúp lập phác đồ chăm sóc cá nhân hóa.
+## 🧪 Chạy Evaluation, FastAPI Microservice & QLoRA Fine-Tuning
+
+### Chạy Automated LLM Eval Suite
+```bash
+# PowerShell (Windows)
+$env:VERCEL="1"; node evals/run_eval.mjs
+```
+Kết quả sẽ được đồng bộ Vector RAG và xuất báo cáo JSON tại [`evals/latest_report.json`](evals/latest_report.json).
+
+### Chạy Python FastAPI AI Microservice (Tuỳ chọn tách service)
+```bash
+cd ai-service
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+Xem Swagger docs tại `http://localhost:8000/docs`.
+
+### Chuẩn bị dữ liệu & Fine-Tune QLoRA
+1. Tải file `.jsonl` từ **Admin → Cấu hình Hệ thống → Tải Dataset (.JSONL)** (hoặc endpoint `GET /api/ai/export-finetune-jsonl`).
+2. Chuẩn hóa sang định dạng ChatML `train.jsonl` / `val.jsonl`:
+   ```bash
+   cd training
+   python prepare_dataset.py --input carematch_vertex_finetune.jsonl --train-out data/train.jsonl --val-out data/val.jsonl
+   ```
+3. Huấn luyện QLoRA trên GPU (Colab T4 16GB+):
+   ```bash
+   pip install -r requirements.txt
+   python train_qlora.py --base-model Qwen/Qwen2.5-3B-Instruct --epochs 3
+   ```
