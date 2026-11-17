@@ -236,8 +236,8 @@ export async function semanticSearchKnowledge(pool, isDbConnected, query, { sour
     params.push(...sourceTypes);
   }
 
-  sql += ` ORDER BY embedding <=> ?::vector ASC LIMIT ${safeLimit}`;
-  params.push(vecLiteral);
+  sql += ` ORDER BY embedding <=> ?::vector ASC LIMIT ?`;
+  params.push(vecLiteral, safeLimit);
 
   try {
     const [rows] = await pool.execute(sql, params);

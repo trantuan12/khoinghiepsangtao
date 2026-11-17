@@ -8,16 +8,47 @@ import { fileURLToPath } from 'url';
 import { pool, getPgPool, getDbSummary } from './db.js';
 import { callGemini, callGeminiWithTools, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
 import { CAREMATCH_CHAT_TOOL_DECLARATIONS, executeCareMatchTool, loadAiGroundingKnowledge } from './aiTools.js';
-import { inspectInputSafety, recordAiMetric, redactPii } from './aiGuardrails.js';
+import { inspectInputSafety, recordAiMetric, redactPii, evaluateMedicalEmergencyRules } from './aiGuardrails.js';
 import { clearAiChatCache, getCachedChatResponse, setCachedChatResponse } from './aiCache.js';
 import { ensureVectorTable, syncCareMatchKnowledgeVectors } from './rag.js';
-import { extractAuthContext, requireAuth, signAuthToken } from './auth.js';
 import {
+  ensureAuthSchemaAndMigrateUsers,
+  extractAuthContext,
+  hashPassword,
+  invalidateUserTokenCache,
+  issueSessionTokens,
+  requireAuth,
+  revokeCurrentSession,
+  rotateRefreshSession,
+  validatePasswordStrength,
+  verifyPassword,
+} from './auth.js';
+import {
+  CARE_LOG_SUMMARY_RESPONSE_SCHEMA,
+  CARE_MATCHER_RESPONSE_SCHEMA,
+  SHIFT_REPORT_RESPONSE_SCHEMA,
+  VERIFY_DOC_RESPONSE_SCHEMA,
   validateCareLogSummaryOutput,
   validateCareMatcherOutput,
   validateShiftReportDraftOutput,
   validateVerifyDocumentOutput,
 } from './aiSchemas.js';
+import {
+  securityHeadersMiddleware,
+  createCorsOptions,
+  createRateLimiter,
+  acquireAiConcurrencySlot,
+  checkDailyTokenBudget,
+  recordDailyTokenUsage,
+  getClientIp,
+  validateUploadDataUrl,
+  encryptSensitiveField,
+  decryptSensitiveField,
+  maskIdNumber,
+  ensureSecurityTables,
+  writeAuditLog,
+} from './security.js';
+import { createApiAccessGuard } from './idorGuards.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,27 +57,96 @@ config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 
-// Tạo thư mục uploads nếu chưa tồn tại
-const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'uploads') : path.join(__dirname, 'uploads');
-try {
-  if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-  }
-} catch (e) {
-  console.warn('Lưu ý thư mục uploads:', e.message);
-}
+let isMySqlConnected = false; // Giữ tên biến nội bộ cho tương thích các route, kết nối tới PostgreSQL / Supabase
 
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/uploads', express.static(uploadsDir));
+// 1. Security Headers (CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy)
+app.use(securityHeadersMiddleware);
+
+// 2. Strict CORS Allowlist (chặn tuyệt đối wildcard * trên production, hỗ trợ HttpOnly Cookie credentials)
+app.use(
+  cors(
+    createCorsOptions({
+      onBlockedOrigin: (origin) => {
+        writeAuditLog(pool, isMySqlConnected, null, {
+          action: 'security.cors_blocked',
+          status: 'denied',
+          metadata: { origin },
+        });
+      },
+    })
+  )
+);
+
+// 3. Giới hạn dung lượng Request Body tách biệt: 6MB chỉ cho upload ảnh eKYC, 1.5MB cho toàn bộ JSON API thường
+const uploadJsonParser = express.json({ limit: '6mb' });
+app.use(['/api/upload', '/api/family-profile', '/api/caregiver-profile', '/api/ai/verify-document'], uploadJsonParser);
+app.use(express.json({ limit: '1536kb' }));
+app.use(express.urlencoded({ limit: '1536kb', extended: true }));
+
+// Xử lý lỗi CORS & Payload Too Large (413) / Bad JSON (400) gọn sạch, không lộ stack trace
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  if (err.type === 'entity.too.large' || err.status === 413 || err.statusCode === 413) {
+    return res.status(413).json({
+      error: 'Dữ liệu gửi lên vượt quá giới hạn dung lượng an toàn cho phép.',
+    });
+  }
+  if (err.statusCode === 403) {
+    return res.status(403).json({ error: err.message || 'Truy cập bị từ chối bởi chính sách CORS.' });
+  }
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ error: 'Định dạng dữ liệu JSON gửi lên không hợp lệ.' });
+  }
+  return next(err);
+});
+
+// 4. Đảm bảo kết nối DB trước khi chạy tầng phân quyền RBAC/IDOR & Rate Limiter
+app.use('/api', async (req, res, next) => {
+  if (!isMySqlConnected && req.path !== '/health') {
+    try {
+      await initMySql();
+    } catch { }
+  }
+  next();
+});
+
+app.use('/api', createApiAccessGuard(pool, () => isMySqlConnected));
+
+const authRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 15,
+  keyPrefix: 'auth',
+  onBlocked: (req, key) =>
+    writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'security.rate_limit',
+      resourceType: req.path,
+      status: 'blocked',
+      metadata: { key },
+    }),
+});
+app.use(
+  ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password', '/api/auth/verify-otp', '/api/auth/admin/verify-mfa'],
+  authRateLimiter
+);
+
+const aiRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 18,
+  keyPrefix: 'ai',
+  onBlocked: (req, key) =>
+    writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'security.rate_limit',
+      resourceType: req.path,
+      status: 'blocked',
+      metadata: { key },
+    }),
+});
+app.use('/api/ai', aiRateLimiter);
 
 // Google Search Console Verification Endpoint
 app.get('/google4f3cf9857c040986.html', (req, res) => {
   res.type('text/html').send('google-site-verification: google4f3cf9857c040986.html');
 });
-
-let isMySqlConnected = false; // Giữ tên biến nội bộ cho tương thích các route, kết nối tới PostgreSQL / Supabase
 
 // ========================================================
 // KHỞI TẠO KẾT NỐI POSTGRESQL / SUPABASE
@@ -215,20 +315,23 @@ async function initCoreTables() {
       );
     `);
 
-    // Nạp tài khoản mẫu nếu database Supabase mới hoàn toàn trống
+    // Nạp tài khoản mẫu nếu database Supabase mới hoàn toàn trống (mật khẩu luôn băm bcrypt, bắt buộc đổi lần đầu với Admin)
     const [uCount] = await pool.execute('SELECT COUNT(*) AS cnt FROM users');
     if (Number(uCount[0]?.cnt || 0) === 0) {
-      await pool.execute(`
-        INSERT INTO users (id, username, email, password_hash, role, full_name, phone, avatar_initials) VALUES
-          (1, 'admin', 'admin@carematch.vn', '123456', 'admin', 'Admin Quản Trị', '0988 000 999', 'AD'),
-          (2, 'lananh', 'lananh.care@example.com', '123456', 'caregiver', 'Nguyễn Lan Anh', '0912 345 678', 'LA'),
-          (3, 'thuha', 'thuha.care@example.com', '123456', 'caregiver', 'Trần Thu Hà', '0988 765 432', 'TH'),
-          (4, 'maichi', 'maichi.care@example.com', '123456', 'caregiver', 'Lê Mai Chi', '0903 112 233', 'MC'),
-          (5, 'mai', 'mai.nguyen@example.com', '123456', 'family', 'Nguyễn Minh Mai', '0934 567 890', 'ML')
-        ON CONFLICT (id) DO NOTHING
-      `);
+      const initialAdminHash = await hashPassword(process.env.INITIAL_ADMIN_PASSWORD || 'CareMatchAdmin@2026', 12);
+      const demoUserHash = await hashPassword(process.env.DEMO_USER_PASSWORD || 'CareMatch@2026', 10);
+      await pool.execute(
+        `INSERT INTO users (id, username, email, password_hash, role, full_name, phone, avatar_initials) VALUES
+          (1, 'admin', 'admin@carematch.vn', ?, 'admin', 'Admin Quản Trị', '0988 000 999', 'AD'),
+          (2, 'lananh', 'lananh.care@example.com', ?, 'caregiver', 'Nguyễn Lan Anh', '0912 345 678', 'LA'),
+          (3, 'thuha', 'thuha.care@example.com', ?, 'caregiver', 'Trần Thu Hà', '0988 765 432', 'TH'),
+          (4, 'maichi', 'maichi.care@example.com', ?, 'caregiver', 'Lê Mai Chi', '0903 112 233', 'MC'),
+          (5, 'mai', 'mai.nguyen@example.com', ?, 'family', 'Nguyễn Minh Mai', '0934 567 890', 'ML')
+        ON CONFLICT (id) DO NOTHING`,
+        [initialAdminHash, demoUserHash, demoUserHash, demoUserHash, demoUserHash]
+      );
       await pool.execute("SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT MAX(id) FROM users), 1))");
-      console.log('✅ [PostgreSQL] Đã nạp tài khoản mặc định cho database mới');
+      console.log('✅ [PostgreSQL] Đã nạp tài khoản mặc định đã băm bcrypt cho database mới');
     }
   } catch (err) {
     console.error('⚠️ [PostgreSQL] Lỗi khởi tạo bảng lõi:', err.message);
@@ -257,6 +360,14 @@ async function initMySql() {
       return null;
     }
 
+    // Luôn đảm bảo bảng bảo mật (auth_sessions, audit_logs) & tự động băm bcrypt cho mật khẩu cũ ngay cả ở fast-path
+    try {
+      await ensureSecurityTables(pool, isMySqlConnected);
+      await ensureAuthSchemaAndMigrateUsers(pool, isMySqlConnected);
+    } catch (secErr) {
+      console.warn('⚠️ [Security Migration] Lưu ý khi đồng bộ schema bảo mật:', secErr.message);
+    }
+
     // Fast-path cho Serverless/Production: nếu đủ 19 bảng (gồm ai_training_logs) và đã có system_settings, bỏ qua ~90 câu DDL/seed lặp lại khi cold start
     try {
       const [tblRows] = await pool.execute(
@@ -272,6 +383,8 @@ async function initMySql() {
 
     // Đảm bảo bảng lõi (users, profiles, schedules...) tồn tại trước khi chạy các bảng phụ thuộc FK
     await initCoreTables();
+    await ensureSecurityTables(pool, isMySqlConnected).catch(() => {});
+    await ensureAuthSchemaAndMigrateUsers(pool, isMySqlConnected).catch(() => {});
 
     // Chạy đầy đủ các migration bảng phụ thuộc & đồng bộ
     await Promise.allSettled([
@@ -1385,129 +1498,482 @@ app.get('/api/health', async (req, res) => {
 
 // ---- AUTH ----
 
-// 1. Đăng nhập
+// 1. Đăng nhập an toàn (DB + bcrypt + Khóa tạm thời khi sai >= 5 lần + MFA cho Admin + HttpOnly Cookie + Audit Log)
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password, role } = req.body;
+  const { username, password, role } = req.body || {};
+  const loginId = String(username || '').trim();
+  const rawPass = String(password || '');
 
-  if (role === 'admin' || username === 'admin' || username === 'admin@carematch.vn') {
-    if (password === '123456' || password === 'admin123') {
-      const adminUser = { id: 1, username: 'admin', full_name: 'Admin Quản Trị', role: 'admin', email: 'admin@carematch.vn' };
-      return res.json({
-        success: true,
-        user: adminUser,
-        token: signAuthToken(adminUser),
+  if (!loginId || !rawPass) {
+    return res.status(400).json({ success: false, message: 'Vui lòng nhập tài khoản và mật khẩu.' });
+  }
+
+  if (!isMySqlConnected) {
+    await initMySql();
+  }
+  if (!isMySqlConnected) {
+    return res.status(503).json({ success: false, message: 'Hệ thống cơ sở dữ liệu đang bảo trì, vui lòng thử lại sau.' });
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, username, email, password_hash, role, full_name, phone,
+              COALESCE(token_version, 1) AS token_version,
+              COALESCE(failed_login_attempts, 0) AS failed_login_attempts,
+              locked_until,
+              COALESCE(must_change_password, FALSE) AS must_change_password,
+              COALESCE(mfa_enabled, FALSE) AS mfa_enabled
+       FROM users
+       WHERE username = ? OR LOWER(email) = LOWER(?)
+       LIMIT 1`,
+      [loginId, loginId]
+    );
+
+    if (!rows.length) {
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        action: 'auth.login.failed',
+        status: 'denied',
+        metadata: { identifier: loginId, reason: 'user_not_found' },
+      });
+      return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không chính xác.' });
+    }
+
+    const u = rows[0];
+
+    // Kiểm tra khóa tài khoản tạm thời (Account Lockout)
+    if (u.locked_until && new Date(u.locked_until).getTime() > Date.now()) {
+      const remainMin = Math.max(1, Math.ceil((new Date(u.locked_until).getTime() - Date.now()) / 60000));
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: u.id,
+        actorRole: u.role,
+        action: 'auth.account.locked',
+        status: 'blocked',
+        metadata: { remainMinutes: remainMin },
+      });
+      return res.status(423).json({
+        success: false,
+        message: `Tài khoản đang tạm khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau ${remainMin} phút.`,
       });
     }
-    return res.status(401).json({ success: false, message: 'Mật khẩu quản trị viên không chính xác.' });
-  }
 
-  if (isMySqlConnected) {
-    try {
-      const [rows] = await pool.execute(
-        'SELECT id, username, email, role, full_name, phone FROM users WHERE (username = ? OR email = ?) AND password_hash = ? LIMIT 1',
-        [username, username, password]
+    const isPassValid = await verifyPassword(rawPass, u.password_hash);
+    if (!isPassValid) {
+      const nextAttempts = Number(u.failed_login_attempts || 0) + 1;
+      const shouldLock = nextAttempts >= 5;
+      const lockedUntil = shouldLock ? new Date(Date.now() + 15 * 60 * 1000) : null;
+      await pool.execute(
+        'UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?',
+        [nextAttempts, lockedUntil, u.id]
       );
-      if (rows.length > 0) {
-        const u = rows[0];
-        // Ràng buộc vai trò đăng nhập để không bị lẫn lộn giữa Gia đình và Người chăm sóc
-        if (role && role !== 'admin' && u.role !== role) {
-          if (u.role === 'family' && role === 'caregiver') {
-            return res.status(400).json({
-              success: false,
-              message: 'Tài khoản này thuộc vai trò GIA ĐÌNH NGƯỜI CAO TUỔI. Vui lòng chọn tab "Gia đình người cao tuổi" để đăng nhập.'
-            });
-          } else if (u.role === 'caregiver' && role === 'family') {
-            return res.status(400).json({
-              success: false,
-              message: 'Tài khoản này thuộc vai trò NGƯỜI CHĂM SÓC. Vui lòng chọn tab "Người chăm sóc" để đăng nhập.'
-            });
-          }
-        }
-        return res.json({ success: true, user: u, token: signAuthToken(u) });
-      }
-    } catch (e) {
-      console.error('MySQL login error:', e.message);
+      invalidateUserTokenCache(u.id);
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: u.id,
+        actorRole: u.role,
+        action: u.role === 'admin' ? 'auth.admin.login_failed' : 'auth.login.failed',
+        status: 'denied',
+        metadata: { failedAttempts: nextAttempts, accountLocked: shouldLock },
+      });
+      return res.status(401).json({
+        success: false,
+        message: shouldLock
+          ? 'Bạn đã nhập sai mật khẩu 5 lần liên tiếp. Tài khoản tạm khóa 15 phút để bảo vệ an toàn.'
+          : 'Email hoặc mật khẩu không chính xác.',
+      });
     }
-  }
 
-  return res.status(401).json({ success: false, message: 'Email hoặc mật khẩu không chính xác.' });
+    // Ràng buộc vai trò đăng nhập để không bị lẫn lộn giữa Gia đình, Người chăm sóc và Admin
+    if (role === 'admin' && u.role !== 'admin') {
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: u.id,
+        actorRole: u.role,
+        action: 'auth.admin.unauthorized_attempt',
+        status: 'denied',
+      });
+      return res.status(403).json({ success: false, message: 'Tài khoản này không có quyền Quản trị viên.' });
+    }
+    if (role && role !== 'admin' && u.role !== role && u.role !== 'admin') {
+      if (u.role === 'family' && role === 'caregiver') {
+        return res.status(400).json({
+          success: false,
+          message: 'Tài khoản này thuộc vai trò GIA ĐÌNH NGƯỜI CAO TUỔI. Vui lòng chọn tab "Gia đình người cao tuổi" để đăng nhập.',
+        });
+      }
+      if (u.role === 'caregiver' && role === 'family') {
+        return res.status(400).json({
+          success: false,
+          message: 'Tài khoản này thuộc vai trò NGƯỜI CHĂM SÓC. Vui lòng chọn tab "Người chăm sóc" để đăng nhập.',
+        });
+      }
+    }
+
+    // Reset bộ đếm đăng nhập sai
+    if (u.failed_login_attempts > 0 || u.locked_until) {
+      await pool.execute('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [u.id]);
+      invalidateUserTokenCache(u.id);
+    }
+
+    // Hỗ trợ xác thực đa yếu tố MFA / OTP qua Email cho Admin khi bật mfa_enabled hoặc ADMIN_REQUIRE_MFA=true
+    if (u.role === 'admin' && (Boolean(u.mfa_enabled) || process.env.ADMIN_REQUIRE_MFA === 'true')) {
+      const mfaOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = Date.now() + 5 * 60 * 1000;
+      const cleanAdminEmail = String(u.email || '').trim().toLowerCase();
+      await pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanAdminEmail]);
+      await pool.execute(
+        'INSERT INTO password_resets (email, otp, expires_at, attempts, full_name, user_id) VALUES (?, ?, ?, 0, ?, ?)',
+        [cleanAdminEmail, mfaOtp, expiresAt, u.full_name, u.id]
+      );
+      await sendForgotPasswordEmail(cleanAdminEmail, u.full_name, mfaOtp);
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: u.id,
+        actorRole: 'admin',
+        action: 'auth.admin.mfa_challenge',
+        status: 'ok',
+      });
+      return res.json({
+        success: true,
+        mfaRequired: true,
+        email: u.email,
+        message: `Đã gửi mã xác thực MFA 6 chữ số tới email quản trị (${u.email}).`,
+      });
+    }
+
+    const safeUser = {
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      full_name: u.full_name,
+      phone: u.phone,
+      must_change_password: Boolean(u.must_change_password),
+    };
+
+    const { accessToken } = await issueSessionTokens(req, res, pool, isMySqlConnected, u);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: u.id,
+      actorRole: u.role,
+      action: u.role === 'admin' ? 'auth.admin.login' : 'auth.login.success',
+      status: 'ok',
+    });
+
+    return res.json({
+      success: true,
+      user: safeUser,
+      token: accessToken,
+      mustChangePassword: Boolean(u.must_change_password),
+    });
+  } catch (e) {
+    console.error('Auth login error:', e.message);
+    return res.status(500).json({ success: false, message: 'Lỗi xử lý đăng nhập hệ thống.' });
+  }
 });
 
-// 2. Đăng ký tài khoản mới
+// 1B. Xác thực mã MFA/OTP bước 2 cho Quản trị viên
+app.post('/api/auth/admin/verify-mfa', async (req, res) => {
+  const { email, otp } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanOtp = String(otp || '').trim();
+  if (!cleanEmail || !cleanOtp) {
+    return res.status(400).json({ success: false, message: 'Vui lòng nhập đầy đủ email quản trị và mã OTP MFA.' });
+  }
+  if (!isMySqlConnected) await initMySql();
+  if (!isMySqlConnected) return res.status(503).json({ success: false, message: 'Chưa kết nối cơ sở dữ liệu.' });
+
+  try {
+    const [otpRows] = await pool.execute(
+      'SELECT * FROM password_resets WHERE LOWER(email) = ? ORDER BY id DESC LIMIT 1',
+      [cleanEmail]
+    );
+    if (!otpRows.length || Date.now() > Number(otpRows[0].expires_at)) {
+      return res.status(400).json({ success: false, message: 'Mã xác thực MFA đã hết hạn hoặc không tồn tại.' });
+    }
+    const rec = otpRows[0];
+    if (String(rec.otp) !== cleanOtp) {
+      const attempts = Number(rec.attempts || 0) + 1;
+      if (attempts >= 5) {
+        await pool.execute('DELETE FROM password_resets WHERE id = ?', [rec.id]);
+      } else {
+        await pool.execute('UPDATE password_resets SET attempts = ? WHERE id = ?', [attempts, rec.id]);
+      }
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: rec.user_id,
+        actorRole: 'admin',
+        action: 'auth.admin.mfa_failed',
+        status: 'denied',
+      });
+      return res.status(401).json({ success: false, message: 'Mã xác thực MFA không chính xác.' });
+    }
+
+    const [uRows] = await pool.execute(
+      `SELECT id, username, email, role, full_name, phone,
+              COALESCE(token_version, 1) AS token_version,
+              COALESCE(must_change_password, FALSE) AS must_change_password
+       FROM users WHERE id = ? AND role = 'admin' LIMIT 1`,
+      [rec.user_id]
+    );
+    await pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]);
+
+    if (!uRows.length) {
+      return res.status(403).json({ success: false, message: 'Tài khoản không có quyền Quản trị viên.' });
+    }
+    const u = uRows[0];
+    const safeUser = {
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      full_name: u.full_name,
+      phone: u.phone,
+      must_change_password: Boolean(u.must_change_password),
+    };
+    const { accessToken } = await issueSessionTokens(req, res, pool, isMySqlConnected, u);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: u.id,
+      actorRole: 'admin',
+      action: 'auth.admin.mfa_verified',
+      status: 'ok',
+    });
+    return res.json({
+      success: true,
+      user: safeUser,
+      token: accessToken,
+      mustChangePassword: Boolean(u.must_change_password),
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Lỗi xác thực MFA quản trị.' });
+  }
+});
+
+// 2. Đăng ký tài khoản mới (CHỈ CHO PHÉP family | caregiver + bcrypt + Transaction)
 app.post('/api/auth/register', async (req, res) => {
-  const { email, password, full_name, role, phone } = req.body;
+  const { email, password, full_name, role, phone } = req.body || {};
 
   if (!email || !password || !full_name) {
     return res.status(400).json({ success: false, message: 'Vui lòng điền đầy đủ thông tin.' });
   }
 
-  const username = email.split('@')[0];
-  const userRole = role || 'family';
-
-  if (isMySqlConnected) {
-    try {
-      // Kiểm tra trùng
-      const [existing] = await pool.execute('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
-      if (existing.length > 0) {
-        return res.status(409).json({ success: false, message: 'Email này đã tồn tại trong hệ thống.' });
-      }
-
-      const [result] = await pool.execute(
-        'INSERT INTO users (username, email, password_hash, role, full_name, phone) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
-        [username, email, password, userRole, full_name, phone || '']
-      );
-
-      // Nếu đăng ký vai trò Người chăm sóc -> tự động tạo hồ sơ trong caregiver_profiles với trạng thái chưa nộp (not_submitted)
-      if (userRole === 'caregiver') {
-        try {
-          const exp = Math.max(1, Number(req.body.experience_years ?? req.body.experienceYears) || 1);
-          const shiftRate = Math.min(1000000, Math.max(400000, Number(req.body.shift_rate ?? req.body.shiftRate) || 400000));
-          const nightShiftRate = Math.round(shiftRate * 1.5);
-          const workHistory = JSON.stringify(req.body.work_history || []);
-          const contactAddress = (req.body.contact_address || req.body.contactAddress || '').trim();
-          await pool.execute(
-            `INSERT INTO caregiver_profiles 
-             (user_id, title, verification_status, care_score, experience_years, shift_rate, night_shift_rate, hourly_rate, district, contact_address, interview_status, skills, bio, work_history) 
-             VALUES (?, 'Chuyên viên chăm sóc', 'not_submitted', 0, ?, ?, ?, 100000, '', ?, 'not_scheduled', '[]', '', ?)`,
-            [result.insertId, exp, shiftRate, nightShiftRate, contactAddress, workHistory]
-          );
-        } catch (cpErr) {
-          console.error('Lỗi tạo caregiver_profiles khi đăng ký:', cpErr.message);
-        }
-      } else if (userRole === 'family') {
-        try {
-          await pool.execute(
-            `INSERT INTO family_profiles 
-             (user_id, representative_name, phone, email, verification_status) 
-             VALUES (?, ?, ?, ?, 'unverified')`,
-            [result.insertId, full_name, phone || '', email]
-          );
-        } catch (fpErr) {
-          console.error('Lỗi tạo family_profiles khi đăng ký:', fpErr.message);
-        }
-      }
-
-      const newUser = {
-        id: result.insertId,
-        username,
-        email,
-        role: userRole,
-        full_name,
-        phone: phone || ''
-      };
-
-      return res.status(201).json({
-        success: true,
-        user: newUser,
-        token: signAuthToken(newUser)
-      });
-    } catch (e) {
-      console.error('MySQL register error:', e.message);
-      return res.status(500).json({ success: false, message: 'Lỗi máy chủ cơ sở dữ liệu MySQL' });
-    }
+  // CHẶN TUYỆT ĐỐI tự đăng ký vai trò admin hoặc vai trò lạ từ client
+  const requestedRole = role === undefined || role === null || role === '' ? 'family' : String(role).trim();
+  if (requestedRole !== 'family' && requestedRole !== 'caregiver') {
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'security.admin_self_register_blocked',
+      status: 'denied',
+      metadata: { attemptedRole: requestedRole, email: String(email).trim().toLowerCase() },
+    });
+    return res.status(403).json({
+      success: false,
+      message: 'Chỉ được phép đăng ký tài khoản Gia đình (family) hoặc Chuyên viên chăm sóc (caregiver).',
+    });
   }
 
-  return res.status(500).json({ success: false, message: 'Chưa kết nối MySQL server' });
+  const pwCheck = validatePasswordStrength(password);
+  if (!pwCheck.valid) {
+    return res.status(400).json({ success: false, message: pwCheck.message });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+  const baseUsername = cleanEmail.split('@')[0].replace(/[^a-zA-Z0-9_.-]/g, '') || 'user';
+
+  if (!isMySqlConnected) await initMySql();
+  if (!isMySqlConnected) {
+    return res.status(503).json({ success: false, message: 'Chưa kết nối cơ sở dữ liệu.' });
+  }
+
+  const pgClient = await getPgPool().connect();
+  try {
+    await pgClient.query('BEGIN');
+
+    const dupEmail = await pgClient.query('SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1', [cleanEmail]);
+    if (dupEmail.rows.length > 0) {
+      await pgClient.query('ROLLBACK');
+      return res.status(409).json({ success: false, message: 'Email này đã tồn tại trong hệ thống.' });
+    }
+
+    let finalUsername = baseUsername;
+    const dupUser = await pgClient.query('SELECT id FROM users WHERE username = $1 LIMIT 1', [finalUsername]);
+    if (dupUser.rows.length > 0) {
+      finalUsername = `${baseUsername}_${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    const hashedPw = await hashPassword(password, 12);
+    const insUser = await pgClient.query(
+      `INSERT INTO users (username, email, password_hash, role, full_name, phone, token_version, must_change_password)
+       VALUES ($1, $2, $3, $4, $5, $6, 1, FALSE)
+       RETURNING id`,
+      [finalUsername, cleanEmail, hashedPw, requestedRole, String(full_name).trim(), phone ? String(phone).trim() : '']
+    );
+    const newUserId = insUser.rows[0].id;
+
+    if (requestedRole === 'caregiver') {
+      const exp = Math.max(1, Number(req.body.experience_years ?? req.body.experienceYears) || 1);
+      const shiftRate = Math.min(1000000, Math.max(400000, Number(req.body.shift_rate ?? req.body.shiftRate) || 400000));
+      const nightShiftRate = Math.round(shiftRate * 1.5);
+      const workHistory = JSON.stringify(req.body.work_history || []);
+      const contactAddress = String(req.body.contact_address || req.body.contactAddress || '').trim();
+      await pgClient.query(
+        `INSERT INTO caregiver_profiles
+         (user_id, title, verification_status, care_score, experience_years, shift_rate, night_shift_rate, hourly_rate, district, contact_address, interview_status, skills, bio, work_history)
+         VALUES ($1, 'Chuyên viên chăm sóc', 'not_submitted', 0, $2, $3, $4, 100000, '', $5, 'not_scheduled', '[]', '', $6)`,
+        [newUserId, exp, shiftRate, nightShiftRate, contactAddress, workHistory]
+      );
+    } else {
+      await pgClient.query(
+        `INSERT INTO family_profiles (user_id, representative_name, phone, email, verification_status)
+         VALUES ($1, $2, $3, $4, 'unverified')`,
+        [newUserId, String(full_name).trim(), phone ? String(phone).trim() : '', cleanEmail]
+      );
+    }
+
+    await pgClient.query('COMMIT');
+
+    const newUser = {
+      id: newUserId,
+      username: finalUsername,
+      email: cleanEmail,
+      role: requestedRole,
+      full_name: String(full_name).trim(),
+      phone: phone ? String(phone).trim() : '',
+      token_version: 1,
+      must_change_password: false,
+    };
+
+    const { accessToken } = await issueSessionTokens(req, res, pool, isMySqlConnected, newUser);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: newUserId,
+      actorRole: requestedRole,
+      action: 'auth.register.success',
+      status: 'ok',
+    });
+
+    const { token_version, ...publicUser } = newUser;
+    return res.status(201).json({
+      success: true,
+      user: publicUser,
+      token: accessToken,
+    });
+  } catch (e) {
+    await pgClient.query('ROLLBACK').catch(() => {});
+    console.error('Auth register transaction error:', e.message);
+    return res.status(500).json({ success: false, message: 'Lỗi máy chủ khi khởi tạo tài khoản.' });
+  } finally {
+    pgClient.release();
+  }
+});
+
+// 3. Kiểm tra phiên đăng nhập hiện tại từ HttpOnly Cookie / Bearer Token
+app.get('/api/auth/me', requireAuth(), async (req, res) => {
+  if (!isMySqlConnected) return res.status(503).json({ error: 'Chưa kết nối CSDL' });
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, username, email, role, full_name, phone, COALESCE(must_change_password, FALSE) AS must_change_password, COALESCE(mfa_enabled, FALSE) AS mfa_enabled
+       FROM users WHERE id = ? LIMIT 1`,
+      [req.auth.userId]
+    );
+    if (!rows.length) {
+      return res.status(401).json({ error: 'Phiên đăng nhập không còn hiệu lực.' });
+    }
+    return res.json({ authenticated: true, user: rows[0] });
+  } catch (err) {
+    return res.status(500).json({ error: 'Không thể đọc thông tin tài khoản.' });
+  }
+});
+
+// 4. Làm mới Access Token bằng Refresh Token Rotation
+app.post('/api/auth/refresh', async (req, res) => {
+  if (!isMySqlConnected) await initMySql();
+  if (!isMySqlConnected) return res.status(503).json({ error: 'Chưa kết nối CSDL' });
+  try {
+    const rotated = await rotateRefreshSession(req, res, pool, isMySqlConnected);
+    if (!rotated) {
+      return res.status(401).json({ error: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.' });
+    }
+    const { token_version, ...safeUser } = rotated.user;
+    return res.json({ success: true, user: safeUser, token: rotated.accessToken });
+  } catch (err) {
+    return res.status(401).json({ error: 'Không thể làm mới phiên đăng nhập.' });
+  }
+});
+
+// 5. Đăng xuất thật sự (thu hồi JTI + thu hồi Refresh Session trong DB + xóa HttpOnly Cookie)
+app.post('/api/auth/logout', async (req, res) => {
+  const actorId = req.auth?.userId || null;
+  const actorRole = req.auth?.userRole || 'guest';
+  await revokeCurrentSession(req, res, pool, isMySqlConnected);
+  if (actorId) {
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: actorId,
+      actorRole,
+      action: 'auth.logout',
+      status: 'ok',
+    });
+  }
+  return res.json({ success: true, message: 'Đã đăng xuất an toàn.' });
+});
+
+// 6. Đổi mật khẩu (hỗ trợ bắt buộc đổi mật khẩu lần đầu + tăng token_version vô hiệu toàn bộ token cũ)
+app.post('/api/auth/change-password', requireAuth(), async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: 'Vui lòng nhập mật khẩu hiện tại và mật khẩu mới.' });
+  }
+  const pwCheck = validatePasswordStrength(newPassword);
+  if (!pwCheck.valid) {
+    return res.status(400).json({ success: false, message: pwCheck.message });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ success: false, message: 'Mật khẩu mới phải khác mật khẩu hiện tại.' });
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, username, email, role, full_name, phone, password_hash, COALESCE(token_version, 1) AS token_version FROM users WHERE id = ? LIMIT 1',
+      [req.auth.userId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy tài khoản.' });
+    }
+    const u = rows[0];
+    const ok = await verifyPassword(currentPassword, u.password_hash);
+    if (!ok) {
+      return res.status(401).json({ success: false, message: 'Mật khẩu hiện tại không chính xác.' });
+    }
+
+    const newHash = await hashPassword(newPassword, 12);
+    const nextTv = Number(u.token_version || 1) + 1;
+    await pool.execute(
+      'UPDATE users SET password_hash = ?, must_change_password = FALSE, token_version = ?, updated_at = NOW() WHERE id = ?',
+      [newHash, nextTv, u.id]
+    );
+    await pool.execute('UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [u.id]);
+    invalidateUserTokenCache(u.id);
+
+    const updatedUser = {
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      full_name: u.full_name,
+      phone: u.phone,
+      token_version: nextTv,
+      must_change_password: false,
+    };
+    const { accessToken } = await issueSessionTokens(req, res, pool, isMySqlConnected, updatedUser);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: u.id,
+      actorRole: u.role,
+      action: 'auth.password.changed',
+      status: 'ok',
+    });
+
+    const { token_version, ...publicUser } = updatedUser;
+    return res.json({
+      success: true,
+      message: 'Đổi mật khẩu thành công! Tất cả phiên đăng nhập cũ đã được thu hồi.',
+      user: publicUser,
+      token: accessToken,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Lỗi cập nhật mật khẩu.' });
+  }
 });
 
 // ========================================================
@@ -1517,10 +1983,10 @@ app.post('/api/auth/register', async (req, res) => {
 // Bộ nhớ đệm lưu trữ OTP: Map<cleanEmail, { otp, expiresAt, attempts, fullName, userId }>
 const passwordResetOtpStore = new Map();
 
-// Khởi tạo Transporter cho Nodemailer
+// Khởi tạo Transporter cho Nodemailer (TUYỆT ĐỐI KHÔNG hardcode mật khẩu SMTP trong mã nguồn)
 function createMailTransporter() {
-  const user = process.env.EMAIL_USER || process.env.SMTP_USER || 'carematch.io.vn@gmail.com';
-  const pass = process.env.EMAIL_PASS || process.env.SMTP_PASS || 'pzdc nfmi tegb gteg';
+  const user = (process.env.EMAIL_USER || process.env.SMTP_USER || '').trim();
+  const pass = (process.env.EMAIL_PASS || process.env.SMTP_PASS || '').trim();
 
   if (!user || !pass) {
     return null;
@@ -1629,8 +2095,7 @@ async function sendForgotPasswordEmail(toEmail, recipientName, otpCode) {
   `;
 
   if (!transporter) {
-    console.warn(`⚠️ [CARE-MATCH MAIL] Chưa thiết lập cấu hình EMAIL_USER & EMAIL_PASS trong file .env.`);
-    console.warn(`🔑 [CARE-MATCH MAIL] Mã OTP khôi phục cho [${toEmail}] là: >>> ${otpCode} <<<`);
+    console.warn('⚠️ [CARE-MATCH MAIL] Chưa thiết lập EMAIL_USER & EMAIL_PASS trong biến môi trường.');
     return { sent: false, reason: 'no_smtp_configured' };
   }
 
@@ -1638,14 +2103,13 @@ async function sendForgotPasswordEmail(toEmail, recipientName, otpCode) {
     const info = await transporter.sendMail({
       from: fromAddress,
       to: toEmail,
-      subject: `[CareMatch] ${otpCode} là mã xác nhận đặt lại mật khẩu của bạn`,
+      subject: `[CareMatch] Mã xác nhận bảo mật tài khoản của bạn`,
       html: htmlContent
     });
-    console.log(`✅ [CARE-MATCH MAIL] Đã gửi mail thành công đến ${toEmail} (ID: ${info.messageId})`);
+    console.log(`✅ [CARE-MATCH MAIL] Đã gửi mail xác thực thành công (ID: ${info.messageId})`);
     return { sent: true, messageId: info.messageId };
   } catch (err) {
-    console.error(`❌ [CARE-MATCH MAIL] Lỗi khi gửi mail qua SMTP đến ${toEmail}:`, err.message);
-    console.warn(`🔑 [CARE-MATCH MAIL FALLBACK] Mã OTP dự phòng cho [${toEmail}] là: >>> ${otpCode} <<<`);
+    console.error(`❌ [CARE-MATCH MAIL] Lỗi khi gửi mail qua SMTP:`, err.message);
     return { sent: false, error: err.message };
   }
 }
@@ -1731,14 +2195,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       message: `Mã xác nhận (OTP) đã được gửi đến email ${user.email}. Vui lòng kiểm tra hộp thư đến hoặc mục Thư rác/Spam.`
     });
   } else {
-    return res.json({
-      success: true,
+    return res.status(503).json({
+      success: false,
       emailSent: false,
-      email: user.email,
-      devOtp: otpCode,
-      message: sendResult.reason === 'no_smtp_configured'
-        ? `Mã xác nhận đã được tạo thành công! (Lưu ý: Chưa cấu hình EMAIL_USER trong .env, mã OTP thử nghiệm là: ${otpCode})`
-        : `Lỗi kết nối máy chủ gửi mail (${sendResult.error || 'SMTP Error'}). Mã OTP thử nghiệm là: ${otpCode}`
+      message: 'Hệ thống gửi thư xác nhận hiện tạm thời gián đoạn. Vui lòng thử lại sau ít phút hoặc liên hệ CSKH CARE-MATCH.'
     });
   }
 });
@@ -1832,10 +2292,11 @@ app.post('/api/auth/reset-password', async (req, res) => {
     });
   }
 
-  if (newPassword.length < 6) {
+  const pwCheck = validatePasswordStrength(newPassword);
+  if (!pwCheck.valid) {
     return res.status(400).json({
       success: false,
-      message: 'Mật khẩu mới phải có tối thiểu 6 ký tự.'
+      message: pwCheck.message
     });
   }
 
@@ -1859,7 +2320,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
         };
       }
     } catch (e) {
-      console.warn('Lỗi đọc OTP từ MySQL:', e.message);
+      console.warn('Lỗi đọc OTP từ PostgreSQL:', e.message);
     }
   }
 
@@ -1894,9 +2355,17 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   if (pool) {
     try {
+      const hashedNewPw = await hashPassword(newPassword, 12);
       const [result] = await pool.execute(
-        'UPDATE users SET password_hash = ?, updated_at = NOW() WHERE LOWER(email) = ? OR id = ?',
-        [newPassword, cleanEmail, stored.userId]
+        `UPDATE users
+         SET password_hash = ?,
+             must_change_password = FALSE,
+             token_version = COALESCE(token_version, 1) + 1,
+             failed_login_attempts = 0,
+             locked_until = NULL,
+             updated_at = NOW()
+         WHERE LOWER(email) = ? OR id = ?`,
+        [hashedNewPw, cleanEmail, stored.userId]
       );
 
       if (result.affectedRows === 0) {
@@ -1906,11 +2375,20 @@ app.post('/api/auth/reset-password', async (req, res) => {
         });
       }
 
+      if (stored.userId) {
+        await pool.execute('UPDATE auth_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL', [stored.userId]).catch(() => {});
+        invalidateUserTokenCache(stored.userId);
+      }
+
       // Xoá OTP sau khi đã sử dụng thành công
       passwordResetOtpStore.delete(cleanEmail);
       pool.execute('DELETE FROM password_resets WHERE LOWER(email) = ?', [cleanEmail]).catch(() => { });
 
-      console.log(`🔐 [AUTH] Đặt lại mật khẩu thành công cho tài khoản: ${cleanEmail}`);
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: stored.userId || null,
+        action: 'auth.password.reset',
+        status: 'ok',
+      });
 
       return res.json({
         success: true,
@@ -2175,6 +2653,9 @@ app.get('/api/family-profile', async (req, res) => {
           [rows] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
         }
       }
+      if (rows[0]) {
+        rows[0].id_number = decryptSensitiveField(rows[0].id_number);
+      }
       return res.json(rows[0] || null);
     } catch (e) {
       console.error('Lỗi fetch family_profile:', e.message);
@@ -2194,7 +2675,7 @@ app.get('/api/family-profile', async (req, res) => {
   });
 });
 
-// Cập nhật thông tin đại diện gia đình & eKYC CCCD
+// Cập nhật thông tin đại diện gia đình & eKYC CCCD (Mã hóa AES-256-GCM số CCCD & kiểm tra Magic Bytes ảnh)
 app.post('/api/family-profile', async (req, res) => {
   const {
     user_id,
@@ -2213,11 +2694,21 @@ app.post('/api/family-profile', async (req, res) => {
     return res.status(400).json({ error: 'Vui lòng cung cấp ít nhất họ tên người đại diện.' });
   }
 
+  for (const imgField of [id_card_front, id_card_back]) {
+    if (typeof imgField === 'string' && imgField.startsWith('data:')) {
+      const check = validateUploadDataUrl(imgField, { maxBytes: 4 * 1024 * 1024, allowPdf: false });
+      if (!check.valid) {
+        return res.status(check.statusCode || 400).json({ error: check.error });
+      }
+    }
+  }
+
   const uid = Number(user_id);
+  const encryptedIdNumber = id_number ? encryptSensitiveField(id_number) : '';
 
   if (isMySqlConnected) {
     try {
-      const [existing] = await pool.execute('SELECT id, verification_status FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
+      const [existing] = await pool.execute('SELECT id, verification_status, id_card_front, id_card_back FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
 
       if (existing.length > 0) {
         const curStatus = existing[0].verification_status;
@@ -2239,7 +2730,7 @@ app.post('/api/family-profile', async (req, res) => {
             representative_name.trim(),
             phone || '',
             email || '',
-            id_number !== undefined ? id_number : '',
+            id_number !== undefined ? encryptedIdNumber : '',
             address || '',
             district || '',
             id_card_front !== undefined ? (id_card_front || null) : existing[0].id_card_front,
@@ -2258,7 +2749,7 @@ app.post('/api/family-profile', async (req, res) => {
             representative_name.trim(),
             phone || '',
             email || '',
-            id_number || '',
+            encryptedIdNumber,
             address || '',
             district || '',
             id_card_front || null,
@@ -2277,13 +2768,15 @@ app.post('/api/family-profile', async (req, res) => {
           1,
           'ekyc',
           'Yêu cầu xét duyệt eKYC Gia Đình',
-          `Gia đình ${representative_name} đã gửi CCCD (${id_number || 'đã tải ảnh'}) để xác thực.`,
+          `Gia đình ${representative_name} đã gửi CCCD (${id_number ? maskIdNumber(id_number) : 'đã tải ảnh'}) để xác thực.`,
           '/admin'
         );
       }
 
       const [updated] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
-      console.log(`✅ [MySQL] Đã cập nhật family_profiles cho user #${uid} (${representative_name})`);
+      if (updated[0]) {
+        updated[0].id_number = decryptSensitiveField(updated[0].id_number);
+      }
       return res.json({ success: true, profile: updated[0] });
     } catch (e) {
       console.error('MySQL family profile update error:', e.message);
@@ -2353,58 +2846,34 @@ app.patch('/api/admin/families/:userId/verify', async (req, res) => {
 });
 
 // ========================================================
-// 7B. TẢI LÊN TÀI LIỆU / ẢNH (FILE UPLOAD API - BASE64 & DISK)
+// 7B. TẢI LÊN TÀI LIỆU / ẢNH AN TOÀN (KIỂM TRA MAGIC BYTES & KHÔNG LƯU TỆP TẠM DƯ THỪA)
 // ========================================================
-app.post('/api/upload', async (req, res) => {
-  const { dataUrl, fileName, documentType } = req.body;
+app.post('/api/upload', requireAuth(['family', 'caregiver', 'admin']), async (req, res) => {
+  const { dataUrl, fileName } = req.body || {};
 
-  if (!dataUrl) {
-    return res.status(400).json({ error: 'Thiếu dữ liệu tệp (dataUrl)' });
+  const check = validateUploadDataUrl(dataUrl, {
+    maxBytes: 4 * 1024 * 1024,
+    allowPdf: true,
+    maxDimension: 6000,
+  });
+
+  if (!check.valid) {
+    return res.status(check.statusCode || 400).json({ error: check.error });
   }
 
-  try {
-    // Phân tích cú pháp data URL: data:image/png;base64,...
-    const matches = dataUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-    if (!matches || matches.length !== 3) {
-      return res.status(400).json({ error: 'Định dạng base64 dataUrl không hợp lệ.' });
-    }
+  const normalizedDataUrl = `data:${check.mimeType};base64,${check.base64Data}`;
+  const safeFileName = String(fileName || `document.${check.ext}`).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
 
-    const mimeType = matches[1];
-    const base64Data = matches[2];
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    // Xác định phần mở rộng tệp
-    let ext = 'png';
-    if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
-    else if (mimeType.includes('pdf')) ext = 'pdf';
-    else if (mimeType.includes('webp')) ext = 'webp';
-
-    let diskUrl = null;
-    try {
-      const cleanPrefix = documentType ? documentType.replace(/[^a-zA-Z0-9_-]/g, '_') : 'doc';
-      const filename = `${cleanPrefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-      const filePath = path.join(uploadsDir, filename);
-      await fs.promises.writeFile(filePath, buffer);
-      diskUrl = `/uploads/${filename}`;
-    } catch (e) {
-      console.warn('Backup disk write failed:', e.message);
-    }
-
-    console.log(`✅ [Upload] Đã nhận và chuyển tệp (${Math.round(buffer.length / 1024)} KB) để lưu trực tiếp vào CSDL MySQL`);
-    return res.json({
-      success: true,
-      url: dataUrl,
-      dataUrl,
-      diskUrl,
-      filename: fileName || 'document',
-      originalName: fileName || 'document',
-      mimeType,
-      size: buffer.length
-    });
-  } catch (err) {
-    console.error('Lỗi lưu tệp upload:', err.message);
-    return res.status(500).json({ error: 'Không thể lưu tệp: ' + err.message });
-  }
+  return res.json({
+    success: true,
+    url: normalizedDataUrl,
+    dataUrl: normalizedDataUrl,
+    diskUrl: null,
+    filename: safeFileName,
+    originalName: safeFileName,
+    mimeType: check.mimeType,
+    size: check.size,
+  });
 });
 
 // ========================================================
@@ -2445,7 +2914,7 @@ app.get('/api/caregiver-profile', async (req, res) => {
           email: p.email,
           title: 'Chuyên viên chăm sóc',
           role: 'Chuyên viên chăm sóc',
-          id_number: p.id_number || '',
+          id_number: decryptSensitiveField(p.id_number) || '',
           experience_years: Math.max(1, p.experience_years || 1),
           shift_rate: p.shift_rate || 400000,
           night_shift_rate: p.night_shift_rate || Math.round((p.shift_rate || 400000) * 1.5),
@@ -2470,7 +2939,7 @@ app.get('/api/caregiver-profile', async (req, res) => {
       }
 
       // 2. Nếu chưa có hồ sơ trong caregiver_profiles, lấy thông tin tài khoản user để trả về form trắng
-      const [userRows] = await pool.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [uid]);
+      const [userRows] = await pool.execute('SELECT id, full_name, phone, email FROM users WHERE id = ? LIMIT 1', [uid]);
       if (userRows.length > 0) {
         const u = userRows[0];
         return res.json({
@@ -2530,6 +2999,7 @@ app.post('/api/caregiver-profile', async (req, res) => {
   }
 
   const uid = Number(user_id);
+  const encryptedCgIdNumber = id_number ? encryptSensitiveField(id_number) : '';
   const skillsJson = JSON.stringify(skills || []);
   const docsJson = JSON.stringify(documents || []);
   const workHistoryJson = JSON.stringify(work_history || []);
@@ -2571,7 +3041,7 @@ app.post('/api/caregiver-profile', async (req, res) => {
             verification_status = CASE WHEN ? = 'pending' THEN 'pending' ELSE verification_status END
           WHERE id = ?`,
           [
-            id_number || '',
+            encryptedCgIdNumber,
             parsedExp,
             parsedShiftRate,
             parsedNightShiftRate,
@@ -2586,7 +3056,6 @@ app.post('/api/caregiver-profile', async (req, res) => {
             profileId
           ]
         );
-        console.log(`✅ [MySQL] Đã cập nhật hồ sơ người chăm sóc ID #${profileId}`);
       } else {
         const [result] = await pool.execute(
           `INSERT INTO caregiver_profiles
@@ -2594,7 +3063,7 @@ app.post('/api/caregiver-profile', async (req, res) => {
            VALUES (?, 'Chuyên viên chăm sóc', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_scheduled', 0) RETURNING id`,
           [
             uid,
-            id_number || '',
+            encryptedCgIdNumber,
             parsedExp,
             parsedShiftRate,
             parsedNightShiftRate,
@@ -3012,7 +3481,15 @@ app.get('/api/caregivers', async (req, res) => {
       const shiftRate = Number(r.shift_rate) || 400000;
       const nightShiftRate = Number(r.night_shift_rate) || Math.round(shiftRate * 1.5);
       const workHistory = parseJson(r.work_history, []);
-      const docs = parseJson(r.documents, []);
+      const isAdminViewer = req.auth?.userRole === 'admin';
+      const rawDocs = parseJson(r.documents, []);
+      const safeDocs = isAdminViewer
+        ? rawDocs
+        : (Array.isArray(rawDocs) ? rawDocs : []).map((d) => ({
+            type: d?.document_type || d?.type || 'certificate',
+            name: d?.document_name || d?.name || 'Hồ sơ đã xác thực',
+            status: d?.status || 'verified',
+          }));
 
       return {
         id: String(r.user_id),
@@ -3020,8 +3497,7 @@ app.get('/api/caregivers', async (req, res) => {
         profile_id: r.profile_id,
         name: fullName,
         username: r.username,
-        email: r.email,
-        phone: r.phone,
+        ...(isAdminViewer ? { email: r.email, phone: r.phone, contact_address: r.contact_address || '' } : {}),
         role: 'Chuyên viên chăm sóc',
         initials,
         rating: r.rating ? String(r.rating).replace('.', ',') : '4,9',
@@ -3031,10 +3507,9 @@ app.get('/api/caregivers', async (req, res) => {
         shift_rate: shiftRate,
         night_shift_rate: nightShiftRate,
         work_history: workHistory,
-        documents: docs,
+        documents: safeDocs,
         distance: r.district ? `Khu vực: ${r.district}` : '2,4 km',
         district: r.district || 'Hà Nội',
-        contact_address: r.contact_address || '',
         interview_status: r.interview_status || 'passed',
         interview_passed: r.interview_status === 'passed',
         match: score,
@@ -3091,7 +3566,15 @@ app.get('/api/caregivers/:id', async (req, res) => {
     const shiftRate = Number(r.shift_rate) || 400000;
     const nightShiftRate = Number(r.night_shift_rate) || Math.round(shiftRate * 1.5);
     const workHistory = parseJson(r.work_history, []);
-    const docs = parseJson(r.documents, []);
+    const isAdminViewer = req.auth?.userRole === 'admin';
+    const rawDocs = parseJson(r.documents, []);
+    const safeDocs = isAdminViewer
+      ? rawDocs
+      : (Array.isArray(rawDocs) ? rawDocs : []).map((d) => ({
+          type: d?.document_type || d?.type || 'certificate',
+          name: d?.document_name || d?.name || 'Hồ sơ đã xác thực',
+          status: d?.status || 'verified',
+        }));
 
     return res.json({
       id: String(r.user_id),
@@ -3099,8 +3582,7 @@ app.get('/api/caregivers/:id', async (req, res) => {
       profile_id: r.profile_id,
       name: fullName,
       username: r.username,
-      email: r.email,
-      phone: r.phone,
+      ...(isAdminViewer ? { email: r.email, phone: r.phone } : {}),
       role: 'Chuyên viên chăm sóc',
       initials,
       rating: r.rating ? String(r.rating).replace('.', ',') : '4,9',
@@ -3110,7 +3592,7 @@ app.get('/api/caregivers/:id', async (req, res) => {
       shift_rate: shiftRate,
       night_shift_rate: nightShiftRate,
       work_history: workHistory,
-      documents: docs,
+      documents: safeDocs,
       distance: r.district ? `Khu vực: ${r.district}` : '2,4 km',
       district: r.district || 'Hà Nội',
       match: score,
@@ -3139,6 +3621,7 @@ app.get('/api/admin/caregivers', async (req, res) => {
       );
       const formatted = rows.map(r => ({
         ...r,
+        id_number: decryptSensitiveField(r.id_number),
         skills: parseJson(r.skills, []),
         documents: parseJson(r.documents, [])
       }));
@@ -3329,17 +3812,19 @@ app.post('/api/schedules', async (req, res) => {
   }
 
   if (isMySqlConnected) {
+    const pgClient = await getPgPool().connect();
     try {
+      await pgClient.query('BEGIN');
       const initialStatus = status || 'pending_payment';
       const schedFinalPrice = Number(price) || 400000;
       const schedOrigPrice = Number(original_price) || schedFinalPrice;
       const vDiscount = Number(voucher_discount) || Math.max(0, schedOrigPrice - schedFinalPrice);
       const vCode = voucher_code ? String(voucher_code).trim().toUpperCase() : null;
 
-      const [result] = await pool.execute(
+      const schedIns = await pgClient.query(
         `INSERT INTO schedules 
           (family_user_id, caregiver_user_id, elderly_profile_id, elderly_name, caregiver_name, schedule_date, time_slot, title, tasks, status, price, voucher_code, voucher_discount, original_price)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
         [
           Number(family_user_id),
           Number(caregiver_user_id || 2),
@@ -3357,10 +3842,46 @@ app.post('/api/schedules', async (req, res) => {
           schedOrigPrice
         ]
       );
+      const newSchedId = schedIns.rows[0].id;
+
+      const txCode = 'ESC-2026-' + String(newSchedId).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
+      const fee = Math.round(schedOrigPrice * 0.35);
+      const earnings = schedOrigPrice - fee;
+      const systemSubsidy = vDiscount;
+
+      const escIns = await pgClient.query(
+        `INSERT INTO booking_escrow_payments 
+         (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, original_amount, platform_fee, caregiver_earnings, system_subsidy, voucher_code, voucher_discount, escrow_status, payment_method, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending_payment', 'VietQR Napas 247', $15) RETURNING id`,
+        [
+          txCode,
+          newSchedId,
+          Number(family_user_id),
+          Number(caregiver_user_id || 2),
+          elderly_name || 'Người thân',
+          schedule_date || 'Hôm nay',
+          time_slot || '08:30 - 12:30',
+          schedFinalPrice,
+          schedOrigPrice,
+          fee,
+          earnings,
+          systemSubsidy,
+          vCode,
+          vDiscount,
+          vCode ? `Áp dụng mã ưu đãi ${vCode} (Giảm ${vDiscount.toLocaleString('vi-VN')}đ do CARE-MATCH tài trợ). Người chăm sóc nhận đủ 100% thù lao chuẩn.` : 'Đặt ca mới - Vui lòng thanh toán giữ chỗ để xác nhận ca'
+        ]
+      );
+      const bookingPaymentId = escIns.rows[0].id;
+
+      if (vCode) {
+        await pgClient.query('UPDATE vouchers SET used_count = used_count + 1 WHERE code = $1', [vCode]);
+      }
+
+      await pgClient.query('COMMIT');
 
       const newSchedule = {
-        id: result.insertId,
-        scheduleId: result.insertId,
+        id: newSchedId,
+        scheduleId: newSchedId,
         family_user_id: Number(family_user_id),
         caregiver_user_id: Number(caregiver_user_id || 2),
         elderly_profile_id: elderly_profile_id ? Number(elderly_profile_id) : null,
@@ -3380,49 +3901,6 @@ app.post('/api/schedules', async (req, res) => {
         created_at: new Date().toISOString()
       };
 
-      console.log(`✅ [MySQL] Đã lưu ca chăm sóc ID #${result.insertId} vào CSDL (Giá: ${schedFinalPrice}đ, Gốc: ${schedOrigPrice}đ, Voucher: ${vCode || 'Không'}).`);
-
-      // Tự động tạo bản ghi ký quỹ escrow an toàn cho ca làm việc mới
-      let bookingPaymentId = null;
-      const txCode = 'ESC-2026-' + String(result.insertId).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
-      try {
-        const fee = Math.round(schedOrigPrice * 0.35); // 35% phí sàn tính trên giá gốc
-        const earnings = schedOrigPrice - fee;        // 65% thực nhận của Người chăm sóc tính trên giá gốc (Nền tảng bù voucher)
-        const systemSubsidy = vDiscount;
-        const [escResult] = await pool.execute(
-          `INSERT INTO booking_escrow_payments 
-           (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, original_amount, platform_fee, caregiver_earnings, system_subsidy, voucher_code, voucher_discount, escrow_status, payment_method, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', ?) RETURNING id`,
-          [
-            txCode,
-            result.insertId,
-            Number(family_user_id),
-            Number(caregiver_user_id || 2),
-            elderly_name || 'Người thân',
-            schedule_date || 'Hôm nay',
-            time_slot || '08:30 - 12:30',
-            schedFinalPrice,
-            schedOrigPrice,
-            fee,
-            earnings,
-            systemSubsidy,
-            vCode,
-            vDiscount,
-            vCode ? `Áp dụng mã ưu đãi ${vCode} (Giảm ${vDiscount.toLocaleString('vi-VN')}đ do CARE-MATCH tài trợ). Người chăm sóc nhận đủ 100% thù lao chuẩn.` : 'Đặt ca mới - Vui lòng thanh toán giữ chỗ để xác nhận ca'
-          ]
-        );
-        bookingPaymentId = escResult.insertId;
-
-        if (vCode) {
-          try {
-            await pool.execute('UPDATE vouchers SET used_count = used_count + 1 WHERE code = ?', [vCode]);
-          } catch { }
-        }
-      } catch (escErr) {
-        console.warn('Lỗi ghi nhận booking_escrow_payments khi đặt ca:', escErr.message);
-      }
-
-      // Tạo thông báo
       await createNotification(
         Number(family_user_id),
         'schedule',
@@ -3433,20 +3911,23 @@ app.post('/api/schedules', async (req, res) => {
 
       return res.status(201).json({
         ...newSchedule,
-        id: result.insertId,
-        scheduleId: result.insertId,
+        id: newSchedId,
+        scheduleId: newSchedId,
         schedule: {
           ...newSchedule,
-          id: result.insertId,
-          scheduleId: result.insertId
+          id: newSchedId,
+          scheduleId: newSchedId
         },
         paymentId: bookingPaymentId,
         payment_id: bookingPaymentId,
         transaction_code: txCode
       });
     } catch (e) {
-      console.error('MySQL insert schedule error:', e.message);
+      await pgClient.query('ROLLBACK').catch(() => {});
+      console.error('PostgreSQL insert schedule transaction error:', e.message);
       return res.status(500).json({ error: 'Lỗi lưu ca chăm sóc: ' + e.message });
+    } finally {
+      pgClient.release();
     }
   }
 
@@ -4127,7 +4608,7 @@ app.post('/api/notifications/read-all', async (req, res) => {
 
 // ---- USERS & CONTACTS ----
 
-// 14b. Lấy thông tin chi tiết một người dùng
+// 14b. Lấy thông tin chi tiết một người dùng (Phân quyền tối thiểu: ẩn email/phone của tài khoản khác)
 app.get('/api/users/:id', async (req, res) => {
   const uid = Number(req.params.id);
   if (isMySqlConnected) {
@@ -4141,7 +4622,13 @@ app.get('/api/users/:id', async (req, res) => {
         [uid]
       );
       if (rows.length > 0) {
-        return res.json(rows[0]);
+        const u = { ...rows[0] };
+        const canSeePrivateContact = req.auth?.userRole === 'admin' || Number(req.auth?.userId) === uid;
+        if (!canSeePrivateContact) {
+          delete u.email;
+          delete u.phone;
+        }
+        return res.json(u);
       }
       return res.status(404).json({ error: 'Không tìm thấy người dùng' });
     } catch (e) {
@@ -4512,6 +4999,7 @@ app.get('/api/admin/users', async (req, res) => {
       const maxDate = dates.length > 0 ? Math.max(...dates) : new Date(r.created_at).getTime();
       return {
         ...r,
+        fp_id_number: r.fp_id_number ? maskIdNumber(r.fp_id_number) : '',
         last_activity_date: new Date(maxDate).toISOString()
       };
     });
@@ -4546,19 +5034,30 @@ app.get('/api/admin/users/:id/schedules', async (req, res) => {
   }
 });
 
-// A4. Hồ sơ chi tiết một user (elderly_profiles nếu family, caregiver_profiles nếu caregiver)
+// A4. Hồ sơ chi tiết một user (elderly_profiles nếu family, caregiver_profiles nếu caregiver - tuyệt đối không lộ password_hash)
 app.get('/api/admin/users/:id/profile', async (req, res) => {
   if (!isMySqlConnected) return res.json({});
   const uid = Number(req.params.id);
   try {
-    const [userRows] = await pool.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [uid]);
+    const [userRows] = await pool.execute(
+      'SELECT id, username, email, role, full_name, phone, avatar_initials, created_at, updated_at FROM users WHERE id = ? LIMIT 1',
+      [uid]
+    );
     if (userRows.length === 0) return res.status(404).json({ error: 'Không tìm thấy người dùng' });
     const user = userRows[0];
+
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'admin.user_profile.view',
+      resourceType: 'users',
+      resourceId: uid,
+    });
 
     if (user.role === 'family') {
       const [elderly] = await pool.execute('SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC', [uid]);
       const [familyRows] = await pool.execute('SELECT * FROM family_profiles WHERE user_id = ? LIMIT 1', [uid]);
-      const familyProfile = familyRows[0] || null;
+      const familyProfile = familyRows[0]
+        ? { ...familyRows[0], id_number: decryptSensitiveField(familyRows[0].id_number) }
+        : null;
       return res.json({
         user,
         family_profile: familyProfile,
@@ -4566,7 +5065,9 @@ app.get('/api/admin/users/:id/profile', async (req, res) => {
       });
     } else if (user.role === 'caregiver') {
       const [cpRows] = await pool.execute('SELECT * FROM caregiver_profiles WHERE user_id = ? LIMIT 1', [uid]);
-      const cp = cpRows[0] || null;
+      const cp = cpRows[0]
+        ? { ...cpRows[0], id_number: decryptSensitiveField(cpRows[0].id_number) }
+        : null;
       let documents = [];
       if (cp) {
         const [docs] = await pool.execute('SELECT * FROM caregiver_documents WHERE caregiver_id = ?', [cp.id]);
@@ -5252,32 +5753,33 @@ app.get('/api/payments/family/:userId', async (req, res) => {
   }
 });
 
-// 2. DÀNH CHO GIA ĐÌNH: Thanh toán ký quỹ cho 1 ca chăm sóc (Mô phỏng tự động VietQR Napas)
+// 2. DÀNH CHO GIA ĐÌNH: Thanh toán ký quỹ cho 1 ca chăm sóc (Transaction nguyên tử PostgreSQL)
 app.post('/api/payments/pay-booking', async (req, res) => {
-  const { paymentId, scheduleId, userId, paymentMethod } = req.body;
-  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối MySQL' });
+  const { paymentId, scheduleId, paymentMethod } = req.body;
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  const pgClient = await getPgPool().connect();
   try {
+    await pgClient.query('BEGIN');
     let pId = Number(paymentId) || null;
     let sId = Number(scheduleId) || null;
     if (!pId && sId) {
-      const [fRows] = await pool.execute('SELECT id FROM booking_escrow_payments WHERE schedule_id = ? ORDER BY id DESC LIMIT 1', [sId]);
-      if (fRows.length > 0) pId = fRows[0].id;
+      const fRows = await pgClient.query('SELECT id FROM booking_escrow_payments WHERE schedule_id = $1 ORDER BY id DESC LIMIT 1', [sId]);
+      if (fRows.rows.length > 0) pId = fRows.rows[0].id;
     }
 
-    // Nếu vẫn chưa có bản ghi ký quỹ nhưng có scheduleId, tự động tạo mới bản ghi ký quỹ
     if (!pId && sId) {
-      const [schedRows] = await pool.execute('SELECT * FROM schedules WHERE id = ? LIMIT 1', [sId]);
-      if (schedRows.length > 0) {
-        const sched = schedRows[0];
+      const schedRows = await pgClient.query('SELECT * FROM schedules WHERE id = $1 LIMIT 1', [sId]);
+      if (schedRows.rows.length > 0) {
+        const sched = schedRows.rows[0];
         const sPrice = Number(sched.price) || 400000;
         const oPrice = Number(sched.original_price) || sPrice;
-        const fee = Math.round(oPrice * 0.15);
+        const fee = Math.round(oPrice * 0.35);
         const earnings = oPrice - fee;
         const txCode = 'ESC-2026-' + String(sched.id).padStart(4, '0') + '-' + Math.floor(1000 + Math.random() * 9000);
-        const [newEsc] = await pool.execute(
+        const newEsc = await pgClient.query(
           `INSERT INTO booking_escrow_payments 
            (transaction_code, schedule_id, family_user_id, caregiver_user_id, patient_name, shift_date, shift_time, total_amount, original_amount, platform_fee, caregiver_earnings, system_subsidy, voucher_code, voucher_discount, escrow_status, payment_method, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'VietQR Napas 247', 'Đặt ca mới - Ký quỹ VietQR') RETURNING id`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending_payment', 'VietQR Napas 247', 'Đặt ca mới - Ký quỹ VietQR') RETURNING id`,
           [
             txCode,
             sched.id,
@@ -5295,36 +5797,36 @@ app.post('/api/payments/pay-booking', async (req, res) => {
             Number(sched.voucher_discount) || 0
           ]
         );
-        pId = newEsc.insertId;
+        pId = newEsc.rows[0].id;
       }
     }
 
-    if (!pId) return res.status(400).json({ error: 'Không tìm thấy hóa đơn ca cần thanh toán' });
+    if (!pId) {
+      await pgClient.query('ROLLBACK');
+      return res.status(400).json({ error: 'Không tìm thấy hóa đơn ca cần thanh toán' });
+    }
 
     const ref = 'NPS' + Math.floor(100000000 + Math.random() * 900000000);
-    await pool.execute(
+    await pgClient.query(
       `UPDATE booking_escrow_payments 
        SET escrow_status = 'in_escrow', 
            family_paid_at = NOW(), 
-           payment_method = ?, 
-           bank_reference = ?,
+           payment_method = $1, 
+           bank_reference = $2,
            notes = 'Đã thanh toán giữ chỗ an toàn qua VietQR. Tiền đang ký quỹ bảo lãnh tại CARE-MATCH.'
-       WHERE id = ?`,
+       WHERE id = $3`,
       [paymentMethod || 'Chuyển khoản QR (VietQR Napas)', ref, pId]
     );
 
-    const [rows] = await pool.execute(`SELECT * FROM booking_escrow_payments WHERE id = ?`, [pId]);
-    const b = rows[0];
+    const rowsRes = await pgClient.query('SELECT * FROM booking_escrow_payments WHERE id = $1', [pId]);
+    const b = rowsRes.rows[0];
 
     if (b && b.schedule_id) {
-      await pool.execute(`UPDATE schedules SET status = 'confirmed' WHERE id = ? AND status IN ('pending', 'pending_payment')`, [b.schedule_id]);
-      try {
-        await pool.execute(
-          `UPDATE transactions SET family_payment_status = 'paid', paid_at = NOW() WHERE schedule_id = ?`,
-          [b.schedule_id]
-        );
-      } catch { }
+      await pgClient.query("UPDATE schedules SET status = 'confirmed' WHERE id = $1 AND status IN ('pending', 'pending_payment')", [b.schedule_id]);
+      await pgClient.query("UPDATE transactions SET family_payment_status = 'paid', paid_at = NOW() WHERE schedule_id = $1", [b.schedule_id]);
     }
+
+    await pgClient.query('COMMIT');
 
     if (b) {
       await createNotification(
@@ -5351,8 +5853,11 @@ app.post('/api/payments/pay-booking', async (req, res) => {
       booking: b
     });
   } catch (err) {
+    await pgClient.query('ROLLBACK').catch(() => {});
     console.error('Lỗi thanh toán ca:', err.message);
     return res.status(500).json({ error: err.message });
+  } finally {
+    pgClient.release();
   }
 });
 
@@ -6329,6 +6834,12 @@ app.post('/api/care-logs', async (req, res) => {
       }
     }
 
+    const toNullableVital = (val) => {
+      if (val === undefined || val === null || String(val).trim() === '') return null;
+      const num = Number(val);
+      return Number.isFinite(num) && num > 0 ? num : null;
+    };
+
     const [result] = await pool.execute(
       `INSERT INTO patient_care_logs 
        (schedule_id, family_user_id, caregiver_user_id, elderly_profile_id, elderly_name, family_name, caregiver_name, 
@@ -6345,19 +6856,19 @@ app.post('/api/care-logs', async (req, res) => {
         caregiver_name || 'Chuyên viên chăm sóc',
         log_date || new Date().toISOString().split('T')[0],
         time_slot || 'Ca ngày',
-        blood_pressure_systolic ? Number(blood_pressure_systolic) : 120,
-        blood_pressure_diastolic ? Number(blood_pressure_diastolic) : 80,
-        heart_rate ? Number(heart_rate) : 75,
-        blood_sugar ? Number(blood_sugar) : 5.6,
-        temperature ? Number(temperature) : 36.8,
-        spo2 ? Number(spo2) : 98,
-        weight ? Number(weight) : null,
-        meal_status || 'Ăn hết khẩu phần cháo dinh dưỡng',
-        medication_status || 'Đã uống đủ thuốc đúng giờ',
-        sleep_mood || 'Tâm trạng ổn định, vui vẻ',
-        mobility_exercise || 'Vận động nhẹ nhàng',
+        toNullableVital(blood_pressure_systolic),
+        toNullableVital(blood_pressure_diastolic),
+        toNullableVital(heart_rate),
+        toNullableVital(blood_sugar),
+        toNullableVital(temperature),
+        toNullableVital(spo2),
+        toNullableVital(weight),
+        meal_status || '',
+        medication_status || '',
+        sleep_mood || '',
+        mobility_exercise || '',
         tasksJson,
-        overall_condition || 'good',
+        overall_condition || 'normal',
         caregiver_notes || ''
       ]
     );
@@ -6595,8 +7106,39 @@ app.get('/api/export/schedules-csv', async (req, res) => {
 });
 
 // ========================================================
-// TÍCH HỢP GOOGLE GEMINI AI & FINE-TUNE DATASET (CARE-MATCH AI)
+// TÍCH HỢP CAREMATCHAI AN TOÀN, RULE ENGINE Y KHOA & FINE-TUNE DATASET
 // ========================================================
+
+async function withAiQuotaGuard(req, workFn) {
+  const auth = req.auth || extractAuthContext(req);
+  const identityKey = auth?.authenticated && auth?.userId ? `u:${auth.userId}` : `ip:${getClientIp(req)}`;
+
+  const budget = checkDailyTokenBudget(identityKey, 150_000);
+  if (!budget.allowed) {
+    const err = new Error('Tài khoản đã sử dụng hết hạn mức CareMatchAI trong ngày. Vui lòng thử lại vào ngày mai.');
+    err.statusCode = 429;
+    err.code = 'DAILY_TOKEN_QUOTA_EXCEEDED';
+    throw err;
+  }
+
+  const releaseSlot = acquireAiConcurrencySlot(identityKey, 3);
+  if (!releaseSlot) {
+    const err = new Error('Đang có quá nhiều yêu cầu CareMatchAI xử lý đồng thời. Vui lòng đợi vài giây.');
+    err.statusCode = 429;
+    err.code = 'AI_CONCURRENCY_LIMIT';
+    throw err;
+  }
+
+  try {
+    const res = await workFn(identityKey);
+    if (res?.usage?.totalTokens) {
+      recordDailyTokenUsage(identityKey, res.usage.totalTokens);
+    }
+    return res;
+  } finally {
+    releaseSlot();
+  }
+}
 
 app.get('/api/ai/status', requireAuth(['admin']), async (req, res) => {
   const cfg = getGeminiConfig();
@@ -6614,17 +7156,17 @@ app.get('/api/ai/status', requireAuth(['admin']), async (req, res) => {
   }
   return res.json({
     configured: cfg.configured,
-    model: cfg.model,
-    tunedModel: cfg.tunedModel,
+    model: 'CareMatchAI Core',
+    tunedModel: cfg.tunedModel ? 'CareMatchAI Tuned' : null,
     totalTrainingLogs: totalLogs,
     approvedTrainingLogs: approvedLogs,
   });
 });
 
-// 1. AI TƯ VẤN & GỢI Ý NGƯỜI CHĂM SÓC (AI CARE MATCHER)
+// 1. AI TƯ VẤN & GỢI Ý NGƯỜI CHĂM SÓC (AI CARE MATCHER - CHẶN ID BỊA & SCHEMA CHÍNH THỨC)
 app.post('/api/ai/match-caregiver', async (req, res) => {
   const { query, elderlyProfileId } = req.body || {};
-  const auth = extractAuthContext(req);
+  const auth = req.auth || extractAuthContext(req);
   if (!query || !String(query).trim()) {
     return res.status(400).json({ error: 'Vui lòng mô tả nhu cầu chăm sóc người thân.' });
   }
@@ -6646,28 +7188,6 @@ app.post('/api/ai/match-caregiver', async (req, res) => {
       ORDER BY COALESCE(cp.care_score, 0) DESC, u.id ASC
     `);
 
-    // Chỉ lấy hồ sơ người cao tuổi thuộc đúng tài khoản gia đình đã xác thực qua token
-    let elderlyContext = null;
-    const extraSecrets = [auth.userName];
-    if (auth.authenticated && auth.userRole === 'family' && auth.userId > 0) {
-      if (elderlyProfileId) {
-        const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE id = ? AND user_id = ? LIMIT 1', [
-          Number(elderlyProfileId),
-          auth.userId,
-        ]);
-        if (eRows.length > 0) elderlyContext = eRows[0];
-      } else {
-        const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 3', [
-          auth.userId,
-        ]);
-        if (eRows.length > 0) elderlyContext = eRows;
-      }
-      const list = Array.isArray(elderlyContext) ? elderlyContext : elderlyContext ? [elderlyContext] : [];
-      for (const ep of list) {
-        extraSecrets.push(ep.full_name, ep.contact_name, ep.contact_phone, ep.address);
-      }
-    }
-
     const caregiversSummary = cgRows.map((r) => ({
       caregiver_id: String(r.user_id),
       name: r.full_name,
@@ -6682,50 +7202,74 @@ app.post('/api/ai/match-caregiver', async (req, res) => {
       rating: Number(r.rating) || 4.8,
       verification_status: r.verification_status,
     }));
-    const allowedCaregiverIds = new Set(caregiversSummary.map((c) => c.caregiver_id));
+
+    // Nếu DB chưa có chuyên viên nào -> trả mảng rỗng ngay, tuyệt đối không để AI bịa ID/tên
+    if (caregiversSummary.length === 0) {
+      return res.json({
+        success: true,
+        trainingLogId: null,
+        summary: 'Hiện hệ thống chưa có chuyên viên chăm sóc nào đang sẵn sàng trong danh sách.',
+        recommendations: [],
+        care_advice: 'Quý gia đình vui lòng liên hệ tổng đài hỗ trợ 24/7 của CARE-MATCH để được điều phối viên hỗ trợ trực tiếp.',
+      });
+    }
+
+    // Chỉ lấy hồ sơ người cao tuổi thuộc đúng tài khoản gia đình đã xác thực qua token (ẩn tên thật khỏi prompt)
+    let elderlyContext = null;
+    if (auth.authenticated && auth.userRole === 'family' && auth.userId > 0) {
+      if (elderlyProfileId) {
+        const [eRows] = await pool.execute(
+          'SELECT gender, district, care_needs, notes, adl_score FROM elderly_profiles WHERE id = ? AND user_id = ? LIMIT 1',
+          [Number(elderlyProfileId), auth.userId]
+        );
+        if (eRows.length > 0) elderlyContext = eRows[0];
+      } else {
+        const [eRows] = await pool.execute(
+          'SELECT gender, district, care_needs, notes, adl_score FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 2',
+          [auth.userId]
+        );
+        if (eRows.length > 0) elderlyContext = eRows;
+      }
+    }
+
+    const caregiverMap = new Map(caregiversSummary.map((c) => [c.caregiver_id, c]));
 
     const systemInstruction = `Bạn là chuyên gia điều phối chăm sóc người cao tuổi của nền tảng CARE-MATCH Việt Nam.
 Nhiệm vụ: dựa vào nhu cầu gia đình và danh sách chuyên viên chăm sóc có sẵn trong hệ thống, hãy chọn tối đa 3 người phù hợp nhất.
-Chỉ dùng đúng caregiver_id và số liệu từ danh sách được cung cấp, KHÔNG bịa người không có trong danh sách.
-Trả về JSON đúng cấu trúc:
-{
-  "summary": "Nhận xét ngắn gọn 1-2 câu bằng tiếng Việt ấm áp, chuyên nghiệp",
-  "recommendations": [
-    {
-      "caregiver_id": "id chuỗi",
-      "name": "tên chuyên viên",
-      "match_score": 95,
-      "shift_rate": 400000,
-      "district": "khu vực",
-      "reasons": ["lý do 1", "lý do 2"]
-    }
-  ],
-  "care_advice": "1 lời khuyên ngắn về lưu ý chăm sóc hoặc gợi ý hỏi thêm"
-}`;
+Chỉ dùng đúng caregiver_id và số liệu từ danh sách được cung cấp, TUYỆT ĐỐI KHÔNG bịa người không có trong danh sách.
+Trả về JSON đúng cấu trúc yêu cầu.`;
 
     const userInputPayload = {
       family_request: String(query).trim(),
-      elderly_profile: elderlyContext,
+      elderly_care_context: elderlyContext,
       available_caregivers: caregiversSummary,
     };
 
-    const aiRes = await callGemini({
-      systemInstruction,
-      parts: [{ text: JSON.stringify(userInputPayload) }],
-      responseSchemaJson: true,
-      temperature: 0.3,
-      validateOutput: (obj) => validateCareMatcherOutput(obj, allowedCaregiverIds),
-    });
+    const aiRes = await withAiQuotaGuard(req, () =>
+      callGemini({
+        systemInstruction,
+        parts: [{ text: JSON.stringify(userInputPayload) }],
+        responseSchemaJson: true,
+        responseSchema: CARE_MATCHER_RESPONSE_SCHEMA,
+        temperature: 0.25,
+        validateOutput: (obj) => validateCareMatcherOutput(obj, caregiverMap),
+      })
+    );
 
-    await initAiTrainingLogsTable();
-    const logId = await logAiTrainingSample(pool, isMySqlConnected, {
-      taskType: 'care_matcher',
-      systemInstruction,
-      userInput: userInputPayload,
-      modelOutput: aiRes.parsed,
-      modelUsed: aiRes.model,
-      extraSecrets,
-    });
+    // Chỉ ghi vào training log khi câu hỏi chung (không đính kèm hồ sơ bệnh lý cá nhân)
+    let logId = null;
+    if (!elderlyContext) {
+      await initAiTrainingLogsTable();
+      logId = await logAiTrainingSample(pool, isMySqlConnected, {
+        taskType: 'care_matcher',
+        systemInstruction,
+        userInput: { family_request: String(query).trim() },
+        modelOutput: aiRes.parsed,
+        modelUsed: aiRes.model,
+        isApproved: false,
+        extraSecrets: [auth.userName],
+      });
+    }
 
     return res.json({
       success: true,
@@ -6734,11 +7278,17 @@ Trả về JSON đúng cấu trúc:
     });
   } catch (err) {
     console.error('Lỗi AI match-caregiver:', err.message);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.call.failed',
+      resourceType: '/api/ai/match-caregiver',
+      status: 'error',
+      metadata: { code: err.code || null, message: err.message },
+    });
     return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
   }
 });
 
-// 2. AI PHÂN TÍCH & TÓM TẮT SỔ THEO DÕI SỨC KHỎE SAU CA (PATIENT CARE LOGS)
+// 2. AI PHÂN TÍCH & TÓM TẮT SỔ THEO DÕI SỨC KHỎE SAU CA (KẾT HỢP RULE ENGINE Y KHOA & TÁCH KHỎI DATASET FINE-TUNE)
 app.post('/api/ai/summarize-care-logs', requireAuth(['family', 'caregiver', 'admin']), async (req, res) => {
   const { elderlyProfileId, elderlyName, limit = 10 } = req.body || {};
   if (!isMySqlConnected) {
@@ -6771,87 +7321,100 @@ app.post('/api/ai/summarize-care-logs', requireAuth(['family', 'caregiver', 'adm
       sql += ' AND elderly_name ILIKE ?';
       params.push(`%${String(elderlyName).trim()}%`);
     }
-    sql += ` ORDER BY log_date DESC, created_at DESC LIMIT ${Math.min(20, Math.max(1, Number(limit) || 10))}`;
+
+    const safeLimit = Math.min(20, Math.max(1, Number(limit) || 10));
+    sql += ' ORDER BY log_date DESC, created_at DESC LIMIT ?';
+    params.push(safeLimit);
 
     const [logs] = await pool.execute(sql, params);
     if (logs.length === 0) {
       return res.status(404).json({ error: 'Chưa có nhật ký chăm sóc nào cho người bệnh này để CareMatchAI phân tích.' });
     }
 
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'patient.care_logs.ai_summary',
+      resourceType: 'patient_care_logs',
+      resourceId: logs[0].elderly_profile_id || logs[0].id,
+    });
+
+    // Chạy Rule Engine y khoa cố định trên ca gần nhất trước khi tổng hợp
+    const latest = logs[0];
+    const emergencyCheck = evaluateMedicalEmergencyRules({
+      text: `${latest.caregiver_notes || ''} ${latest.sleep_mood || ''}`,
+      vitals: latest,
+    });
+
+    // Ẩn tên thật của bệnh nhân khi gửi sang LLM (chỉ gửi nhãn "Người bệnh")
     const compactLogs = logs.map((l) => ({
       date: l.log_date,
       time_slot: l.time_slot,
-      caregiver: l.caregiver_name,
-      bp: `${l.blood_pressure_systolic}/${l.blood_pressure_diastolic}`,
-      heart_rate: l.heart_rate,
-      temp_c: l.temperature,
-      spo2: l.spo2,
-      blood_sugar: l.blood_sugar,
-      meal: l.meal_status,
-      medication: l.medication_status,
-      sleep_mood: l.sleep_mood,
-      mobility: l.mobility_exercise,
+      bp:
+        l.blood_pressure_systolic && l.blood_pressure_diastolic
+          ? `${l.blood_pressure_systolic}/${l.blood_pressure_diastolic}`
+          : 'Chưa đo',
+      heart_rate: l.heart_rate ?? 'Chưa đo',
+      temp_c: l.temperature ?? 'Chưa đo',
+      spo2: l.spo2 ?? 'Chưa đo',
+      blood_sugar: l.blood_sugar ?? 'Chưa đo',
+      meal: l.meal_status || 'Chưa ghi nhận',
+      medication: l.medication_status || 'Chưa ghi nhận',
+      sleep_mood: l.sleep_mood || 'Chưa ghi nhận',
+      mobility: l.mobility_exercise || 'Chưa ghi nhận',
       condition: l.overall_condition,
-      notes: l.caregiver_notes,
+      notes: redactPii(l.caregiver_notes || '', { extraSecrets: [l.elderly_name, l.family_name] }),
     }));
 
     const systemInstruction = `Bạn là trợ lý phân tích hồ sơ theo dõi sức khỏe người cao tuổi của CARE-MATCH.
 Hãy phân tích chuỗi chỉ số sinh hiệu và ghi chú qua các ca dưới góc độ hỗ trợ gia đình nắm bắt tình hình (không thay thế chẩn đoán bác sĩ).
-Trả về JSON đúng cấu trúc:
-{
-  "overall_status": "stable" | "attention" | "warning",
-  "headline": "Tiêu đề tóm tắt ngắn gọn (vd: Sức khỏe ổn định qua 3 ca gần nhất)",
-  "summary": "Đoạn tóm tắt dễ hiểu 2-3 câu dành cho người nhà",
-  "vital_trends": {
-    "blood_pressure": "Nhận xét huyết áp",
-    "heart_rate_temp": "Nhận xét nhịp tim & thân nhiệt",
-    "nutrition_sleep": "Nhận xét ăn uống, thuốc & giấc ngủ"
-  },
-  "alerts": ["Cảnh báo nếu có chỉ số cao/thấp bất thường, không có thì mảng rỗng"],
-  "recommendations_for_family": ["Gợi ý 1 cho gia đình", "Gợi ý 2"],
-  "recommendations_for_next_shift": ["Lưu ý cho điều dưỡng ca tiếp theo"]
-}`;
+Lưu ý: Chỉ nhận xét dựa trên các chỉ số có số đo thực tế; mục nào ghi 'Chưa đo' thì nêu rõ chưa đo trong ca đó, không suy diễn là bình thường.`;
 
     const userInputPayload = {
-      patient_name: logs[0].elderly_name,
+      patient_label: 'Người cao tuổi đang chăm sóc',
       total_logs: compactLogs.length,
       logs: compactLogs,
     };
 
-    const aiRes = await callGemini({
-      systemInstruction,
-      parts: [{ text: JSON.stringify(userInputPayload) }],
-      responseSchemaJson: true,
-      temperature: 0.3,
-      validateOutput: validateCareLogSummaryOutput,
-    });
+    const aiRes = await withAiQuotaGuard(req, () =>
+      callGemini({
+        systemInstruction,
+        parts: [{ text: JSON.stringify(userInputPayload) }],
+        responseSchemaJson: true,
+        responseSchema: CARE_LOG_SUMMARY_RESPONSE_SCHEMA,
+        temperature: 0.25,
+        validateOutput: validateCareLogSummaryOutput,
+      })
+    );
 
-    await initAiTrainingLogsTable();
-    const logId = await logAiTrainingSample(pool, isMySqlConnected, {
-      taskType: 'care_log_summary',
-      systemInstruction,
-      userInput: userInputPayload,
-      modelOutput: aiRes.parsed,
-      modelUsed: aiRes.model,
-      extraSecrets: [logs[0].elderly_name, logs[0].family_name, req.auth.userName],
-    });
+    const finalOutput = { ...aiRes.parsed };
+    if (emergencyCheck.isEmergency) {
+      finalOutput.overall_status = 'warning';
+      finalOutput.alerts = [emergencyCheck.alertMessage, ...(finalOutput.alerts || [])];
+    }
 
+    // TUYỆT ĐỐI KHÔNG tự động đưa dữ liệu bệnh án y tế thật vào bảng ai_training_logs (Mục #14)
     return res.json({
       success: true,
       patientName: logs[0].elderly_name,
       analyzedCount: logs.length,
-      trainingLogId: logId,
-      ...aiRes.parsed,
+      trainingLogId: null,
+      emergencyDetected: emergencyCheck.isEmergency,
+      ...finalOutput,
     });
   } catch (err) {
     console.error('Lỗi AI summarize-care-logs:', err.message);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.call.failed',
+      resourceType: '/api/ai/summarize-care-logs',
+      status: 'error',
+      metadata: { message: err.message },
+    });
     return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
   }
 });
 
-// 3A. AI CHUẨN HÓA BÁO CÁO BÀN GIAO SAU CA (CHO ĐIỀU DƯỠNG - KHÔNG TỰ ĐIỀN CHỈ SỐ GIẢ)
+// 3A. AI CHUẨN HÓA BÁO CÁO BÀN GIAO SAU CA (RULE ENGINE Y KHOA + KHÔNG TỰ ĐIỀN CHỈ SỐ GIẢ + KHÔNG ĐƯA VÀO DATASET FINE-TUNE)
 app.post('/api/ai/draft-shift-report', requireAuth(['caregiver', 'admin']), async (req, res) => {
-  const { quickNotes, bpSys, bpDia, heartRate, temp, spo2, bloodSugar, condition, patientName } = req.body || {};
+  const { quickNotes, bpSys, bpDia, heartRate, temp, spo2, bloodSugar, condition } = req.body || {};
 
   const sBpSys = String(bpSys ?? '').trim();
   const sBpDia = String(bpDia ?? '').trim();
@@ -6873,17 +7436,18 @@ app.post('/api/ai/draft-shift-report', requireAuth(['caregiver', 'admin']), asyn
     });
   }
 
+  // Rule Engine y khoa cố định kiểm tra chỉ số & triệu chứng nguy kịch trước AI
+  const emergencyCheck = evaluateMedicalEmergencyRules({
+    text: sNotes,
+    vitals: { bpSys: sBpSys, bpDia: sBpDia, heartRate: sHr, temp: sTemp, spo2: sSpo2, bloodSugar: sSugar },
+  });
+
   const systemInstruction = `Bạn là trợ lý điều dưỡng của CARE-MATCH.
 Nhiệm vụ: dựa vào chỉ số sinh hiệu và ghi chú vắn tắt của chuyên viên chăm sóc, hãy viết thành một đoạn "Ghi chú & Dặn dò ca tiếp theo" rõ ràng, chuyên nghiệp, ấm áp và dễ hiểu cho người nhà bệnh nhân (3-5 câu).
-QUAN TRỌNG: Chỉ sử dụng đúng các chỉ số sinh hiệu đã có số đo thực tế. Mục nào ghi 'Chưa đo' hoặc 'chưa đánh giá' thì TUYỆT ĐỐI KHÔNG tự suy diễn là bình thường và KHÔNG tự điền con số giả định.
-Trả về JSON:
-{
-  "draft_notes": "Nội dung báo cáo bàn giao hoàn chỉnh bằng tiếng Việt",
-  "suggested_condition": "good" | "normal" | "attention" | "warning"
-}`;
+QUAN TRỌNG: Chỉ sử dụng đúng các chỉ số sinh hiệu đã có số đo thực tế. Mục nào ghi 'Chưa đo' hoặc 'chưa đánh giá' thì TUYỆT ĐỐI KHÔNG tự suy diễn là bình thường và KHÔNG tự điền con số giả định.`;
 
+  // Không truyền họ tên thật của bệnh nhân vào prompt khi không cần thiết (Mục #10)
   const userInputPayload = {
-    patient_name: patientName ? String(patientName).trim() : 'Người cao tuổi',
     vitals: {
       blood_pressure: sBpSys && sBpDia ? `${sBpSys}/${sBpDia} mmHg` : 'Chưa đo',
       heart_rate: sHr ? `${sHr} bpm` : 'Chưa đo',
@@ -6892,45 +7456,54 @@ Trả về JSON:
       blood_sugar: sSugar ? `${sSugar} mmol/L` : 'Chưa đo',
     },
     current_condition_flag: sCond || 'chưa đánh giá',
-    quick_notes: sNotes || 'Chưa có ghi chú thêm',
+    quick_notes: redactPii(sNotes || 'Chưa có ghi chú thêm'),
   };
 
   try {
-    const aiRes = await callGemini({
-      systemInstruction,
-      parts: [{ text: JSON.stringify(userInputPayload) }],
-      responseSchemaJson: true,
-      temperature: 0.4,
-      validateOutput: validateShiftReportDraftOutput,
-    });
+    const aiRes = await withAiQuotaGuard(req, () =>
+      callGemini({
+        systemInstruction,
+        parts: [{ text: JSON.stringify(userInputPayload) }],
+        responseSchemaJson: true,
+        responseSchema: SHIFT_REPORT_RESPONSE_SCHEMA,
+        temperature: 0.35,
+        validateOutput: validateShiftReportDraftOutput,
+      })
+    );
 
-    await initAiTrainingLogsTable();
-    const logId = await logAiTrainingSample(pool, isMySqlConnected, {
-      taskType: 'shift_report_draft',
-      systemInstruction,
-      userInput: userInputPayload,
-      modelOutput: aiRes.parsed,
-      modelUsed: aiRes.model,
-      extraSecrets: [patientName, req.auth.userName],
-    });
+    const parsed = { ...aiRes.parsed };
+    if (emergencyCheck.isEmergency) {
+      parsed.suggested_condition = 'warning';
+      parsed.draft_notes = `${emergencyCheck.alertMessage}\n\n${parsed.draft_notes}`;
+      parsed.emergency_alert = emergencyCheck.alertMessage;
+    }
 
+    // Không ghi dữ liệu y tế ca trực thật vào dataset fine-tuning (Mục #14)
     return res.json({
       success: true,
-      trainingLogId: logId,
-      ...aiRes.parsed,
+      trainingLogId: null,
+      ...parsed,
     });
   } catch (err) {
     console.error('Lỗi AI draft-shift-report:', err.message);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.call.failed',
+      resourceType: '/api/ai/draft-shift-report',
+      status: 'error',
+      metadata: { message: err.message },
+    });
     return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
   }
 });
 
-// 3B. AI KIỂM TRA ẢNH eKYC / CHỨNG CHỈ Y TẾ ĐA PHƯƠNG THỨC
+// 3B. AI KIỂM TRA ẢNH eKYC / CHỨNG CHỈ Y TẾ ĐA PHƯƠNG THỨC (MAGIC BYTES + KHÔNG ĐƯA VÀO TRAINING LOG)
 app.post('/api/ai/verify-document', requireAuth(['caregiver', 'family', 'admin']), async (req, res) => {
   const { dataUrl, documentType } = req.body || {};
   const imagePart = parseDataUrlToGeminiPart(dataUrl);
-  if (!imagePart) {
-    return res.status(400).json({ error: 'Thiếu ảnh hoặc định dạng dataUrl (base64) không hợp lệ.' });
+  if (!imagePart || imagePart.error) {
+    return res.status(imagePart?.statusCode || 400).json({
+      error: imagePart?.error || 'Thiếu ảnh hoặc định dạng ảnh tải lên không hợp lệ.',
+    });
   }
 
   const docTypeLabels = {
@@ -6944,54 +7517,42 @@ app.post('/api/ai/verify-document', requireAuth(['caregiver', 'family', 'admin']
   const expectedLabel = docTypeLabels[documentType] || documentType || 'Giấy tờ xác thực eKYC';
 
   const systemInstruction = `Bạn là hệ thống kiểm tra sơ bộ tài liệu xác thực eKYC của nền tảng CARE-MATCH.
-Hãy quan sát ảnh người dùng tải lên, đối chiếu với loại giấy tờ kỳ vọng ("${expectedLabel}"), đánh giá độ rõ nét và trích xuất thông tin cơ bản nếu nhìn thấy rõ.
-Trả về JSON đúng cấu trúc:
-{
-  "is_valid_image": true/false,
-  "matches_expected_type": true/false,
-  "clarity": "clear" | "blurry" | "cropped",
-  "detected_type": "Tên loại giấy tờ nhận diện được",
-  "id_number": "Số CCCD 12 chữ số nếu có, không thì chuỗi rỗng",
-  "full_name": "Họ tên trên giấy tờ nếu đọc được, không thì chuỗi rỗng",
-  "warnings": ["Danh sách cảnh báo nếu mờ/mất góc/sai loại giấy tờ, không có thì mảng rỗng"],
-  "summary": "Nhận xét ngắn gọn 1 câu bằng tiếng Việt"
-}`;
+Hãy quan sát ảnh người dùng tải lên, đối chiếu với loại giấy tờ kỳ vọng ("${expectedLabel}"), đánh giá độ rõ nét và trích xuất thông tin cơ bản nếu nhìn thấy rõ.`;
 
   try {
-    const aiRes = await callGemini({
-      systemInstruction,
-      parts: [
-        { text: `Hãy kiểm tra ảnh tài liệu loại: ${expectedLabel}` },
-        imagePart,
-      ],
-      responseSchemaJson: true,
-      temperature: 0.1,
-      validateOutput: validateVerifyDocumentOutput,
-    });
+    const aiRes = await withAiQuotaGuard(req, () =>
+      callGemini({
+        systemInstruction,
+        parts: [
+          { text: `Hãy kiểm tra ảnh tài liệu loại: ${expectedLabel}` },
+          imagePart,
+        ],
+        responseSchemaJson: true,
+        responseSchema: VERIFY_DOC_RESPONSE_SCHEMA,
+        temperature: 0.1,
+        validateOutput: validateVerifyDocumentOutput,
+      })
+    );
 
-    // Không lưu ảnh CCCD thô vào ai_training_logs để bảo vệ dữ liệu cá nhân
-    await initAiTrainingLogsTable();
-    await logAiTrainingSample(pool, isMySqlConnected, {
-      taskType: 'ekyc_document_check',
-      systemInstruction,
-      userInput: { expected_document_type: expectedLabel, image_omitted_for_privacy: true },
-      modelOutput: aiRes.parsed,
-      modelUsed: aiRes.model,
-      extraSecrets: [aiRes.parsed?.full_name, aiRes.parsed?.id_number, req.auth.userName],
-    });
-
+    // Tuyệt đối không lưu kết quả đọc CCCD / giấy tờ cá nhân vào ai_training_logs (Mục #9 & #14)
     return res.json({
       success: true,
       ...aiRes.parsed,
     });
   } catch (err) {
     console.error('Lỗi AI verify-document:', err.message);
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.call.failed',
+      resourceType: '/api/ai/verify-document',
+      status: 'error',
+      metadata: { message: err.message },
+    });
     return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
   }
 });
 
-// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT + TRUY XUẤT DỮ LIỆU LIVE + GUARDRAIL + CACHE + SSE (CAREMATCHAI)
-async function runCareMatchChatEngine({ message, history = [], authContext, endpoint = '/api/ai/chat', onStatus }) {
+// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT + RULE ENGINE CẤP CỨU 115 + VECTOR RAG + RBAC TOOL USE (CAREMATCHAI)
+async function runCareMatchChatEngine({ req, message, history = [], authContext, endpoint = '/api/ai/chat', onStatus }) {
   const userText = String(message || '').trim();
   const reqStart = Date.now();
   const authenticated = Boolean(authContext?.authenticated && Number(authContext?.userId) > 0);
@@ -7014,6 +7575,14 @@ async function runCareMatchChatEngine({ message, history = [], authContext, endp
       guardrailTriggered: safety.reason,
       status: 'blocked',
     });
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: userId,
+      actorRole: userRole,
+      action: 'security.prompt_injection_blocked',
+      resourceType: endpoint,
+      status: 'blocked',
+      metadata: { reason: safety.reason },
+    });
     return {
       success: true,
       reply: safety.message,
@@ -7027,7 +7596,41 @@ async function runCareMatchChatEngine({ message, history = [], authContext, endp
     };
   }
 
-  // 2. Response Cache cô lập theo tài khoản và tắt hoàn toàn khi có lịch sử (history.length > 0)
+  // 2. Deterministic Medical Emergency Rule Engine: chạy TRƯỚC AI và luôn ưu tiên hướng dẫn gọi cấp cứu 115
+  const emergency = evaluateMedicalEmergencyRules({ text: userText });
+  if (emergency.isEmergency) {
+    const latencyMs = Date.now() - reqStart;
+    await recordAiMetric(pool, isMySqlConnected, {
+      endpoint,
+      modelUsed: 'medical-rule-engine',
+      latencyMs,
+      guardrailTriggered: 'medical_emergency_rule',
+      status: 'ok',
+    });
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: userId,
+      actorRole: userRole,
+      action: 'ai.medical_emergency.triggered',
+      resourceType: endpoint,
+      status: 'ok',
+      metadata: { triggers: emergency.triggers },
+    });
+    return {
+      success: true,
+      reply: emergency.alertMessage,
+      quick_replies: ['Hướng dẫn sơ cứu an toàn khi chờ 115', 'Số hotline hỗ trợ khẩn cấp CARE-MATCH'],
+      grounded: true,
+      emergency: true,
+      emergency_triggers: emergency.triggers,
+      tools_used: ['medical_emergency_rule_engine'],
+      guardrail: 'medical_emergency_rule',
+      cache_hit: false,
+      latency_ms: latencyMs,
+      usage: { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 },
+    };
+  }
+
+  // 3. Response Cache cô lập theo tài khoản và tắt hoàn toàn khi có lịch sử (history.length > 0)
   const safeHistory = Array.isArray(history) ? history : [];
   const cached = getCachedChatResponse(userText, authContext, safeHistory.length);
   if (cached) {
@@ -7073,7 +7676,7 @@ async function runCareMatchChatEngine({ message, history = [], authContext, endp
 Vai trò người dùng đang trò chuyện: ${roleLabel}.
 
 QUAN TRỌNG VỀ TRUY XUẤT DỮ LIỆU THẬT & VECTOR RAG (TOOL USE):
-- Bạn được trang bị các công cụ tra cứu trực tiếp cơ sở dữ liệu & Vector Store của CARE-MATCH:
+- Bạn được trang bị các công cụ tra cứu trực tiếp cơ sở dữ liệu & Vector Store của CARE-MATCH (quyền truy cập đã được hệ thống máy chủ kiểm soát nghiêm ngặt):
   + search_caregivers: Tìm chuyên viên thật (Hybrid Semantic RAG + lọc quận, kỹ năng, mức giá, CARE SCORE).
   + get_caregiver_detail: Xem chi tiết hồ sơ, giá ca, kỹ năng và đánh giá của chuyên viên.
   + get_my_elderly_profiles: Xem hồ sơ người thân/người cao tuổi của gia đình đang đăng nhập.
@@ -7087,9 +7690,9 @@ ${customRulesBlock}${fewShotBlock}
 Quy tắc trả lời:
 - Luôn trả lời bằng tiếng Việt ấm áp, lịch sự, chính xác, súc tích (2-6 câu hoặc gạch đầu dòng ngắn gọn, dễ đọc trên khung chat).
 - Tự xưng là CareMatchAI (tuyệt đối không nhắc tên công nghệ, API hay mô hình bên thứ ba).
-- Với câu hỏi y khoa khẩn cấp (đau ngực, khó thở, tụt SpO2 < 90%, dấu hiệu đột quỵ...), luôn nhắc gọi cấp cứu 115 hoặc đưa tới cơ sở y tế ngay trước tiên.
+- Với câu hỏi y khoa khẩn cấp (đau ngực, khó thở, tụt SpO2 < 92%, dấu hiệu đột quỵ...), luôn nhắc gọi cấp cứu 115 hoặc đưa tới cơ sở y tế ngay trước tiên.
 
-Ở lượt trả lời cuối cùng sau khi đã tra cứu đủ thông tin, hãy trả về đúng chuỗi JSON hợp lệ (không bọc trong markdown code fence nếu không cần):
+Ở lượt trả lời cuối cùng sau khi đã tra cứu đủ thông tin, hãy trả về đúng chuỗi JSON hợp lệ:
 {
   "reply": "Nội dung trả lời đầy đủ gửi người dùng",
   "quick_replies": ["Gợi ý hỏi tiếp 1", "Gợi ý hỏi tiếp 2"]
@@ -7109,48 +7712,57 @@ Quy tắc trả lời:
   ];
 
   try {
-    const aiRes = await callGeminiWithTools({
-      systemInstruction,
-      contents,
-      functionDeclarations: CAREMATCH_CHAT_TOOL_DECLARATIONS,
-      executeTool: async (name, args) => {
-        if (typeof onStatus === 'function') onStatus('CareMatchAI đang tra cứu dữ liệu hệ thống...');
-        return executeCareMatchTool(
-          name,
-          args,
-          { authenticated, userRole, userId, userName },
-          { pool, isDbConnected: isMySqlConnected }
-        );
-      },
-      temperature: 0.35,
-      maxToolRounds: 3,
-    });
+    const aiRes = await withAiQuotaGuard(req, () =>
+      callGeminiWithTools({
+        systemInstruction,
+        contents,
+        functionDeclarations: CAREMATCH_CHAT_TOOL_DECLARATIONS,
+        executeTool: async (name, args) => {
+          if (typeof onStatus === 'function') onStatus('CareMatchAI đang tra cứu dữ liệu hệ thống...');
+          return executeCareMatchTool(
+            name,
+            args,
+            { authenticated, userRole, userId, userName },
+            { pool, isDbConnected: isMySqlConnected }
+          );
+        },
+        temperature: 0.35,
+        maxToolRounds: 3,
+      })
+    );
 
     const reply = String(aiRes.parsed.reply);
     const quickReplies = Array.isArray(aiRes.parsed.quick_replies) ? aiRes.parsed.quick_replies : [];
     const latencyMs = Date.now() - reqStart;
+    const toolsUsed = aiRes.toolsUsed || [];
 
     const payload = {
       success: true,
       reply,
       quick_replies: quickReplies,
-      grounded: Array.isArray(aiRes.toolsUsed) && aiRes.toolsUsed.length > 0,
-      tools_used: aiRes.toolsUsed || [],
+      grounded: toolsUsed.length > 0,
+      tools_used: toolsUsed,
       cache_hit: false,
       latency_ms: latencyMs,
       usage: aiRes.usage || { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 },
     };
 
-    setCachedChatResponse(userText, authContext, safeHistory.length, aiRes.toolsUsed, payload);
+    setCachedChatResponse(userText, authContext, safeHistory.length, toolsUsed, payload);
 
-    await logAiTrainingSample(pool, isMySqlConnected, {
-      taskType: 'chatbot',
-      systemInstruction,
-      userInput: { role: userRole, message: userText, tools_used: aiRes.toolsUsed },
-      modelOutput: { reply, quick_replies: quickReplies },
-      modelUsed: aiRes.model,
-      extraSecrets: [userName],
-    });
+    // Tách dữ liệu y tế khỏi dataset fine-tuning: không ghi log nếu phiên chat truy xuất hồ sơ bệnh nhân / sinh hiệu thật
+    const touchedMedicalTools =
+      toolsUsed.includes('get_patient_care_logs') || toolsUsed.includes('get_my_elderly_profiles');
+    if (!touchedMedicalTools) {
+      await logAiTrainingSample(pool, isMySqlConnected, {
+        taskType: 'chatbot',
+        systemInstruction,
+        userInput: { role: userRole, message: userText, tools_used: toolsUsed },
+        modelOutput: { reply, quick_replies: quickReplies },
+        modelUsed: aiRes.model,
+        isApproved: false,
+        extraSecrets: [userName],
+      });
+    }
 
     await recordAiMetric(pool, isMySqlConnected, {
       endpoint,
@@ -7159,7 +7771,7 @@ Quy tắc trả lời:
       candidatesTokens: aiRes.usage?.candidatesTokens || 0,
       totalTokens: aiRes.usage?.totalTokens || 0,
       latencyMs,
-      toolsUsed: aiRes.toolsUsed || [],
+      toolsUsed,
       cacheHit: false,
       status: 'ok',
     });
@@ -7172,18 +7784,26 @@ Quy tắc trả lời:
       status: 'error',
       errorMessage: err.message,
     });
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      actorUserId: userId,
+      actorRole: userRole,
+      action: 'ai.call.failed',
+      resourceType: endpoint,
+      status: 'error',
+      metadata: { code: err.code || null, message: err.message },
+    });
     throw err;
   }
 }
 
 app.post('/api/ai/chat', async (req, res) => {
   const { message, history = [] } = req.body || {};
-  const authContext = extractAuthContext(req);
+  const authContext = req.auth || extractAuthContext(req);
   if (!String(message || '').trim()) {
     return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
   }
   try {
-    const result = await runCareMatchChatEngine({ message, history, authContext, endpoint: '/api/ai/chat' });
+    const result = await runCareMatchChatEngine({ req, message, history, authContext, endpoint: '/api/ai/chat' });
     return res.json(result);
   } catch (err) {
     console.error('Lỗi CareMatchAI chat:', err.message);
@@ -7194,7 +7814,7 @@ app.post('/api/ai/chat', async (req, res) => {
 // Streaming Server-Sent Events (SSE) cho trải nghiệm gõ chữ theo thời gian thực
 app.post('/api/ai/chat/stream', async (req, res) => {
   const { message, history = [] } = req.body || {};
-  const authContext = extractAuthContext(req);
+  const authContext = req.auth || extractAuthContext(req);
   if (!String(message || '').trim()) {
     return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
   }
@@ -7216,6 +7836,7 @@ app.post('/api/ai/chat/stream', async (req, res) => {
   try {
     sendEvent('status', { text: 'CareMatchAI đang xử lý yêu cầu...' });
     const result = await runCareMatchChatEngine({
+      req,
       message,
       history,
       authContext,
@@ -7259,6 +7880,12 @@ app.post('/api/ai/rag/reindex', requireAuth(['admin']), async (req, res) => {
   try {
     const stats = await syncCareMatchKnowledgeVectors(pool, isMySqlConnected);
     clearAiChatCache();
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.rag.reindex',
+      resourceType: 'ai_knowledge_chunks',
+      status: 'ok',
+      metadata: stats,
+    });
     return res.json({ success: true, ...stats });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -7293,7 +7920,7 @@ app.get('/api/ai/metrics', requireAuth(['admin']), async (req, res) => {
     `);
     const [vecRows] = await pool.execute('SELECT COUNT(*)::int AS cnt FROM ai_knowledge_chunks');
     const [recentRows] = await pool.execute(
-      'SELECT id, endpoint, model_used, total_tokens, estimated_cost_usd, latency_ms, tools_used, cache_hit, guardrail_triggered, status, created_at FROM ai_metrics_logs ORDER BY id DESC LIMIT 12'
+      'SELECT id, endpoint, total_tokens, estimated_cost_usd, latency_ms, tools_used, cache_hit, guardrail_triggered, status, created_at FROM ai_metrics_logs ORDER BY id DESC LIMIT 12'
     );
     const s = summaryRows[0] || {};
     return res.json({
@@ -7348,9 +7975,15 @@ app.post('/api/ai/knowledge', requireAuth(['admin']), async (req, res) => {
       `INSERT INTO system_settings (setting_key, setting_value, setting_type, setting_group, description)
        VALUES ('carematchai_custom_rules', ?, 'text', 'ai', 'Quy tắc, bảng giá & kiến thức tùy chỉnh nạp trực tiếp cho CareMatchAI')
        ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP`,
-      [String(customRules ?? '')]
+      [redactPii(String(customRules ?? ''))]
     );
     clearAiChatCache();
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.knowledge.update',
+      resourceType: 'system_settings',
+      resourceId: 'carematchai_custom_rules',
+      status: 'ok',
+    });
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -7376,11 +8009,18 @@ app.post('/api/ai/training-logs', requireAuth(['admin']), async (req, res) => {
       ]
     );
     clearAiChatCache();
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.training_log.create_curated',
+      resourceType: 'ai_training_logs',
+      resourceId: r.insertId,
+      status: 'ok',
+    });
     return res.json({ success: true, id: r.insertId });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 });
+
 app.get('/api/ai/training-logs', requireAuth(['admin']), async (req, res) => {
   if (!isMySqlConnected) return res.json([]);
   try {
@@ -7413,7 +8053,32 @@ app.patch('/api/ai/training-logs/:id', requireAuth(['admin']), async (req, res) 
       ]
     );
     clearAiChatCache();
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.training_log.review',
+      resourceType: 'ai_training_logs',
+      resourceId: id,
+      status: 'ok',
+      metadata: { is_approved, rating },
+    });
     return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/ai/training-logs/:id', requireAuth(['admin']), async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  const id = Number(req.params.id);
+  try {
+    await pool.execute('DELETE FROM ai_training_logs WHERE id = ?', [id]);
+    clearAiChatCache();
+    await writeAuditLog(pool, isMySqlConnected, req, {
+      action: 'ai.training_log.delete',
+      resourceType: 'ai_training_logs',
+      resourceId: id,
+      status: 'ok',
+    });
+    return res.json({ success: true, deletedId: id });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -7424,7 +8089,7 @@ app.get('/api/ai/export-finetune-jsonl', requireAuth(['admin']), async (req, res
   try {
     await initAiTrainingLogsTable();
     const [rows] = await pool.execute(
-      "SELECT * FROM ai_training_logs WHERE is_approved = TRUE AND task_type != 'ekyc_document_check' ORDER BY id ASC"
+      "SELECT * FROM ai_training_logs WHERE is_approved = TRUE AND task_type NOT IN ('ekyc_document_check', 'care_log_summary', 'shift_report_draft') ORDER BY id ASC"
     );
 
     const lines = rows.map((r) =>
@@ -7441,10 +8106,23 @@ app.get('/api/ai/export-finetune-jsonl', requireAuth(['admin']), async (req, res
     );
 
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="carematch_vertex_finetune.jsonl"');
+    res.setHeader('Content-Disposition', 'attachment; filename="carematch_finetune_dataset.jsonl"');
     return res.send(lines.join('\n'));
   } catch (err) {
     return res.status(500).send('Lỗi xuất JSONL: ' + err.message);
+  }
+});
+
+// 5. AUDIT LOGS CHO ADMIN THEO DÕI TRUY CẬP HỒ SƠ Y TẾ, ĐĂNG NHẬP & CẢNH BÁO BẢO MẬT
+app.get('/api/admin/audit-logs', requireAuth(['admin']), async (req, res) => {
+  if (!isMySqlConnected) return res.json([]);
+  try {
+    await ensureSecurityTables(pool, isMySqlConnected);
+    const safeLimit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+    const [rows] = await pool.execute('SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?', [safeLimit]);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

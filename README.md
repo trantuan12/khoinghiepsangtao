@@ -138,6 +138,9 @@ PORT=5000
 NODE_ENV=development
 DATABASE_URL=postgresql://postgres.[PROJECT-REF]:[PASSWORD]@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres
 CLIENT_URL=http://localhost:3000
+AUTH_SECRET=replace_with_a_strong_random_secret_at_least_32_characters_long
+FIELD_ENCRYPTION_KEY=replace_with_32_byte_random_hex_or_base64_key
+ADMIN_REQUIRE_MFA=false
 
 EMAIL_SERVICE=gmail
 EMAIL_USER=your_email@gmail.com
@@ -167,18 +170,25 @@ npm run build
 ```
 Khi deploy lên **Vercel**:
 - Cấu hình định tuyến đã sẵn sàng trong [`vercel.json`](vercel.json) (`/api/*` trỏ về [`api/index.js`](api/index.js)).
-- Thêm đầy đủ các biến `DATABASE_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.1-flash-lite`, `CLIENT_URL` và cấu hình email vào **Vercel → Settings → Environment Variables** cho môi trường **Production**, sau đó **Redeploy**.
+- Thêm đầy đủ các biến `DATABASE_URL`, `AUTH_SECRET` (>= 32 ký tự ngẫu nhiên), `FIELD_ENCRYPTION_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.1-flash-lite`, `CLIENT_URL` và cấu hình email vào **Vercel → Settings → Environment Variables** cho môi trường **Production**, sau đó **Redeploy**.
 
 ---
 
-## 🧪 Chạy Evaluation, FastAPI Microservice & QLoRA Fine-Tuning
+## 🛡️ Bảo mật, An toàn Y tế & Kiểm thử Tự động
 
-### Chạy Automated LLM Eval Suite
+- **Xác thực & Phiên an toàn:** Mật khẩu băm `bcrypt` (tự động nâng cấp tài khoản cũ, chặn mật khẩu yếu, khóa tạm thời khi sai 5 lần, hỗ trợ MFA/OTP cho Admin), Access Token ngắn hạn 15 phút kèm `token_version` + `jti` revocation và Refresh Token Rotation lưu trong `HttpOnly`, `SameSite=Lax` cookie (không lưu JWT trong `localStorage`).
+- **Chống IDOR & Least Privilege:** Middleware tập trung [`server/idorGuards.js`](server/idorGuards.js) xác thực quyền sở hữu trên toàn bộ API (`schedules`, `care-logs`, `elderly-profiles`, `payments`, `messages`, `family-profile`, `caregiver-profile`, `export`), mã hóa số CCCD bằng `AES-256-GCM` at-rest và ghi `audit_logs`.
+- **An toàn AI & Dữ liệu Y khoa:** Rule Engine y khoa cố định ưu tiên cảnh báo gọi `115` trước AI, kiểm tra chữ ký nhị phân (magic bytes) tệp ảnh eKYC, ép Gemini JSON `responseSchema` + đối chiếu ID/giá/quận từ DB, không tự điền sinh hiệu mặc định và tách hoàn toàn dữ liệu bệnh án khỏi dataset fine-tuning.
+
+### Chạy Automated Security Suite (10 nhóm kịch bản bảo mật) & LLM Eval Suite
 ```bash
-# PowerShell (Windows)
+# Kiểm thử tự động 10 nhóm kịch bản RBAC, IDOR, Token, Rate-Limit, Magic-Bytes & AI Safety
+$env:VERCEL="1"; node evals/security_test.mjs
+
+# Kiểm thử đánh giá chất lượng RAG, Function Calling & Guardrails của CareMatchAI
 $env:VERCEL="1"; node evals/run_eval.mjs
 ```
-Kết quả sẽ được đồng bộ Vector RAG và xuất báo cáo JSON tại [`evals/latest_report.json`](evals/latest_report.json).
+Kết quả đánh giá được xuất tại [`evals/latest_report.json`](evals/latest_report.json).
 
 ### Chạy Python FastAPI AI Microservice (Tuỳ chọn tách service)
 ```bash

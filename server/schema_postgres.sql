@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS users (
   full_name VARCHAR(128) NOT NULL,
   phone VARCHAR(20) DEFAULT NULL,
   avatar_initials VARCHAR(8) DEFAULT 'CM',
+  token_version INTEGER NOT NULL DEFAULT 1,
+  failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+  locked_until TIMESTAMP DEFAULT NULL,
+  must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
+  mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -66,7 +71,7 @@ CREATE TABLE IF NOT EXISTS family_profiles (
   representative_name VARCHAR(128) NOT NULL,
   phone VARCHAR(20) DEFAULT NULL,
   email VARCHAR(128) DEFAULT NULL,
-  id_number VARCHAR(32) DEFAULT NULL,
+  id_number VARCHAR(255) DEFAULT NULL,
   address VARCHAR(255) DEFAULT NULL,
   district VARCHAR(128) DEFAULT NULL,
   id_card_front TEXT DEFAULT NULL,
@@ -107,7 +112,7 @@ CREATE TABLE IF NOT EXISTS caregiver_profiles (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   title VARCHAR(128) DEFAULT 'Chuyên viên chăm sóc',
-  id_number VARCHAR(32) DEFAULT NULL,
+  id_number VARCHAR(255) DEFAULT NULL,
   experience_years INTEGER DEFAULT 0,
   hourly_rate INTEGER DEFAULT 100000,
   shift_rate INTEGER DEFAULT 400000,
@@ -351,12 +356,12 @@ CREATE TABLE IF NOT EXISTS patient_care_logs (
   caregiver_name VARCHAR(128) NOT NULL,
   log_date DATE NOT NULL,
   time_slot VARCHAR(128) DEFAULT 'Ca ngày (08:00 - 12:00)',
-  blood_pressure_systolic INTEGER DEFAULT 120,
-  blood_pressure_diastolic INTEGER DEFAULT 80,
-  heart_rate INTEGER DEFAULT 75,
-  blood_sugar NUMERIC(5,2) DEFAULT 5.60,
-  temperature NUMERIC(4,1) DEFAULT 36.8,
-  spo2 INTEGER DEFAULT 98,
+  blood_pressure_systolic INTEGER DEFAULT NULL,
+  blood_pressure_diastolic INTEGER DEFAULT NULL,
+  heart_rate INTEGER DEFAULT NULL,
+  blood_sugar NUMERIC(5,2) DEFAULT NULL,
+  temperature NUMERIC(4,1) DEFAULT NULL,
+  spo2 INTEGER DEFAULT NULL,
   weight NUMERIC(5,1) DEFAULT NULL,
   meal_status VARCHAR(255) DEFAULT 'Ăn hết khẩu phần cháo dinh dưỡng',
   medication_status VARCHAR(255) DEFAULT 'Đã uống đủ thuốc huyết áp sau ăn',
@@ -425,6 +430,36 @@ CREATE TABLE IF NOT EXISTS ai_metrics_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_ai_metrics_created ON ai_metrics_logs (created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_metrics_endpoint ON ai_metrics_logs (endpoint);
+
+-- 22. Bảng quản lý phiên Refresh Token & Revocation (auth_sessions)
+CREATE TABLE IF NOT EXISTS auth_sessions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  refresh_token_hash VARCHAR(128) NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  revoked_at TIMESTAMP DEFAULT NULL,
+  ip_address VARCHAR(64) DEFAULT NULL,
+  user_agent TEXT DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions (user_id);
+
+-- 23. Bảng Audit Log an ninh & truy cập hồ sơ y tế (audit_logs)
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id SERIAL PRIMARY KEY,
+  actor_user_id INTEGER DEFAULT NULL,
+  actor_role VARCHAR(24) DEFAULT 'guest',
+  action VARCHAR(80) NOT NULL,
+  resource_type VARCHAR(64) DEFAULT NULL,
+  resource_id VARCHAR(64) DEFAULT NULL,
+  ip_address VARCHAR(64) DEFAULT NULL,
+  user_agent TEXT DEFAULT NULL,
+  status VARCHAR(24) DEFAULT 'ok',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at);
 
 -- Triggers tự động cập nhật updated_at
 DO $$

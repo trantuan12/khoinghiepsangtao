@@ -3,5 +3,9 @@ dist
 .env
 .env.*
 server/.env*
+!server/.env.example
 .DS_Store
 *.local
+__pycache__/
+*.py[cod]
+*.code-workspace

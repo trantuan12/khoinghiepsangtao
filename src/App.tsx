@@ -374,6 +374,7 @@ type CurrentUser = {
   email: string;
   role: 'family' | 'caregiver' | 'admin';
   phone?: string;
+  must_change_password?: boolean;
 };
 
 // Kiểu dữ liệu hồ sơ người bệnh
@@ -12001,6 +12002,9 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: (token?: string, user?
   const [, setLocation] = useLocation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaEmail, setMfaEmail] = useState('');
+  const [mfaOtp, setMfaOtp] = useState('');
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -12009,12 +12013,35 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: (token?: string, user?
     setLoading(true);
     setError('');
     try {
+      if (mfaRequired) {
+        const res = await fetch(`${API}/auth/admin/verify-mfa`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: mfaEmail, otp: mfaOtp.trim() })
+        });
+        const data = await res.json();
+        if (data.success && data.user?.role === 'admin' && data.token) {
+          onAdminLogin(data.token, data.user);
+          setLoading(false);
+          return;
+        }
+        setError(data.message || 'Mã xác thực MFA không chính xác.');
+        setLoading(false);
+        return;
+      }
+
       const res = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.trim(), password, role: 'admin' })
       });
       const data = await res.json();
+      if (data.success && data.mfaRequired) {
+        setMfaRequired(true);
+        setMfaEmail(data.email || username.trim());
+        setLoading(false);
+        return;
+      }
       if (data.success && data.user?.role === 'admin' && data.token) {
         onAdminLogin(data.token, data.user);
         setLoading(false);
@@ -12040,10 +12067,12 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: (token?: string, user?
 
         <div className="rounded-[28px] border border-white/10 bg-[#1d2d18]/90 p-8 shadow-[0_32px_80px_rgba(0,0,0,0.5)] backdrop-blur-sm">
           <h2 className="font-display text-[26px] font-bold text-[#fcfbf7] leading-tight">
-            Cổng Quản Trị Hệ Thống
+            {mfaRequired ? 'Xác Thực MFA Quản Trị' : 'Cổng Quản Trị Hệ Thống'}
           </h2>
           <p className="mt-2 text-[13.5px] text-[#b3d4ad] leading-relaxed">
-            Chỉ dành riêng cho Quản trị viên điều phối và phê duyệt hồ sơ người chăm sóc.
+            {mfaRequired
+              ? `Nhập mã OTP 6 chữ số vừa gửi tới email quản trị (${mfaEmail}).`
+              : 'Chỉ dành riêng cho Quản trị viên điều phối và phê duyệt hồ sơ người chăm sóc.'}
           </p>
 
           {error && (
@@ -12053,38 +12082,55 @@ function AdminLoginPage({ onAdminLogin }: { onAdminLogin: (token?: string, user?
           )}
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            <label className="block">
-              <span className="mb-2 block text-[11.5px] font-bold text-[#a8c4a5] uppercase tracking-[.1em]">Tên đăng nhập</span>
-              <input
-                type="text"
-                required
-                autoComplete="username"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="Tên đăng nhập"
-                className="h-12 w-full rounded-xl border border-white/15 bg-black/25 px-4 text-[13.5px] text-white outline-none focus:border-[#d69f52] focus:ring-2 focus:ring-[#d69f52]/20 transition placeholder:text-white/30"
-              />
-            </label>
+            {!mfaRequired ? (
+              <>
+                <label className="block">
+                  <span className="mb-2 block text-[11.5px] font-bold text-[#a8c4a5] uppercase tracking-[.1em]">Tên đăng nhập</span>
+                  <input
+                    type="text"
+                    required
+                    autoComplete="username"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    placeholder="Tên đăng nhập hoặc email quản trị"
+                    className="h-12 w-full rounded-xl border border-white/15 bg-black/25 px-4 text-[13.5px] text-white outline-none focus:border-[#d69f52] focus:ring-2 focus:ring-[#d69f52]/20 transition placeholder:text-white/30"
+                  />
+                </label>
 
-            <label className="block">
-              <span className="mb-2 block text-[11.5px] font-bold text-[#a8c4a5] uppercase tracking-[.1em]">Mật khẩu quản trị</span>
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Mật khẩu quản trị viên"
-                className="h-12 w-full rounded-xl border border-white/15 bg-black/25 px-4 text-[13.5px] text-white outline-none focus:border-[#d69f52] focus:ring-2 focus:ring-[#d69f52]/20 transition placeholder:text-white/30"
-              />
-            </label>
+                <label className="block">
+                  <span className="mb-2 block text-[11.5px] font-bold text-[#a8c4a5] uppercase tracking-[.1em]">Mật khẩu quản trị</span>
+                  <input
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Mật khẩu quản trị viên"
+                    className="h-12 w-full rounded-xl border border-white/15 bg-black/25 px-4 text-[13.5px] text-white outline-none focus:border-[#d69f52] focus:ring-2 focus:ring-[#d69f52]/20 transition placeholder:text-white/30"
+                  />
+                </label>
+              </>
+            ) : (
+              <label className="block">
+                <span className="mb-2 block text-[11.5px] font-bold text-[#a8c4a5] uppercase tracking-[.1em]">Mã OTP MFA (6 chữ số)</span>
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  value={mfaOtp}
+                  onChange={e => setMfaOtp(e.target.value)}
+                  placeholder="Nhập 6 chữ số OTP"
+                  className="h-12 w-full rounded-xl border border-white/15 bg-black/25 px-4 text-center font-mono tracking-[0.4em] text-[18px] text-white outline-none focus:border-[#d69f52] focus:ring-2 focus:ring-[#d69f52]/20 transition placeholder:text-white/30 placeholder:tracking-normal placeholder:text-[13px]"
+                />
+              </label>
+            )}
 
             <Button
               type="submit"
               disabled={loading}
               className="w-full h-12 bg-gradient-to-r from-[#d69f52] to-[#c08840] text-[#1a2820] hover:from-[#e4ad5f] hover:to-[#c9904a] font-bold text-[14px] shadow-lg shadow-[#d69f52]/25 transition-all"
             >
-              {loading ? 'Đang xác thực...' : <><LogIn size={16} /> Đăng nhập Quản trị viên</>}
+              {loading ? 'Đang xác thực...' : mfaRequired ? 'Xác nhận mã MFA' : <><LogIn size={16} /> Đăng nhập Quản trị viên</>}
             </Button>
           </form>
         </div>
@@ -12111,14 +12157,13 @@ function Router() {
     try {
       const isLogged = localStorage.getItem('carematch_logged_in') === 'true';
       const hasUser = !!localStorage.getItem('carematch_user');
-      const hasToken = !!getAuthToken();
-      if (isLogged && (!hasUser || !hasToken)) {
+      if (isLogged && !hasUser) {
         localStorage.removeItem('carematch_logged_in');
         localStorage.removeItem('carematch_user');
         localStorage.removeItem('carematch_role');
         return false;
       }
-      return isLogged && hasUser && hasToken;
+      return isLogged && hasUser;
     } catch { return false; }
   });
   const [currentUser, setCurrentUser] = useState<CurrentUser | undefined>(() => {
@@ -12141,35 +12186,90 @@ function Router() {
     return 'family';
   });
   const [toast, setToast] = useState<{ message: string; actionLink?: string; actionText?: string } | string | null>(null);
+  const [curPwInput, setCurPwInput] = useState('');
+  const [newPwInput, setNewPwInput] = useState('');
+  const [pwModalError, setPwModalError] = useState('');
+  const [changingPw, setChangingPw] = useState(false);
 
-  // Tự động kiểm tra và đồng bộ vai trò mới nhất từ MySQL để tránh sai lệch vai trò
+  // Xác thực phiên đăng nhập thật từ máy chủ qua HttpOnly Cookie (/api/auth/me) — không bao giờ tin trạng thái giả ở trình duyệt
   useEffect(() => {
-    if (!currentUser?.id) return;
-    fetch(`${API}/users/${currentUser.id}`)
-      .then(res => res.json())
-      .then(dbUser => {
-        if (dbUser && dbUser.role && dbUser.role !== userRole) {
-          const newRole = dbUser.role as 'family' | 'caregiver' | 'admin';
-          setUserRole(newRole);
-          const updatedUser: CurrentUser = {
-            ...currentUser,
-            role: newRole,
-            full_name: dbUser.full_name || currentUser.full_name
+    fetch(`${API}/auth/me`)
+      .then(async (res) => {
+        if (!res.ok) {
+          if (loggedIn) {
+            setLoggedIn(false);
+            setCurrentUser(undefined);
+            setUserRole('family');
+            setAuthToken(null);
+            try {
+              localStorage.removeItem('carematch_role');
+              localStorage.removeItem('carematch_user');
+              localStorage.setItem('carematch_logged_in', 'false');
+            } catch { }
+          }
+          return;
+        }
+        const data = await res.json();
+        if (data?.authenticated && data?.user) {
+          const serverRole = data.user.role as 'family' | 'caregiver' | 'admin';
+          const syncedUser: CurrentUser = {
+            id: Number(data.user.id),
+            full_name: data.user.full_name || 'Thành viên CARE-MATCH',
+            email: data.user.email || '',
+            role: serverRole,
+            phone: data.user.phone || '',
+            must_change_password: Boolean(data.user.must_change_password),
           };
-          setCurrentUser(updatedUser);
+          setLoggedIn(true);
+          setUserRole(serverRole);
+          setCurrentUser(syncedUser);
           try {
-            localStorage.setItem('carematch_role', newRole);
-            localStorage.setItem('carematch_user', JSON.stringify(updatedUser));
+            localStorage.setItem('carematch_logged_in', 'true');
+            localStorage.setItem('carematch_role', serverRole);
+            localStorage.setItem('carematch_user', JSON.stringify(syncedUser));
           } catch { }
-          if (newRole === 'caregiver' && location === '/dashboard') {
+          if (serverRole === 'caregiver' && location === '/dashboard') {
             setLocation('/caregiver');
-          } else if (newRole === 'family' && location === '/caregiver') {
+          } else if (serverRole === 'family' && location === '/caregiver') {
             setLocation('/dashboard');
           }
         }
       })
       .catch(() => { });
-  }, [currentUser?.id]);
+  }, []);
+
+  const handleMandatoryPasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwModalError('');
+    setChangingPw(true);
+    try {
+      const res = await fetch(`${API}/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword: curPwInput, newPassword: newPwInput }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.token) setAuthToken(data.token);
+        const updated: CurrentUser | undefined = currentUser ? { ...currentUser, must_change_password: false } : undefined;
+        setCurrentUser(updated);
+        if (updated) {
+          try {
+            localStorage.setItem('carematch_user', JSON.stringify(updated));
+          } catch { }
+        }
+        setCurPwInput('');
+        setNewPwInput('');
+        notify('🔒 Đã đổi sang mật khẩu mạnh thành công!');
+      } else {
+        setPwModalError(data.message || 'Không thể đổi mật khẩu.');
+      }
+    } catch {
+      setPwModalError('Lỗi kết nối máy chủ khi đổi mật khẩu.');
+    } finally {
+      setChangingPw(false);
+    }
+  };
 
   const notify = (message: string, actionLink?: string, actionText?: string) => {
     if (actionLink) {
@@ -12239,6 +12339,7 @@ function Router() {
   };
 
   const logout = () => {
+    fetch(`${API}/auth/logout`, { method: 'POST' }).catch(() => { });
     setLoggedIn(false);
     setUserRole('family');
     setCurrentUser(undefined);
@@ -12277,6 +12378,63 @@ function Router() {
 
   return (
     <>
+      {loggedIn && currentUser?.must_change_password && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl border border-stone-200 space-y-4">
+            <div className="flex items-center gap-2.5 text-emerald-900">
+              <LockKeyhole size={22} className="text-amber-600 shrink-0" />
+              <h3 className="font-display text-[19px] font-bold">Bắt buộc đổi mật khẩu bảo mật</h3>
+            </div>
+            <p className="text-[12.5px] text-stone-600 leading-relaxed">
+              Tài khoản đang sử dụng mật khẩu khởi tạo mặc định. Vui lòng đặt mật khẩu mới (tối thiểu 8 ký tự, gồm cả chữ cái và chữ số) để tiếp tục sử dụng an toàn.
+            </p>
+            {pwModalError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-[12px] text-rose-700 font-medium">
+                {pwModalError}
+              </div>
+            )}
+            <form onSubmit={handleMandatoryPasswordChange} className="space-y-3">
+              <div>
+                <label className="block text-[11.5px] font-bold text-stone-700 mb-1">Mật khẩu hiện tại</label>
+                <input
+                  type="password"
+                  required
+                  value={curPwInput}
+                  onChange={(e) => setCurPwInput(e.target.value)}
+                  className="w-full rounded-xl border border-stone-300 px-3.5 py-2 text-[13px] outline-none focus:border-emerald-700"
+                />
+              </div>
+              <div>
+                <label className="block text-[11.5px] font-bold text-stone-700 mb-1">Mật khẩu mới an toàn (&ge; 8 ký tự, chữ + số)</label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  value={newPwInput}
+                  onChange={(e) => setNewPwInput(e.target.value)}
+                  className="w-full rounded-xl border border-stone-300 px-3.5 py-2 text-[13px] outline-none focus:border-emerald-700"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="rounded-xl bg-stone-100 hover:bg-stone-200 px-4 py-2 text-[12.5px] font-semibold text-stone-700"
+                >
+                  Đăng xuất
+                </button>
+                <button
+                  type="submit"
+                  disabled={changingPw}
+                  className="rounded-xl bg-[#243818] hover:bg-[#1b2b12] px-4 py-2 text-[12.5px] font-bold text-white disabled:opacity-50"
+                >
+                  {changingPw ? 'Đang cập nhật...' : 'Cập nhật mật khẩu mới'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {toast && (
         <div className="fixed bottom-5 left-1/2 z-[120] flex -translate-x-1/2 items-center gap-2.5 rounded-[16px] bg-[hsl(var(--primary))] px-4.5 py-3 text-[12.5px] font-semibold text-white shadow-2xl animate-rise max-w-[94vw] border border-white/20" role="status" data-testid="status-toast">
           <CheckCircle2 size={17} className="text-[#e6c27b] shrink-0" />

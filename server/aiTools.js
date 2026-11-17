@@ -340,7 +340,8 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
         sql += ` AND status = ?`;
         params.push(status);
       }
-      sql += ` ORDER BY schedule_date DESC, id DESC LIMIT ${limit}`;
+      sql += ` ORDER BY schedule_date DESC, id DESC LIMIT ?`;
+      params.push(limit);
 
       const [rows] = await pool.execute(sql, params);
       return { count: rows.length, schedules: rows };
@@ -383,7 +384,8 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
         sql += ` AND LOWER(COALESCE(elderly_name, '')) LIKE ?`;
         params.push(`%${patientName.toLowerCase()}%`);
       }
-      sql += ` ORDER BY log_date DESC, id DESC LIMIT ${limit}`;
+      sql += ` ORDER BY log_date DESC, id DESC LIMIT ?`;
+      params.push(limit);
 
       const [rows] = await pool.execute(sql, params);
       return { count: rows.length, logs: rows };
@@ -416,7 +418,8 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       } else {
         return { error: 'Không có quyền truy xuất giao dịch.' };
       }
-      sql += ` ORDER BY created_at DESC LIMIT ${limit}`;
+      sql += ` ORDER BY created_at DESC LIMIT ?`;
+      params.push(limit);
       const [rows] = await pool.execute(sql, params);
       return { count: rows.length, transactions: rows };
     }

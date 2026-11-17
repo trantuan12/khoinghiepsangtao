@@ -2,20 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Activity,
-  Heart,
-  Thermometer,
   Stethoscope,
-  Droplets,
   CheckCircle2,
-  AlertTriangle,
-  FileText,
   UserRound,
-  ShieldCheck,
   Calendar,
   Sparkles,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
-import { API, API_BASE_URL, getAuthHeaders } from '@/lib/apiConfig';
+import { API, getAuthHeaders } from '@/lib/apiConfig';
 
 interface CareShiftReportModalProps {
   isOpen: boolean;
@@ -31,13 +26,21 @@ interface CareShiftReportModalProps {
     time_slot?: string;
     title?: string;
     family_name?: string;
+    familyName?: string;
     familyUserId?: number;
     family_user_id?: number;
+    caregiver_user_id?: number;
+    caregiverUserId?: number;
+    caregiver_name?: string;
+    caregiverName?: string;
+    elderly_profile_id?: number;
+    elderlyProfileId?: number;
     care_log_id?: number;
   };
   currentUser?: {
     id?: number;
     full_name?: string;
+    role?: string;
   };
   notify: (msg: string) => void;
   onSuccess?: () => void;
@@ -52,19 +55,21 @@ export function CareShiftReportModal({
   notify,
   onSuccess
 }: CareShiftReportModalProps) {
-  // Chỉ số bắt buộc
-  const [bpSys, setBpSys] = useState<number>(120);
-  const [bpDia, setBpDia] = useState<number>(80);
-  const [heartRate, setHeartRate] = useState<number>(75);
-  const [temp, setTemp] = useState<number>(36.8);
-  const [condition, setCondition] = useState<'good' | 'normal' | 'attention' | 'warning'>('good');
+  // KHÔNG tự điền sinh hiệu mặc định (tránh gửi nhầm 120/80, 75, 36.8 khi thực tế chưa đo)
+  const [bpSys, setBpSys] = useState<string>('');
+  const [bpDia, setBpDia] = useState<string>('');
+  const [heartRate, setHeartRate] = useState<string>('');
+  const [temp, setTemp] = useState<string>('');
+  const [condition, setCondition] = useState<'' | 'good' | 'normal' | 'attention' | 'warning'>('');
+  const [vitalsNotMeasured, setVitalsNotMeasured] = useState<boolean>(false);
 
   // Chỉ số tùy chọn
   const [spo2, setSpo2] = useState<string>('');
   const [bloodSugar, setBloodSugar] = useState<string>('');
 
-  // Ghi chú ca tiếp theo cho gia đình: MẶC ĐỊNH LÀ TRỐNG THEO YÊU CẦU AUDIO 2
+  // Ghi chú ca tiếp theo cho gia đình
   const [notes, setNotes] = useState<string>('');
+  const [emergencyBanner, setEmergencyBanner] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [aiDrafting, setAiDrafting] = useState(false);
@@ -87,7 +92,6 @@ export function CareShiftReportModal({
           if (Array.isArray(data) && data.length > 0) {
             setExistingLog(data[0]);
           } else {
-            // Thử tìm theo tên người bệnh
             return fetch(`${API}/care-logs?elderlyName=${encodeURIComponent(patientName)}`)
               .then(r => r.json())
               .then(d2 => {
@@ -102,28 +106,30 @@ export function CareShiftReportModal({
         .catch(() => setExistingLog(null))
         .finally(() => setFetchingLog(false));
     } else {
-      // Reset về rỗng hoàn toàn theo yêu cầu
-      setBpSys(120);
-      setBpDia(80);
-      setHeartRate(75);
-      setTemp(36.8);
-      setCondition('good');
+      // Khởi tạo hoàn toàn rỗng — chuyên viên phải nhập số đo thật hoặc xác nhận rõ "Chưa đo"
+      setBpSys('');
+      setBpDia('');
+      setHeartRate('');
+      setTemp('');
+      setCondition('');
+      setVitalsNotMeasured(false);
       setSpo2('');
       setBloodSugar('');
       setNotes('');
+      setEmergencyBanner(null);
     }
   }, [isOpen, mode, shift.id, patientName]);
 
   if (!isOpen) return null;
 
   const handleAiDraftReport = async () => {
-    const sBpSys = String(bpSys ?? '').trim();
-    const sBpDia = String(bpDia ?? '').trim();
-    const sHr = String(heartRate ?? '').trim();
-    const sTemp = String(temp ?? '').trim();
-    const sSpo2 = String(spo2 ?? '').trim();
-    const sSugar = String(bloodSugar ?? '').trim();
-    const sNotes = String(notes ?? '').trim();
+    const sBpSys = vitalsNotMeasured ? '' : bpSys.trim();
+    const sBpDia = vitalsNotMeasured ? '' : bpDia.trim();
+    const sHr = vitalsNotMeasured ? '' : heartRate.trim();
+    const sTemp = vitalsNotMeasured ? '' : temp.trim();
+    const sSpo2 = vitalsNotMeasured ? '' : spo2.trim();
+    const sSugar = vitalsNotMeasured ? '' : bloodSugar.trim();
+    const sNotes = notes.trim();
 
     if ((sBpSys && !sBpDia) || (!sBpSys && sBpDia)) {
       notify('Vui lòng nhập đầy đủ cả huyết áp tâm thu và tâm trương.');
@@ -135,12 +141,12 @@ export function CareShiftReportModal({
     }
 
     setAiDrafting(true);
+    setEmergencyBanner(null);
     try {
       const res = await fetch(`${API}/ai/draft-shift-report`, {
         method: 'POST',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          patientName,
           bpSys: sBpSys,
           bpDia: sBpDia,
           heartRate: sHr,
@@ -154,10 +160,13 @@ export function CareShiftReportModal({
       const data = await res.json();
       if (res.ok && data.draft_notes) {
         setNotes(data.draft_notes);
+        if (data.emergency_alert) {
+          setEmergencyBanner(data.emergency_alert);
+        }
         if (data.suggested_condition && ['good', 'normal', 'attention', 'warning'].includes(data.suggested_condition)) {
           setCondition(data.suggested_condition);
         }
-        notify('✨ CareMatchAI đã chuẩn hóa báo cáo bàn giao từ chỉ số sinh hiệu và ghi chú của bạn!');
+        notify('✨ CareMatchAI đã chuẩn hóa báo cáo bàn giao từ dữ liệu thực tế của bạn!');
       } else {
         notify(data.error || 'Không thể tạo nháp báo cáo CareMatchAI lúc này.');
       }
@@ -170,14 +179,25 @@ export function CareShiftReportModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bpSys || !bpDia || !heartRate || !temp) {
-      notify('Vui lòng điền đầy đủ các chỉ số sinh hiệu bắt buộc (*)');
+
+    if (!vitalsNotMeasured) {
+      if (!bpSys.trim() || !bpDia.trim() || !heartRate.trim() || !temp.trim()) {
+        notify('Vui lòng nhập số đo sinh hiệu thực tế hoặc tích chọn "Xác nhận ca này chưa đo sinh hiệu".');
+        return;
+      }
+    }
+    if (!condition) {
+      notify('Vui lòng chọn mức Đánh giá chung của ca chăm sóc.');
+      return;
+    }
+    if (vitalsNotMeasured && !notes.trim()) {
+      notify('Khi chưa đo sinh hiệu, vui lòng ghi rõ lý do và tình trạng sinh hoạt vào phần Ghi chú ca.');
       return;
     }
 
     setLoading(true);
     try {
-      const caregiverId = currentUser?.id || shift.caregiver_user_id || shift.caregiverUserId || 2;
+      const caregiverId = currentUser?.id || shift.caregiver_user_id || shift.caregiverUserId;
       const caregiverName = currentUser?.full_name || shift.caregiver_name || shift.caregiverName || 'Người chăm sóc';
       const familyUserId = shift.family_user_id || shift.familyUserId || (currentUser?.role === 'family' ? currentUser.id : null);
       const elderlyProfileId = shift.elderly_profile_id || shift.elderlyProfileId || null;
@@ -192,27 +212,26 @@ export function CareShiftReportModal({
         caregiver_name: caregiverName,
         log_date: shiftDate,
         time_slot: shiftTime,
-        blood_pressure_systolic: Number(bpSys),
-        blood_pressure_diastolic: Number(bpDia),
-        heart_rate: Number(heartRate),
-        temperature: Number(temp),
-        spo2: spo2 !== '' ? Number(spo2) : null,
-        blood_sugar: bloodSugar !== '' ? Number(bloodSugar) : null,
+        blood_pressure_systolic: !vitalsNotMeasured && bpSys.trim() !== '' ? Number(bpSys) : null,
+        blood_pressure_diastolic: !vitalsNotMeasured && bpDia.trim() !== '' ? Number(bpDia) : null,
+        heart_rate: !vitalsNotMeasured && heartRate.trim() !== '' ? Number(heartRate) : null,
+        temperature: !vitalsNotMeasured && temp.trim() !== '' ? Number(temp) : null,
+        spo2: !vitalsNotMeasured && spo2.trim() !== '' ? Number(spo2) : null,
+        blood_sugar: !vitalsNotMeasured && bloodSugar.trim() !== '' ? Number(bloodSugar) : null,
         overall_condition: condition,
         caregiver_notes: notes.trim()
       };
 
       const res = await fetch(`${API}/care-logs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
       if (res.ok) {
-        // Cập nhật trạng thái ca sang completed
-        await fetch(`${API_BASE_URL}/schedules/${shift.id}`, {
+        await fetch(`${API}/schedules/${shift.id}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ status: 'completed', confirmedBy: 'caregiver' })
         }).catch(() => {});
 
@@ -220,7 +239,8 @@ export function CareShiftReportModal({
         if (onSuccess) onSuccess();
         onClose();
       } else {
-        notify('Không thể lưu báo cáo, vui lòng thử lại.');
+        const errData = await res.json().catch(() => ({}));
+        notify(errData.error || 'Không thể lưu báo cáo, vui lòng thử lại.');
       }
     } catch {
       notify('Lỗi kết nối khi lưu báo cáo sau ca.');
@@ -244,7 +264,7 @@ export function CareShiftReportModal({
               </h3>
               <p className="text-[12px] text-stone-500">
                 {mode === 'create'
-                  ? 'Ghi nhận bắt buộc chỉ số sinh hiệu y tế trước khi hoàn tất ca'
+                  ? 'Chỉ nhập số đo thực tế đã thực hiện (hoặc xác nhận rõ chưa đo)'
                   : 'Xem lại hồ sơ sinh hiệu & dặn dò đã bàn giao cho gia đình'}
               </p>
             </div>
@@ -279,9 +299,8 @@ export function CareShiftReportModal({
               </div>
             ) : existingLog ? (
               <>
-                {/* Chỉ số sinh hiệu */}
                 <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-200 space-y-3">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 block flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
                     <Activity size={14} className="text-emerald-700" />
                     Chỉ số sinh hiệu ghi nhận
                   </span>
@@ -289,35 +308,37 @@ export function CareShiftReportModal({
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                     <div className="rounded-xl bg-white p-2.5 border border-emerald-100 text-center">
                       <span className="text-[10.5px] text-stone-500 block">Huyết áp</span>
-                      <strong className="text-[15px] font-mono text-stone-900">
-                        {existingLog.blood_pressure_systolic}/{existingLog.blood_pressure_diastolic}
+                      <strong className="text-[14px] font-mono text-stone-900">
+                        {existingLog.blood_pressure_systolic && existingLog.blood_pressure_diastolic
+                          ? `${existingLog.blood_pressure_systolic}/${existingLog.blood_pressure_diastolic}`
+                          : 'Chưa đo'}
                       </strong>
                       <span className="text-[9.5px] text-stone-400 block">mmHg</span>
                     </div>
 
                     <div className="rounded-xl bg-white p-2.5 border border-emerald-100 text-center">
                       <span className="text-[10.5px] text-stone-500 block">Nhịp tim</span>
-                      <strong className="text-[15px] font-mono text-stone-900">
-                        {existingLog.heart_rate}
+                      <strong className="text-[14px] font-mono text-stone-900">
+                        {existingLog.heart_rate ? existingLog.heart_rate : 'Chưa đo'}
                       </strong>
                       <span className="text-[9.5px] text-stone-400 block">bpm</span>
                     </div>
 
                     <div className="rounded-xl bg-white p-2.5 border border-emerald-100 text-center">
                       <span className="text-[10.5px] text-stone-500 block">Thân nhiệt</span>
-                      <strong className="text-[15px] font-mono text-stone-900">
-                        {existingLog.temperature}°C
+                      <strong className="text-[14px] font-mono text-stone-900">
+                        {existingLog.temperature ? `${existingLog.temperature}°C` : 'Chưa đo'}
                       </strong>
-                      <span className="text-[9.5px] text-stone-400 block">Bình thường</span>
+                      <span className="text-[9.5px] text-stone-400 block">°C</span>
                     </div>
 
                     <div className="rounded-xl bg-white p-2.5 border border-emerald-100 text-center">
                       <span className="text-[10.5px] text-stone-500 block">SpO2 / Đường</span>
                       <strong className="text-[14px] font-mono text-stone-900">
-                        {existingLog.spo2 ? `${existingLog.spo2}%` : '—'}
+                        {existingLog.spo2 ? `${existingLog.spo2}%` : 'Chưa đo'}
                       </strong>
                       <span className="text-[9.5px] text-stone-400 block">
-                        {existingLog.blood_sugar ? `${existingLog.blood_sugar} mmol/L` : 'Không đo'}
+                        {existingLog.blood_sugar ? `${existingLog.blood_sugar} mmol/L` : 'Chưa đo'}
                       </span>
                     </div>
                   </div>
@@ -331,15 +352,20 @@ export function CareShiftReportModal({
                           ? 'bg-rose-100 text-rose-800'
                           : 'bg-amber-100 text-amber-800'
                     }`}>
-                      {existingLog.overall_condition === 'good' ? '✓ Rất tốt / Ổn định' : existingLog.overall_condition === 'warning' ? '🚨 Cảnh báo' : 'Bình thường'}
+                      {existingLog.overall_condition === 'good'
+                        ? '✓ Rất tốt / Ổn định'
+                        : existingLog.overall_condition === 'warning'
+                          ? '🚨 Cảnh báo'
+                          : existingLog.overall_condition === 'attention'
+                            ? '⚠️ Cần lưu ý'
+                            : 'Bình thường'}
                     </span>
                   </div>
                 </div>
 
-                {/* Ghi chú & Dặn dò */}
                 <div className="rounded-2xl bg-stone-50 border border-stone-200 p-4">
                   <span className="font-bold text-stone-800 block mb-1 text-[12px]">Ghi chú & Dặn dò ca tiếp theo cho gia đình:</span>
-                  <p className="text-[12px] text-stone-700 leading-relaxed italic bg-white p-3 rounded-xl border border-stone-100">
+                  <p className="text-[12px] text-stone-700 leading-relaxed italic bg-white p-3 rounded-xl border border-stone-100 whitespace-pre-line">
                     {existingLog.caregiver_notes ? existingLog.caregiver_notes : '(Người chăm sóc không để lại ghi chú đặc biệt)'}
                   </p>
                 </div>
@@ -355,7 +381,7 @@ export function CareShiftReportModal({
               </>
             ) : (
               <div className="py-6 text-center text-stone-500">
-                <p>Ca này đã được ghi nhận hoàn thành. Báo cáo sinh hiệu chi tiết đã được đồng bộ vào hệ thống.</p>
+                <p>Ca này chưa có bản ghi sinh hiệu chi tiết trong sổ theo dõi.</p>
                 <button
                   onClick={onClose}
                   className="mt-3 px-4 py-1.5 rounded-xl bg-stone-100 text-stone-700 font-semibold"
@@ -366,121 +392,180 @@ export function CareShiftReportModal({
             )}
           </div>
         ) : (
-          /* CHẾ ĐỘ TẠO MỚI BÁO CÁO (POPUP BẮT BUỘC KHI BÁO HOÀN THÀNH CA) */
+          /* CHẾ ĐỘ TẠO MỚI BÁO CÁO (KHÔNG MẶC ĐỊNH SỐ ĐO GIẢ) */
           <form onSubmit={handleSubmit} className="mt-4 space-y-4 text-xs">
-            {/* KHỐI SINH HIỆU BẮT BUỘC */}
+            {emergencyBanner && (
+              <div className="rounded-2xl bg-rose-50 border border-rose-300 p-3.5 text-rose-900 flex items-start gap-2.5">
+                <AlertTriangle size={18} className="text-rose-600 shrink-0 mt-0.5" />
+                <div className="text-[12px] leading-relaxed font-semibold">{emergencyBanner}</div>
+              </div>
+            )}
+
+            {/* KHỐI SINH HIỆU THỰC TẾ */}
             <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 space-y-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 block flex items-center gap-1.5">
-                <Activity size={14} className="text-emerald-700" />
-                Chỉ số sinh hiệu Bắt buộc (*)
-              </span>
-
-              <div className="grid grid-cols-3 gap-2.5">
-                <div>
-                  <label className="block text-stone-600 mb-1 font-medium">Huyết áp tâm thu *</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={bpSys}
-                      onChange={e => setBpSys(Number(e.target.value))}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600"
-                      required
-                    />
-                    <span className="absolute right-2 top-1.5 text-[10px] text-stone-400">mmHg</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-stone-600 mb-1 font-medium">Huyết áp tâm trương *</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={bpDia}
-                      onChange={e => setBpDia(Number(e.target.value))}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600"
-                      required
-                    />
-                    <span className="absolute right-2 top-1.5 text-[10px] text-stone-400">mmHg</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-stone-600 mb-1 font-medium">Nhịp tim *</label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      value={heartRate}
-                      onChange={e => setHeartRate(Number(e.target.value))}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600"
-                      required
-                    />
-                    <span className="absolute right-2 top-1.5 text-[10px] text-stone-400">bpm</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-stone-600 mb-1 font-medium">Thân nhiệt (°C) *</label>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                  <Activity size={14} className="text-emerald-700" />
+                  Chỉ số sinh hiệu thực tế đã đo
+                </span>
+                <label className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1 cursor-pointer">
                   <input
-                    type="number"
-                    step="0.1"
-                    value={temp}
-                    onChange={e => setTemp(Number(e.target.value))}
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600"
-                    required
+                    type="checkbox"
+                    checked={vitalsNotMeasured}
+                    onChange={(e) => setVitalsNotMeasured(e.target.checked)}
+                    className="rounded border-amber-400 text-emerald-700"
                   />
-                </div>
-                <div>
-                  <label className="block text-stone-600 mb-1 font-medium">Đánh giá chung ca *</label>
-                  <select
-                    value={condition}
-                    onChange={e => setCondition(e.target.value as any)}
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-stone-900 font-bold outline-none focus:border-emerald-600"
-                  >
-                    <option value="good">✓ Rất tốt / Ổn định</option>
-                    <option value="normal">Bình thường</option>
-                    <option value="attention">⚠️ Cần lưu ý</option>
-                    <option value="warning">🚨 Cảnh báo</option>
-                  </select>
-                </div>
+                  Xác nhận ca này chưa đo sinh hiệu
+                </label>
               </div>
+
+              {!vitalsNotMeasured ? (
+                <>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-stone-600 mb-1 font-medium">Huyết áp tâm thu *</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={50}
+                          max={260}
+                          value={bpSys}
+                          onChange={e => setBpSys(e.target.value)}
+                          placeholder="VD: 120"
+                          className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600 placeholder:font-normal placeholder:text-stone-400"
+                        />
+                        <span className="absolute right-2 top-1.5 text-[10px] text-stone-400">mmHg</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-stone-600 mb-1 font-medium">Huyết áp tâm trương *</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={30}
+                          max={180}
+                          value={bpDia}
+                          onChange={e => setBpDia(e.target.value)}
+                          placeholder="VD: 80"
+                          className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600 placeholder:font-normal placeholder:text-stone-400"
+                        />
+                        <span className="absolute right-2 top-1.5 text-[10px] text-stone-400">mmHg</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-stone-600 mb-1 font-medium">Nhịp tim *</label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={30}
+                          max={220}
+                          value={heartRate}
+                          onChange={e => setHeartRate(e.target.value)}
+                          placeholder="VD: 75"
+                          className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600 placeholder:font-normal placeholder:text-stone-400"
+                        />
+                        <span className="absolute right-2 top-1.5 text-[10px] text-stone-400">bpm</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-stone-600 mb-1 font-medium">Thân nhiệt (°C) *</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min={34}
+                        max={43}
+                        value={temp}
+                        onChange={e => setTemp(e.target.value)}
+                        placeholder="VD: 36.7"
+                        className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center font-bold text-stone-900 outline-none focus:border-emerald-600 placeholder:font-normal placeholder:text-stone-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-stone-600 mb-1 font-medium">Đánh giá chung ca *</label>
+                      <select
+                        value={condition}
+                        onChange={e => setCondition(e.target.value as any)}
+                        required
+                        className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-stone-900 font-bold outline-none focus:border-emerald-600"
+                      >
+                        <option value="" disabled>-- Chọn tình trạng thực tế --</option>
+                        <option value="good">✓ Rất tốt / Ổn định</option>
+                        <option value="normal">Bình thường</option>
+                        <option value="attention">⚠️ Cần lưu ý</option>
+                        <option value="warning">🚨 Cảnh báo</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2.5">
+                  <p className="text-[11.5px] text-amber-900 bg-amber-50/80 border border-amber-200 rounded-xl p-2.5">
+                    Hệ thống sẽ ghi nhận rõ trạng thái <strong>"Chưa đo"</strong> cho toàn bộ chỉ số sinh hiệu của ca này (tuyệt đối không tự điền số mặc định).
+                  </p>
+                  <div>
+                    <label className="block text-stone-600 mb-1 font-medium">Đánh giá chung qua quan sát sinh hoạt *</label>
+                    <select
+                      value={condition}
+                      onChange={e => setCondition(e.target.value as any)}
+                      required
+                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-stone-900 font-bold outline-none focus:border-emerald-600"
+                    >
+                      <option value="" disabled>-- Chọn đánh giá thực tế --</option>
+                      <option value="good">✓ Rất tốt / Ổn định</option>
+                      <option value="normal">Bình thường</option>
+                      <option value="attention">⚠️ Cần lưu ý</option>
+                      <option value="warning">🚨 Cảnh báo</option>
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* KHỐI TÙY CHỌN */}
-            <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200 space-y-2">
-              <span className="text-[10.5px] font-bold uppercase tracking-wider text-stone-500 block">
-                Chỉ số lâm sàng tùy chọn (để trống nếu không đo)
-              </span>
+            {!vitalsNotMeasured && (
+              <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200 space-y-2">
+                <span className="text-[10.5px] font-bold uppercase tracking-wider text-stone-500 block">
+                  Chỉ số lâm sàng tùy chọn (để trống nếu không đo)
+                </span>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-stone-600 mb-1">Nồng độ Oxy máu (SpO2 %)</label>
-                  <input
-                    type="number"
-                    value={spo2}
-                    onChange={e => setSpo2(e.target.value)}
-                    placeholder="Không đo thì để trống"
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center text-stone-900 outline-none focus:border-emerald-600"
-                  />
-                </div>
-                <div>
-                  <label className="block text-stone-600 mb-1">Đường huyết (mmol/L)</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={bloodSugar}
-                    onChange={e => setBloodSugar(e.target.value)}
-                    placeholder="Không đo thì để trống"
-                    className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center text-stone-900 outline-none focus:border-emerald-600"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-stone-600 mb-1">Nồng độ Oxy máu (SpO2 %)</label>
+                    <input
+                      type="number"
+                      min={50}
+                      max={100}
+                      value={spo2}
+                      onChange={e => setSpo2(e.target.value)}
+                      placeholder="Chưa đo thì để trống"
+                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center text-stone-900 outline-none focus:border-emerald-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-stone-600 mb-1">Đường huyết (mmol/L)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min={1}
+                      max={40}
+                      value={bloodSugar}
+                      onChange={e => setBloodSugar(e.target.value)}
+                      placeholder="Chưa đo thì để trống"
+                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 font-mono text-center text-stone-900 outline-none focus:border-emerald-600"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* GHI CHÚ VÀ DẶN DÒ CHO GIA ĐÌNH: HOÀN TOÀN TRỐNG THEO AUDIO 2 */}
+            {/* GHI CHÚ VÀ DẶN DÒ CHO GIA ĐÌNH */}
             <div>
               <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                 <label className="block text-stone-700 font-bold">
-                  Ghi chú & Dặn dò ca tiếp theo cho gia đình
+                  Ghi chú & Dặn dò ca tiếp theo cho gia đình {vitalsNotMeasured ? '*' : ''}
                 </label>
                 <button
                   type="button"
@@ -496,7 +581,7 @@ export function CareShiftReportModal({
                 rows={3}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="Ghi vài ý ngắn (vd: ăn hết cháo, uống thuốc đúng giờ...) rồi bấm 'CareMatchAI chuẩn hóa báo cáo', hoặc tự nhập chi tiết..."
+                placeholder="Ghi vài ý ngắn thực tế (vd: ăn hết cháo, uống thuốc đúng giờ...) rồi bấm 'CareMatchAI chuẩn hóa báo cáo', hoặc tự nhập chi tiết..."
                 className="w-full bg-stone-50 border border-stone-200 rounded-xl p-3 text-stone-800 text-xs focus:outline-none focus:bg-white focus:border-emerald-600 transition"
               />
             </div>

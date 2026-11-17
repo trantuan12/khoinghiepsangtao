@@ -32,10 +32,15 @@ async function run() {
   await initMySql();
   clearAiChatCache();
 
+  const [tvRows] = await pool.execute(
+    'SELECT id, role, full_name, COALESCE(token_version, 1) AS token_version FROM users WHERE id IN (1, 2, 5)'
+  );
+  const tvMap = new Map(tvRows.map((r) => [Number(r.id), Number(r.token_version || 1)]));
+
   const tokens = {
-    admin: signAuthToken({ id: 1, role: 'admin', full_name: 'Admin Eval' }),
-    family: signAuthToken({ id: 5, role: 'family', full_name: 'Family Eval' }),
-    caregiver: signAuthToken({ id: 2, role: 'caregiver', full_name: 'Caregiver Eval' }),
+    admin: signAuthToken({ id: 1, role: 'admin', full_name: 'Admin Eval', token_version: tvMap.get(1) || 1 }),
+    family: signAuthToken({ id: 5, role: 'family', full_name: 'Family Eval', token_version: tvMap.get(5) || 1 }),
+    caregiver: signAuthToken({ id: 2, role: 'caregiver', full_name: 'Caregiver Eval', token_version: tvMap.get(2) || 1 }),
   };
 
   const server = http.createServer(app);

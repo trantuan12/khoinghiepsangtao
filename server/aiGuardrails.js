@@ -74,6 +74,71 @@ export function inspectInputSafety(text) {
   return { safe: true, reason: null };
 }
 
+// ========================================================
+// RULE ENGINE Y KHOA CỐ ĐỊNH (CHẠY TRƯỚC AI - ƯU TIÊN CẤP CỨU 115)
+// ========================================================
+const EMERGENCY_SYMPTOM_RULES = [
+  { id: 'chest_pain', label: 'Đau tức ngực dữ dội', rx: /đau\s*(tức\s*)?ngực|tức\s*ngực\s*dữ\s*dội/i },
+  { id: 'dyspnea', label: 'Khó thở / Ngừng thở / Tím tái', rx: /khó\s*thở|ngừng\s*thở|thở\s*gấp|tím\s*tái/i },
+  {
+    id: 'stroke_fast',
+    label: 'Dấu hiệu nghi ngờ đột quỵ cấp (méo miệng / yếu liệt đột ngột / nói đớ)',
+    rx: /méo\s*miệng|(đột\s*ngột\s*(yếu|liệt|tê))|nói\s*(ngọng|đớ|khó)|đột\s*quỵ\s*cấp/i,
+  },
+  { id: 'unconscious', label: 'Bất tỉnh / Hôn mê / Co giật', rx: /bất\s*tỉnh|hôn\s*mê|ngất\s*xỉu|co\s*giật|lơ\s*mơ\s*không\s*đáp\s*ứng/i },
+];
+
+export function evaluateMedicalEmergencyRules({ text = '', vitals = null } = {}) {
+  const cleanText = String(text || '').trim();
+  const triggers = [];
+
+  for (const rule of EMERGENCY_SYMPTOM_RULES) {
+    if (rule.rx.test(cleanText)) {
+      triggers.push(rule.label);
+    }
+  }
+
+  // Phát hiện số SpO2 được nhắc trực tiếp trong câu chat (vd: "SpO2 tụt xuống 85%")
+  const spo2Match = cleanText.match(/spo2[^0-9]{0,15}(\d{2})\s*%?/i);
+  if (spo2Match) {
+    const val = Number(spo2Match[1]);
+    if (val > 0 && val < 92) {
+      triggers.push(`SpO2 thấp nguy hiểm (${val}% < 92%)`);
+    }
+  }
+
+  if (vitals && typeof vitals === 'object') {
+    const sys = Number(vitals.bpSys ?? vitals.blood_pressure_systolic ?? 0);
+    const dia = Number(vitals.bpDia ?? vitals.blood_pressure_diastolic ?? 0);
+    const hr = Number(vitals.heartRate ?? vitals.heart_rate ?? 0);
+    const spo2 = Number(vitals.spo2 ?? 0);
+    const temp = Number(vitals.temp ?? vitals.temperature ?? 0);
+    const sugar = Number(vitals.bloodSugar ?? vitals.blood_sugar ?? 0);
+
+    if (spo2 > 0 && spo2 < 92) triggers.push(`SpO2 giảm thấp nguy kịch (${spo2}%)`);
+    if (sys >= 180 || dia >= 120) triggers.push(`Cơn tăng huyết áp khẩn cấp (${sys}/${dia} mmHg)`);
+    else if (sys > 0 && sys < 85) triggers.push(`Huyết áp tụt thấp nguy hiểm (${sys}/${dia || '?'} mmHg)`);
+    if (hr >= 130 || (hr > 0 && hr < 45)) triggers.push(`Nhịp tim bất thường nghiêm trọng (${hr} bpm)`);
+    if (temp >= 39.5 || (temp > 0 && temp < 35.0)) triggers.push(`Thân nhiệt nguy hiểm (${temp} °C)`);
+    if (sugar > 0 && sugar < 3.5) triggers.push(`Hạ đường huyết nguy hiểm (${sugar} mmol/L)`);
+    else if (sugar >= 16.7 && sugar < 45) triggers.push(`Tăng đường huyết rất cao (${sugar} mmol/L)`);
+  }
+
+  if (triggers.length === 0) {
+    return { isEmergency: false, triggers: [], alertMessage: null };
+  }
+
+  const uniqueTriggers = [...new Set(triggers)];
+  return {
+    isEmergency: true,
+    triggers: uniqueTriggers,
+    alertMessage:
+      `🚨 CẢNH BÁO Y KHOA KHẨN CẤP: Phát hiện dấu hiệu nguy hiểm (${uniqueTriggers.join('; ')}). ` +
+      `Vui lòng GỌI NGAY CẤP CỨU 115 hoặc đưa người bệnh đến cơ sở y tế/bệnh viện gần nhất ngay lập tức! ` +
+      `Trong lúc chờ cấp cứu: để người bệnh nằm nghỉ ở tư thế an toàn, nới lỏng quần áo, tuyệt đối không tự ý cho ăn uống nếu lơ mơ/khó thở và theo dõi sát nhịp thở.`,
+  };
+}
+
 export function calculateEstimatedCostUsd(model, promptTokens = 0, candidatesTokens = 0) {
   const pricing = MODEL_PRICING_PER_1M[model] || MODEL_PRICING_PER_1M['gemini-3.1-flash-lite'];
   const cost = (Number(promptTokens) * pricing.input + Number(candidatesTokens) * pricing.output) / 1_000_000;

@@ -1,7 +1,7 @@
 /**
- * BỘ KIỂM TRA CẤU TRÚC ĐẦU RA AI (OUTPUT SCHEMA VALIDATION)
- * Đảm bảo mọi phản hồi JSON từ CareMatchAI khớp đúng schema frontend yêu cầu,
- * từ chối các phản hồi thiếu trường bắt buộc hoặc bịa đặt ID ngoài hệ thống.
+ * BỘ KIỂM TRA CẤU TRÚC ĐẦU RA AI & GEMINI STRUCTURED OUTPUT SCHEMAS
+ * - Cung cấp JSON Schema chính thức cho Gemini generationConfig.responseSchema
+ * - Kiểm tra kiểu dữ liệu, enum, giới hạn số & đối chiếu ID/giá/khu vực từ DB thực tế
  */
 
 export class AiOutputValidationError extends Error {
@@ -22,33 +22,154 @@ function toStringArray(v) {
   return v.map((x) => String(x ?? '').trim()).filter(Boolean);
 }
 
+// ========================================================
+// OFFICIAL GEMINI RESPONSE SCHEMAS
+// ========================================================
+export const CARE_MATCHER_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  required: ['summary', 'recommendations', 'care_advice'],
+  properties: {
+    summary: { type: 'STRING' },
+    care_advice: { type: 'STRING' },
+    recommendations: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        required: ['caregiver_id', 'name', 'match_score', 'reasons'],
+        properties: {
+          caregiver_id: { type: 'STRING' },
+          name: { type: 'STRING' },
+          match_score: { type: 'INTEGER' },
+          shift_rate: { type: 'NUMBER' },
+          district: { type: 'STRING' },
+          reasons: { type: 'ARRAY', items: { type: 'STRING' } },
+        },
+      },
+    },
+  },
+};
+
+export const CARE_LOG_SUMMARY_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  required: [
+    'overall_status',
+    'headline',
+    'summary',
+    'vital_trends',
+    'alerts',
+    'recommendations_for_family',
+    'recommendations_for_next_shift',
+  ],
+  properties: {
+    overall_status: { type: 'STRING', enum: ['stable', 'attention', 'warning'] },
+    headline: { type: 'STRING' },
+    summary: { type: 'STRING' },
+    vital_trends: {
+      type: 'OBJECT',
+      required: ['blood_pressure', 'heart_rate_temp', 'nutrition_sleep'],
+      properties: {
+        blood_pressure: { type: 'STRING' },
+        heart_rate_temp: { type: 'STRING' },
+        nutrition_sleep: { type: 'STRING' },
+      },
+    },
+    alerts: { type: 'ARRAY', items: { type: 'STRING' } },
+    recommendations_for_family: { type: 'ARRAY', items: { type: 'STRING' } },
+    recommendations_for_next_shift: { type: 'ARRAY', items: { type: 'STRING' } },
+  },
+};
+
+export const SHIFT_REPORT_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  required: ['draft_notes'],
+  properties: {
+    draft_notes: { type: 'STRING' },
+    suggested_condition: { type: 'STRING', enum: ['good', 'normal', 'attention', 'warning'] },
+  },
+};
+
+export const VERIFY_DOC_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  required: ['is_valid_image', 'matches_expected_type', 'clarity', 'detected_type', 'id_number', 'full_name', 'warnings', 'summary'],
+  properties: {
+    is_valid_image: { type: 'BOOLEAN' },
+    matches_expected_type: { type: 'BOOLEAN' },
+    clarity: { type: 'STRING', enum: ['clear', 'blurry', 'cropped'] },
+    detected_type: { type: 'STRING' },
+    id_number: { type: 'STRING' },
+    full_name: { type: 'STRING' },
+    warnings: { type: 'ARRAY', items: { type: 'STRING' } },
+    summary: { type: 'STRING' },
+  },
+};
+
 /**
- * Kiểm tra output cho tính năng AI Care Matcher
+ * Kiểm tra output cho tính năng AI Care Matcher.
+ * Chấp nhận Map<caregiver_id, dbCaregiver> hoặc Set<caregiver_id>:
+ * - Nếu DB trống (size === 0), luôn trả về recommendations = [] (chặn tuyệt đối ID bịa đặt).
+ * - Ghi đè name, shift_rate, district trực tiếp từ dữ liệu DB chuẩn xác.
  */
-export function validateCareMatcherOutput(obj, allowedCaregiverIds = null) {
+export function validateCareMatcherOutput(obj, allowedCaregivers = null) {
   if (!isPlainObject(obj) || typeof obj.summary !== 'string' || !obj.summary.trim() || !Array.isArray(obj.recommendations)) {
     throw new AiOutputValidationError('CareMatchAI chưa trả về danh sách gợi ý chuyên viên đúng định dạng.');
   }
 
+  const isMap = allowedCaregivers instanceof Map;
+  const isSet = allowedCaregivers instanceof Set;
+
+  if ((isMap || isSet) && allowedCaregivers.size === 0) {
+    return {
+      summary: obj.summary.trim(),
+      recommendations: [],
+      care_advice: String(obj.care_advice || '').trim(),
+    };
+  }
+
+  const seenIds = new Set();
   const normalizedRecs = [];
   for (const item of obj.recommendations) {
     if (!isPlainObject(item)) continue;
     const rawId = item.caregiver_id !== undefined && item.caregiver_id !== null ? String(item.caregiver_id).trim() : '';
-    const name = typeof item.name === 'string' ? item.name.trim() : '';
-    if (!rawId || !name) continue;
+    if (!rawId || seenIds.has(rawId)) continue;
 
-    if (allowedCaregiverIds instanceof Set && allowedCaregiverIds.size > 0 && !allowedCaregiverIds.has(rawId)) {
-      continue;
+    if (isMap) {
+      if (!allowedCaregivers.has(rawId)) continue;
+      const dbCg = allowedCaregivers.get(rawId);
+      seenIds.add(rawId);
+      normalizedRecs.push({
+        caregiver_id: rawId,
+        name: String(dbCg.name),
+        match_score: Math.min(100, Math.max(0, Math.round(Number(item.match_score) || 85))),
+        shift_rate: Number(dbCg.shift_rate_vnd || dbCg.shift_rate || 400000),
+        district: String(dbCg.district || 'Hà Nội').trim(),
+        reasons: toStringArray(item.reasons).slice(0, 5),
+      });
+    } else if (isSet) {
+      if (!allowedCaregivers.has(rawId)) continue;
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name) continue;
+      seenIds.add(rawId);
+      normalizedRecs.push({
+        caregiver_id: rawId,
+        name,
+        match_score: Math.min(100, Math.max(0, Math.round(Number(item.match_score) || 85))),
+        shift_rate: Math.min(5_000_000, Math.max(50_000, Number(item.shift_rate) || 400000)),
+        district: String(item.district || 'Hà Nội').trim(),
+        reasons: toStringArray(item.reasons).slice(0, 5),
+      });
+    } else {
+      const name = typeof item.name === 'string' ? item.name.trim() : '';
+      if (!name) continue;
+      seenIds.add(rawId);
+      normalizedRecs.push({
+        caregiver_id: rawId,
+        name,
+        match_score: Math.min(100, Math.max(0, Math.round(Number(item.match_score) || 85))),
+        shift_rate: Math.min(5_000_000, Math.max(50_000, Number(item.shift_rate) || 400000)),
+        district: String(item.district || 'Hà Nội').trim(),
+        reasons: toStringArray(item.reasons).slice(0, 5),
+      });
     }
-
-    normalizedRecs.push({
-      caregiver_id: rawId,
-      name,
-      match_score: Math.min(100, Math.max(0, Math.round(Number(item.match_score) || 85))),
-      shift_rate: Number(item.shift_rate) || 400000,
-      district: String(item.district || 'Hà Nội').trim(),
-      reasons: toStringArray(item.reasons),
-    });
   }
 
   if (obj.recommendations.length > 0 && normalizedRecs.length === 0) {
@@ -57,14 +178,11 @@ export function validateCareMatcherOutput(obj, allowedCaregiverIds = null) {
 
   return {
     summary: obj.summary.trim(),
-    recommendations: normalizedRecs,
+    recommendations: normalizedRecs.slice(0, 5),
     care_advice: String(obj.care_advice || '').trim(),
   };
 }
 
-/**
- * Kiểm tra output cho tính năng Phân tích xu hướng sinh hiệu
- */
 export function validateCareLogSummaryOutput(obj) {
   const validStatuses = new Set(['stable', 'attention', 'warning']);
   if (
@@ -100,9 +218,6 @@ export function validateCareLogSummaryOutput(obj) {
   };
 }
 
-/**
- * Kiểm tra output cho tính năng Chuẩn hóa báo cáo sau ca
- */
 export function validateShiftReportDraftOutput(obj) {
   if (!isPlainObject(obj) || typeof obj.draft_notes !== 'string' || obj.draft_notes.trim().length < 10) {
     throw new AiOutputValidationError('CareMatchAI chưa tạo được nội dung báo cáo ca hợp lệ.');
@@ -117,9 +232,6 @@ export function validateShiftReportDraftOutput(obj) {
   };
 }
 
-/**
- * Kiểm tra output cho tính năng eKYC Vision
- */
 export function validateVerifyDocumentOutput(obj) {
   const validClarity = new Set(['clear', 'blurry', 'cropped']);
   if (
@@ -148,9 +260,6 @@ export function validateVerifyDocumentOutput(obj) {
   };
 }
 
-/**
- * Kiểm tra output cho Chatbot hội thoại CareMatchAI
- */
 export function validateChatOutput(parsed, rawText) {
   if (isPlainObject(parsed) && typeof parsed.reply === 'string' && parsed.reply.trim()) {
     return {

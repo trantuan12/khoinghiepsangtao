@@ -6,6 +6,7 @@
 
 import { redactPii } from './aiGuardrails.js';
 import { isPlainObject, validateChatOutput } from './aiSchemas.js';
+import { validateUploadDataUrl } from './security.js';
 
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite'];
@@ -54,7 +55,8 @@ async function requestGeminiGenerate(basePayload, preferredModel = null) {
   const modelChain = [startModel, ...FALLBACK_MODELS.filter((m) => m !== startModel)];
 
   let lastError = null;
-  for (const candidateModel of modelChain) {
+  for (let idx = 0; idx < modelChain.length; idx++) {
+    const candidateModel = modelChain[idx];
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(candidateModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 18000);
@@ -74,7 +76,12 @@ async function requestGeminiGenerate(basePayload, preferredModel = null) {
         const err = new Error('CareMatchAI đang quá tải hoặc tạm gián đoạn, vui lòng thử lại sau.');
         err.statusCode = res.status >= 400 && res.status < 600 ? res.status : 502;
         lastError = err;
-        if (res.status === 503 || res.status === 429 || res.status === 404) {
+        if (res.status === 429) {
+          const backoffMs = 600 * Math.pow(2, idx) + Math.floor(Math.random() * 250);
+          await new Promise((r) => setTimeout(r, backoffMs));
+          continue;
+        }
+        if (res.status === 503 || res.status === 404) {
           continue;
         }
         throw err;
@@ -117,7 +124,15 @@ async function requestGeminiGenerate(basePayload, preferredModel = null) {
 /**
  * Gọi Google Gemini generateContent API (hỗ trợ single-turn parts, multi-turn contents, multimodal inlineData, JSON output, kiểm tra schema và fallback model)
  */
-export async function callGemini({ systemInstruction, parts, contents, responseSchemaJson = true, temperature = 0.4, validateOutput = null }) {
+export async function callGemini({
+  systemInstruction,
+  parts,
+  contents,
+  responseSchemaJson = true,
+  responseSchema = null,
+  temperature = 0.4,
+  validateOutput = null,
+}) {
   const normalizedContents =
     Array.isArray(contents) && contents.length > 0
       ? contents
@@ -133,6 +148,7 @@ export async function callGemini({ systemInstruction, parts, contents, responseS
     generationConfig: {
       temperature,
       ...(responseSchemaJson ? { responseMimeType: 'application/json' } : {}),
+      ...(responseSchemaJson && responseSchema ? { responseSchema } : {}),
     },
   };
 
@@ -280,16 +296,15 @@ export async function logAiTrainingSample(
 }
 
 /**
- * Chuyển đổi dataUrl (data:image/jpeg;base64,...) thành part inlineData cho Gemini Vision
+ * Kiểm tra magic bytes, dung lượng tối đa (3MB) và chuyển đổi dataUrl thành inlineData an toàn
  */
 export function parseDataUrlToGeminiPart(dataUrl) {
-  if (!dataUrl || typeof dataUrl !== 'string') return null;
-  const match = dataUrl.match(/^data:([A-Za-z0-9/+.-]+);base64,(.+)$/);
-  if (!match) return null;
+  const check = validateUploadDataUrl(dataUrl, { maxBytes: 3 * 1024 * 1024, allowPdf: false, maxDimension: 5000 });
+  if (!check.valid) return { error: check.error, statusCode: check.statusCode || 400 };
   return {
     inlineData: {
-      mimeType: match[1],
-      data: match[2],
+      mimeType: check.mimeType,
+      data: check.base64Data,
     },
   };
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, Check, Database, Download, Plus, RefreshCw, ShieldAlert, Sparkles, Zap } from 'lucide-react';
+import { Activity, Check, Database, Download, Plus, RefreshCw, ShieldAlert, Sparkles, Trash2, Zap } from 'lucide-react';
 import { API, getAuthHeaders } from '@/lib/apiConfig';
 
 interface FaqSample {
@@ -163,6 +163,23 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
         loadKnowledgeAndMetrics();
       } else {
         notify('Không thể cập nhật trạng thái duyệt mẫu.');
+      }
+    } catch {
+      notify('Lỗi kết nối máy chủ.');
+    }
+  };
+
+  const handleDeleteSample = async (sampleId: number) => {
+    try {
+      const res = await fetch(`${API}/ai/training-logs/${sampleId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        notify('Đã xóa vĩnh viễn mẫu khỏi kho huấn luyện.');
+        loadKnowledgeAndMetrics();
+      } else {
+        notify('Không thể xóa mẫu huấn luyện.');
       }
     } catch {
       notify('Lỗi kết nối máy chủ.');
@@ -337,17 +354,27 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
                     Đáp: {parsePreviewText(s.edited_output || s.model_output, 'reply')}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleToggleApprove(s.id, Boolean(s.is_approved))}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold border transition cursor-pointer ${
-                    s.is_approved
-                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
-                      : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
-                  }`}
-                >
-                  {s.is_approved ? '✓ Đã duyệt' : 'Chờ duyệt'}
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleApprove(s.id, Boolean(s.is_approved))}
+                    className={`rounded-full px-2.5 py-1 text-[10px] font-bold border transition cursor-pointer ${
+                      s.is_approved
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
+                        : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+                    }`}
+                  >
+                    {s.is_approved ? '✓ Đã duyệt' : 'Chờ duyệt'}
+                  </button>
+                  <button
+                    type="button"
+                    title="Xóa mẫu nhạy cảm hoặc không phù hợp"
+                    onClick={() => handleDeleteSample(s.id)}
+                    className="rounded-full p-1 text-gray-400 hover:text-rose-700 hover:bg-rose-50 transition cursor-pointer"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
