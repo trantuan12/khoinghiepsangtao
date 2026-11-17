@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Download, Plus, RefreshCw, Sparkles } from 'lucide-react';
+import { Activity, Check, Database, Download, Plus, RefreshCw, ShieldAlert, Sparkles, Zap } from 'lucide-react';
 import { API } from '@/lib/apiConfig';
 
 interface FaqSample {
@@ -9,6 +9,16 @@ interface FaqSample {
   model_output: string;
   edited_output?: string | null;
   created_at?: string;
+}
+
+interface AiMetricsSummary {
+  totalRequests: number;
+  avgLatencyMs: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  cacheHits: number;
+  guardrailBlocks: number;
+  vectorChunksCount: number;
 }
 
 function parsePreviewText(raw: string, key: 'message' | 'reply'): string {
@@ -24,29 +34,55 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
   const [customRules, setCustomRules] = useState('');
   const [faqSamples, setFaqSamples] = useState<FaqSample[]>([]);
   const [totalLogs, setTotalLogs] = useState(0);
+  const [metrics, setMetrics] = useState<AiMetricsSummary>({
+    totalRequests: 0,
+    avgLatencyMs: 0,
+    totalTokens: 0,
+    totalCostUsd: 0,
+    cacheHits: 0,
+    guardrailBlocks: 0,
+    vectorChunksCount: 0,
+  });
+
   const [loading, setLoading] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
 
   const [newQuestion, setNewQuestion] = useState('');
   const [newAnswer, setNewAnswer] = useState('');
   const [addingFaq, setAddingFaq] = useState(false);
 
-  const loadKnowledge = async () => {
+  const loadKnowledgeAndMetrics = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/ai/knowledge`);
-      if (res.ok) {
-        const data = await res.json();
+      const [kRes, mRes] = await Promise.all([
+        fetch(`${API}/ai/knowledge`),
+        fetch(`${API}/ai/metrics`),
+      ]);
+      if (kRes.ok) {
+        const data = await kRes.json();
         setCustomRules(data.customRules || '');
         setFaqSamples(Array.isArray(data.faqSamples) ? data.faqSamples : []);
         setTotalLogs(Number(data.totalTrainingLogs || 0));
+      }
+      if (mRes.ok) {
+        const m = await mRes.json();
+        setMetrics({
+          totalRequests: Number(m.totalRequests || 0),
+          avgLatencyMs: Number(m.avgLatencyMs || 0),
+          totalTokens: Number(m.totalTokens || 0),
+          totalCostUsd: Number(m.totalCostUsd || 0),
+          cacheHits: Number(m.cacheHits || 0),
+          guardrailBlocks: Number(m.guardrailBlocks || 0),
+          vectorChunksCount: Number(m.vectorChunksCount || 0),
+        });
       }
     } catch { }
     setLoading(false);
   };
 
   useEffect(() => {
-    loadKnowledge();
+    loadKnowledgeAndMetrics();
   }, []);
 
   const handleSaveRules = async () => {
@@ -69,6 +105,24 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
     }
   };
 
+  const handleReindexVector = async () => {
+    setReindexing(true);
+    try {
+      const res = await fetch(`${API}/ai/rag/reindex`, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        notify(`Đã đồng bộ ${data.indexed || 0} vector kiến thức & hồ sơ chuyên viên cho CareMatchAI!`);
+        loadKnowledgeAndMetrics();
+      } else {
+        notify(data.error || 'Không thể đồng bộ Vector RAG lúc này.');
+      }
+    } catch {
+      notify('Lỗi kết nối khi đồng bộ Vector RAG.');
+    } finally {
+      setReindexing(false);
+    }
+  };
+
   const handleAddFaq = async () => {
     if (!newQuestion.trim() || !newAnswer.trim()) {
       notify('Vui lòng nhập đầy đủ câu hỏi và câu trả lời chuẩn.');
@@ -85,7 +139,7 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
         setNewQuestion('');
         setNewAnswer('');
         notify('Đã thêm mẫu Hỏi–Đáp chuẩn! CareMatchAI sẽ áp dụng ngay và đưa vào tập dữ liệu huấn luyện.');
-        loadKnowledge();
+        loadKnowledgeAndMetrics();
       } else {
         notify('Không thể thêm mẫu Hỏi–Đáp.');
       }
@@ -103,25 +157,72 @@ export function CareMatchAiStudioCard({ notify }: { notify: (msg: string) => voi
           <div className="flex items-center gap-2 flex-wrap">
             <Sparkles size={16} className="text-emerald-700" />
             <h4 className="font-display font-bold text-[15px] text-gray-900">
-              Trung Tâm Tri Thức & Huấn Luyện CareMatchAI
+              Trung Tâm Tri Thức, Vector RAG & Giám Sát CareMatchAI
             </h4>
             <span className="rounded-full bg-emerald-100 text-emerald-800 px-2.5 py-0.5 text-[10.5px] font-bold">
-              {totalLogs} mẫu log đã lưu
+              {totalLogs} mẫu log
             </span>
           </div>
           <p className="text-[12px] text-gray-600">
-            CareMatchAI tự động tra cứu trực tiếp dữ liệu thật trên Supabase (chuyên viên, lịch ca, sinh hiệu, giao dịch) và học theo các quy tắc / mẫu Hỏi–Đáp chuẩn do bạn cấu hình tại đây ngay lập tức.
+            CareMatchAI kết hợp tìm kiếm ngữ nghĩa Vector trên Supabase, tra cứu dữ liệu thật theo phân quyền, Guardrail bảo vệ dữ liệu y tế và ghi nhận hiệu năng theo thời gian thực.
           </p>
         </div>
 
-        <a
-          href={`${API}/ai/export-finetune-jsonl`}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#294927] hover:bg-[#1f391e] text-white px-4 py-2.5 text-[12px] font-bold transition shrink-0 shadow-xs"
-        >
-          <Download size={14} /> Tải Dataset (.JSONL)
-        </a>
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <button
+            type="button"
+            onClick={handleReindexVector}
+            disabled={reindexing}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-[#294927] bg-white hover:bg-[#edf5eb] text-[#294927] px-3.5 py-2 text-[12px] font-bold transition cursor-pointer disabled:opacity-50"
+          >
+            <Database size={14} className={reindexing ? 'animate-pulse' : ''} />
+            {reindexing ? 'Đang đồng bộ Vector...' : 'Đồng bộ Kho Vector'}
+          </button>
+          <a
+            href={`${API}/ai/export-finetune-jsonl`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#294927] hover:bg-[#1f391e] text-white px-4 py-2 text-[12px] font-bold transition shadow-xs"
+          >
+            <Download size={14} /> Tải Dataset (.JSONL)
+          </a>
+        </div>
+      </div>
+
+      {/* Dải KPI Observability */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="rounded-xl bg-white border border-[#dce8d8] p-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase text-gray-500">
+            <Activity size={12} className="text-emerald-700" /> Truy vấn & Độ trễ TB
+          </div>
+          <div className="mt-1 text-[16px] font-bold text-[#223922]">
+            {metrics.totalRequests} lượt <span className="text-[11.5px] font-medium text-gray-500">· {metrics.avgLatencyMs}ms</span>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white border border-[#dce8d8] p-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase text-gray-500">
+            <Zap size={12} className="text-amber-600" /> Token & Chi phí
+          </div>
+          <div className="mt-1 text-[16px] font-bold text-[#223922]">
+            {metrics.totalTokens.toLocaleString('vi-VN')} <span className="text-[11px] font-medium text-gray-500">(${metrics.totalCostUsd.toFixed(4)})</span>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white border border-[#dce8d8] p-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase text-gray-500">
+            <Database size={12} className="text-emerald-700" /> Vector Chunks & Cache
+          </div>
+          <div className="mt-1 text-[16px] font-bold text-[#223922]">
+            {metrics.vectorChunksCount} vector <span className="text-[11.5px] font-medium text-gray-500">· {metrics.cacheHits} cache</span>
+          </div>
+        </div>
+        <div className="rounded-xl bg-white border border-[#dce8d8] p-3">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-bold uppercase text-gray-500">
+            <ShieldAlert size={12} className="text-rose-600" /> Guardrail Chặn An Toàn
+          </div>
+          <div className="mt-1 text-[16px] font-bold text-[#223922]">
+            {metrics.guardrailBlocks} <span className="text-[11.5px] font-medium text-gray-500">lượt chặn rủi ro</span>
+          </div>
+        </div>
       </div>
 
       {/* 1. Kiến thức & quy tắc nghiệp vụ riêng áp dụng tức thì */}

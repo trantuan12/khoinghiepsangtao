@@ -8,6 +8,9 @@ import { fileURLToPath } from 'url';
 import { pool, getPgPool, getDbSummary } from './db.js';
 import { callGemini, callGeminiWithTools, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
 import { CAREMATCH_CHAT_TOOL_DECLARATIONS, executeCareMatchTool, loadAiGroundingKnowledge } from './aiTools.js';
+import { inspectInputSafety, recordAiMetric } from './aiGuardrails.js';
+import { clearAiChatCache, getCachedChatResponse, setCachedChatResponse } from './aiCache.js';
+import { ensureVectorTable, syncCareMatchKnowledgeVectors } from './rag.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1290,6 +1293,25 @@ async function initAiTrainingLogsTable() {
       );
     `);
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_ai_training_task ON ai_training_logs (task_type)");
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS ai_metrics_logs (
+        id SERIAL PRIMARY KEY,
+        endpoint VARCHAR(80) NOT NULL,
+        model_used VARCHAR(128) DEFAULT NULL,
+        prompt_tokens INTEGER DEFAULT 0,
+        candidates_tokens INTEGER DEFAULT 0,
+        total_tokens INTEGER DEFAULT 0,
+        estimated_cost_usd DOUBLE PRECISION DEFAULT 0,
+        latency_ms INTEGER DEFAULT 0,
+        tools_used TEXT DEFAULT NULL,
+        cache_hit BOOLEAN DEFAULT FALSE,
+        guardrail_triggered VARCHAR(64) DEFAULT NULL,
+        status VARCHAR(24) DEFAULT 'ok',
+        error_message TEXT DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.execute("CREATE INDEX IF NOT EXISTS idx_ai_metrics_created ON ai_metrics_logs (created_at)");
   } catch (err) {
     console.warn('⚠️ [PostgreSQL] Lỗi khởi tạo ai_training_logs:', err.message);
   }
@@ -6906,54 +6928,95 @@ Trả về JSON đúng cấu trúc:
   }
 });
 
-// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT + TRUY XUẤT DỮ LIỆU LIVE (CAREMATCHAI)
-app.post('/api/ai/chat', async (req, res) => {
-  const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
+// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT + TRUY XUẤT DỮ LIỆU LIVE + GUARDRAIL + CACHE + SSE (CAREMATCHAI)
+async function runCareMatchChatEngine({ message, history = [], userRole = 'guest', userId = null, userName = '', endpoint = '/api/ai/chat', onStatus }) {
   const userText = String(message || '').trim();
-  if (!userText) {
-    return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
-  }
+  const reqStart = Date.now();
 
   if (!isMySqlConnected) {
     await initMySql();
   }
+  await initAiTrainingLogsTable();
 
-  try {
-    await initAiTrainingLogsTable();
-    const knowledge = await loadAiGroundingKnowledge(pool, isMySqlConnected);
+  // 1. Guardrail: kiểm tra Prompt Injection / vượt độ dài
+  const safety = inspectInputSafety(userText);
+  if (!safety.safe) {
+    const latencyMs = Date.now() - reqStart;
+    await recordAiMetric(pool, isMySqlConnected, {
+      endpoint,
+      latencyMs,
+      guardrailTriggered: safety.reason,
+      status: 'blocked',
+    });
+    return {
+      success: true,
+      reply: safety.message,
+      quick_replies: ['Tìm chuyên viên chăm sóc tại Hà Nội', 'Quy trình đặt lịch an toàn'],
+      grounded: false,
+      tools_used: [],
+      guardrail: safety.reason,
+      cache_hit: false,
+      latency_ms: latencyMs,
+      usage: { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 },
+    };
+  }
 
-    const roleLabel =
-      userRole === 'caregiver'
-        ? 'Chuyên viên chăm sóc'
-        : userRole === 'admin'
-          ? 'Quản trị viên hệ thống'
-          : userRole === 'family'
-            ? 'Gia đình người cao tuổi'
-            : 'Khách tìm hiểu dịch vụ';
+  // 2. Response Cache cho các câu hỏi thông tin chung lặp lại
+  const safeHistory = Array.isArray(history) ? history : [];
+  const cached = getCachedChatResponse(userText, userRole, safeHistory.length);
+  if (cached) {
+    const latencyMs = Date.now() - reqStart;
+    await recordAiMetric(pool, isMySqlConnected, {
+      endpoint,
+      modelUsed: 'response-cache',
+      latencyMs,
+      toolsUsed: cached.tools_used || [],
+      cacheHit: true,
+      status: 'ok',
+    });
+    return {
+      ...cached,
+      cache_hit: true,
+      latency_ms: latencyMs,
+    };
+  }
 
-    const customRulesBlock = knowledge.customRules
-      ? `\nKiến thức & quy tắc ưu tiên do Quản trị viên cấu hình:\n${knowledge.customRules}\n`
-      : '';
+  if (typeof onStatus === 'function') onStatus('Đang nạp tri thức & kết nối CareMatchAI...');
+  const knowledge = await loadAiGroundingKnowledge(pool, isMySqlConnected);
 
-    const fewShotBlock = knowledge.faqExamples.length
-      ? `\nCác mẫu Hỏi-Đáp chuẩn mực của CARE-MATCH để tham khảo giọng văn & nghiệp vụ:\n${knowledge.faqExamples
-          .map((f, idx) => `${idx + 1}. Hỏi: ${f.question}\n   Đáp chuẩn: ${f.answer}`)
-          .join('\n')}\n`
-      : '';
+  const roleLabel =
+    userRole === 'caregiver'
+      ? 'Chuyên viên chăm sóc'
+      : userRole === 'admin'
+        ? 'Quản trị viên hệ thống'
+        : userRole === 'family'
+          ? 'Gia đình người cao tuổi'
+          : 'Khách tìm hiểu dịch vụ';
 
-    const systemInstruction = `Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam.
+  const customRulesBlock = knowledge.customRules
+    ? `\nKiến thức & quy tắc ưu tiên do Quản trị viên cấu hình:\n${knowledge.customRules}\n`
+    : '';
+
+  const fewShotBlock = knowledge.faqExamples.length
+    ? `\nCác mẫu Hỏi-Đáp chuẩn mực của CARE-MATCH để tham khảo giọng văn & nghiệp vụ:\n${knowledge.faqExamples
+        .map((f, idx) => `${idx + 1}. Hỏi: ${f.question}\n   Đáp chuẩn: ${f.answer}`)
+        .join('\n')}\n`
+    : '';
+
+  const systemInstruction = `Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam.
 Vai trò người dùng đang trò chuyện: ${roleLabel}${userName ? ` (${userName})` : ''}${Number(userId) > 0 ? ` · Mã tài khoản: #${Number(userId)}` : ''}.
 
-QUAN TRỌNG VỀ TRUY XUẤT DỮ LIỆU THẬT (TOOL USE):
-- Bạn được trang bị các công cụ tra cứu trực tiếp cơ sở dữ liệu của CARE-MATCH:
-  + search_caregivers: Tìm chuyên viên thật theo quận, kỹ năng, mức giá, CARE SCORE.
+QUAN TRỌNG VỀ TRUY XUẤT DỮ LIỆU THẬT & VECTOR RAG (TOOL USE):
+- Bạn được trang bị các công cụ tra cứu trực tiếp cơ sở dữ liệu & Vector Store của CARE-MATCH:
+  + search_caregivers: Tìm chuyên viên thật (Hybrid Semantic RAG + lọc quận, kỹ năng, mức giá, CARE SCORE).
   + get_caregiver_detail: Xem chi tiết hồ sơ, giá ca, kỹ năng và đánh giá của chuyên viên.
   + get_my_elderly_profiles: Xem hồ sơ người thân/người cao tuổi của gia đình đang đăng nhập.
   + get_my_schedules: Xem lịch ca chăm sóc sắp tới, đang diễn ra hoặc đã xong của tài khoản đang đăng nhập.
   + get_patient_care_logs: Xem chỉ số sinh hiệu mới nhất (huyết áp, nhịp tim, đường huyết, SpO2, nhiệt độ, ghi chú ca).
   + get_my_payments: Xem giao dịch thanh toán hoặc thu nhập từ ca chăm sóc.
   + get_platform_info: Xem thông số cấu hình hệ thống (hotline, phí nền tảng, thống kê tổng quan...).
-- BẤT CỨ KHI NÀO người dùng hỏi thông tin cụ thể (tìm người ở quận nào, giá bao nhiêu, lịch của tôi, sinh hiệu mới nhất của ông/bà, giao dịch/thu nhập, tình hình hệ thống), HÃY GỌI CÔNG CỤ TƯƠNG ỨNG TRƯỚC RỒI MỚI TRẢ LỜI bằng số liệu thật vừa tra được. Tuyệt đối KHÔNG tự bịa đặt tên chuyên viên, giá tiền, lịch hẹn hay chỉ số sức khỏe.
+  + search_knowledge_base: Tra cứu ngữ nghĩa cẩm nang chăm sóc (tai biến, đột quỵ, Alzheimer, tiểu đường, huyết áp) & chính sách CARE-MATCH.
+- BẤT CỨ KHI NÀO người dùng hỏi thông tin cụ thể (tìm người, bệnh lý chăm sóc, giá cả, lịch của tôi, sinh hiệu mới nhất của ông/bà, giao dịch/thu nhập, tình hình hệ thống), HÃY GỌI CÔNG CỤ TƯƠNG ỨNG TRƯỚC RỒI MỚI TRẢ LỜI bằng số liệu thật vừa tra được. Tuyệt đối KHÔNG tự bịa đặt tên chuyên viên, giá tiền, lịch hẹn hay chỉ số sức khỏe.
 ${customRulesBlock}${fewShotBlock}
 Quy tắc trả lời:
 - Luôn trả lời bằng tiếng Việt ấm áp, lịch sự, chính xác, súc tích (2-6 câu hoặc gạch đầu dòng ngắn gọn, dễ đọc trên khung chat).
@@ -6966,25 +7029,28 @@ Quy tắc trả lời:
   "quick_replies": ["Gợi ý hỏi tiếp 1", "Gợi ý hỏi tiếp 2"]
 }`;
 
-    const sanitizedHistory = (Array.isArray(history) ? history : [])
-      .slice(-8)
-      .filter((m) => m && typeof m.content === 'string' && m.content.trim())
-      .map((m) => ({
-        role: m.sender === 'bot' || m.role === 'model' ? 'model' : 'user',
-        parts: [{ text: m.content.trim() }],
-      }));
+  const sanitizedHistory = safeHistory
+    .slice(-8)
+    .filter((m) => m && typeof m.content === 'string' && m.content.trim())
+    .map((m) => ({
+      role: m.sender === 'bot' || m.role === 'model' ? 'model' : 'user',
+      parts: [{ text: m.content.trim() }],
+    }));
 
-    const contents = [
-      ...sanitizedHistory,
-      { role: 'user', parts: [{ text: userText }] },
-    ];
+  const contents = [
+    ...sanitizedHistory,
+    { role: 'user', parts: [{ text: userText }] },
+  ];
 
+  try {
     const aiRes = await callGeminiWithTools({
       systemInstruction,
       contents,
       functionDeclarations: CAREMATCH_CHAT_TOOL_DECLARATIONS,
-      executeTool: (name, args) =>
-        executeCareMatchTool(name, args, { userRole, userId, userName }, { pool, isDbConnected: isMySqlConnected }),
+      executeTool: async (name, args) => {
+        if (typeof onStatus === 'function') onStatus('CareMatchAI đang tra cứu dữ liệu hệ thống...');
+        return executeCareMatchTool(name, args, { userRole, userId, userName }, { pool, isDbConnected: isMySqlConnected });
+      },
       temperature: 0.35,
       maxToolRounds: 3,
     });
@@ -6996,6 +7062,20 @@ Quy tắc trả lời:
     const quickReplies = Array.isArray(aiRes.parsed?.quick_replies)
       ? aiRes.parsed.quick_replies.slice(0, 3).map((q) => String(q))
       : [];
+    const latencyMs = Date.now() - reqStart;
+
+    const payload = {
+      success: true,
+      reply,
+      quick_replies: quickReplies,
+      grounded: Array.isArray(aiRes.toolsUsed) && aiRes.toolsUsed.length > 0,
+      tools_used: aiRes.toolsUsed || [],
+      cache_hit: false,
+      latency_ms: latencyMs,
+      usage: aiRes.usage || { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 },
+    };
+
+    setCachedChatResponse(userText, userRole, safeHistory.length, aiRes.toolsUsed, payload);
 
     await logAiTrainingSample(pool, isMySqlConnected, {
       taskType: 'chatbot',
@@ -7005,16 +7085,162 @@ Quy tắc trả lời:
       modelUsed: aiRes.model,
     });
 
-    return res.json({
-      success: true,
-      reply,
-      quick_replies: quickReplies,
-      grounded: Array.isArray(aiRes.toolsUsed) && aiRes.toolsUsed.length > 0,
-      tools_used: aiRes.toolsUsed || [],
+    await recordAiMetric(pool, isMySqlConnected, {
+      endpoint,
+      modelUsed: aiRes.model,
+      promptTokens: aiRes.usage?.promptTokens || 0,
+      candidatesTokens: aiRes.usage?.candidatesTokens || 0,
+      totalTokens: aiRes.usage?.totalTokens || 0,
+      latencyMs,
+      toolsUsed: aiRes.toolsUsed || [],
+      cacheHit: false,
+      status: 'ok',
     });
+
+    return payload;
+  } catch (err) {
+    await recordAiMetric(pool, isMySqlConnected, {
+      endpoint,
+      latencyMs: Date.now() - reqStart,
+      status: 'error',
+      errorMessage: err.message,
+    });
+    throw err;
+  }
+}
+
+app.post('/api/ai/chat', async (req, res) => {
+  const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
+  if (!String(message || '').trim()) {
+    return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
+  }
+  try {
+    const result = await runCareMatchChatEngine({ message, history, userRole, userId, userName, endpoint: '/api/ai/chat' });
+    return res.json(result);
   } catch (err) {
     console.error('Lỗi CareMatchAI chat:', err.message);
     return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
+
+// Streaming Server-Sent Events (SSE) cho trải nghiệm gõ chữ theo thời gian thực
+app.post('/api/ai/chat/stream', async (req, res) => {
+  const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
+  if (!String(message || '').trim()) {
+    return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  let clientClosed = false;
+  res.on('close', () => {
+    if (!res.writableEnded) clientClosed = true;
+  });
+
+  try {
+    sendEvent('status', { text: 'CareMatchAI đang xử lý yêu cầu...' });
+    const result = await runCareMatchChatEngine({
+      message,
+      history,
+      userRole,
+      userId,
+      userName,
+      endpoint: '/api/ai/chat/stream',
+      onStatus: (text) => {
+        if (!clientClosed) sendEvent('status', { text });
+      },
+    });
+
+    if (clientClosed) return;
+
+    const fullText = String(result.reply || '');
+    const tokens = fullText.split(/(\s+)/);
+    const chunkSize = 4;
+    for (let i = 0; i < tokens.length; i += chunkSize) {
+      if (clientClosed) return;
+      const slice = tokens.slice(i, i + chunkSize).join('');
+      if (slice) sendEvent('chunk', { text: slice });
+      if (!result.cache_hit && i + chunkSize < tokens.length) {
+        await new Promise((r) => setTimeout(r, 14));
+      }
+    }
+
+    sendEvent('done', result);
+    return res.end();
+  } catch (err) {
+    console.error('Lỗi CareMatchAI stream:', err.message);
+    if (!clientClosed) {
+      sendEvent('error', { error: err.message || 'Lỗi kết nối tới CareMatchAI.' });
+      res.end();
+    }
+  }
+});
+
+// Đồng bộ Vector Store (pgvector) & Thống kê Observability cho Admin
+app.post('/api/ai/rag/reindex', async (req, res) => {
+  if (!isMySqlConnected) {
+    await initMySql();
+  }
+  if (!isMySqlConnected) return res.status(503).json({ error: 'Chưa kết nối cơ sở dữ liệu.' });
+  try {
+    const stats = await syncCareMatchKnowledgeVectors(pool, isMySqlConnected);
+    clearAiChatCache();
+    return res.json({ success: true, ...stats });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ai/metrics', async (req, res) => {
+  if (!isMySqlConnected) {
+    return res.json({
+      totalRequests: 0,
+      avgLatencyMs: 0,
+      totalTokens: 0,
+      totalCostUsd: 0,
+      cacheHits: 0,
+      guardrailBlocks: 0,
+      vectorChunksCount: 0,
+      recentMetrics: [],
+    });
+  }
+  try {
+    await initAiTrainingLogsTable();
+    await ensureVectorTable(pool, isMySqlConnected);
+    const [summaryRows] = await pool.execute(`
+      SELECT
+        COUNT(*)::int AS total_requests,
+        COALESCE(ROUND(AVG(latency_ms))::int, 0) AS avg_latency_ms,
+        COALESCE(SUM(total_tokens), 0)::bigint AS total_tokens,
+        COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost_usd,
+        COALESCE(SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END), 0)::int AS cache_hits,
+        COALESCE(SUM(CASE WHEN guardrail_triggered IS NOT NULL THEN 1 ELSE 0 END), 0)::int AS guardrail_blocks
+      FROM ai_metrics_logs
+    `);
+    const [vecRows] = await pool.execute('SELECT COUNT(*)::int AS cnt FROM ai_knowledge_chunks');
+    const [recentRows] = await pool.execute(
+      'SELECT id, endpoint, model_used, total_tokens, estimated_cost_usd, latency_ms, tools_used, cache_hit, guardrail_triggered, status, created_at FROM ai_metrics_logs ORDER BY id DESC LIMIT 12'
+    );
+    const s = summaryRows[0] || {};
+    return res.json({
+      totalRequests: Number(s.total_requests || 0),
+      avgLatencyMs: Number(s.avg_latency_ms || 0),
+      totalTokens: Number(s.total_tokens || 0),
+      totalCostUsd: Number(Number(s.total_cost_usd || 0).toFixed(6)),
+      cacheHits: Number(s.cache_hits || 0),
+      guardrailBlocks: Number(s.guardrail_blocks || 0),
+      vectorChunksCount: Number(vecRows[0]?.cnt || 0),
+      recentMetrics: recentRows,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

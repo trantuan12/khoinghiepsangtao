@@ -4,6 +4,8 @@
  * hỗ trợ cả text JSON lẫn đọc ảnh đa phương thức) kèm cơ chế tự động fallback khi model quá tải.
  */
 
+import { redactPii } from './aiGuardrails.js';
+
 const DEFAULT_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const FALLBACK_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite'];
 
@@ -78,7 +80,14 @@ async function requestGeminiGenerate(basePayload, preferredModel = null) {
         continue;
       }
 
-      return { model: candidateModel, content: candidateContent, parts };
+      const um = data?.usageMetadata || {};
+      const usage = {
+        promptTokens: Number(um.promptTokenCount || 0),
+        candidatesTokens: Number(um.candidatesTokenCount || 0),
+        totalTokens: Number(um.totalTokenCount || 0),
+      };
+
+      return { model: candidateModel, content: candidateContent, parts, usage };
     } catch (err) {
       lastError = err;
       if (err.name === 'AbortError') {
@@ -125,6 +134,7 @@ export async function callGemini({ systemInstruction, parts, contents, responseS
     };
   }
 
+  const startMs = Date.now();
   const res = await requestGeminiGenerate(basePayload);
   const rawText = res.parts
     .map((p) => p.text || '')
@@ -142,7 +152,7 @@ export async function callGemini({ systemInstruction, parts, contents, responseS
     parsed = tryParseJsonText(rawText) ?? { raw: rawText };
   }
 
-  return { model: res.model, rawText, parsed };
+  return { model: res.model, rawText, parsed, usage: res.usage, latencyMs: Date.now() - startMs };
 }
 
 /**
@@ -156,8 +166,10 @@ export async function callGeminiWithTools({
   temperature = 0.35,
   maxToolRounds = 3,
 }) {
+  const startMs = Date.now();
   const conversation = Array.isArray(contents) ? [...contents] : [];
   const toolsUsed = [];
+  const totalUsage = { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 };
   let lockedModel = null;
 
   for (let round = 0; round <= maxToolRounds; round++) {
@@ -175,6 +187,9 @@ export async function callGeminiWithTools({
 
     const res = await requestGeminiGenerate(payload, lockedModel);
     lockedModel = res.model;
+    totalUsage.promptTokens += res.usage?.promptTokens || 0;
+    totalUsage.candidatesTokens += res.usage?.candidatesTokens || 0;
+    totalUsage.totalTokens += res.usage?.totalTokens || 0;
 
     const functionCalls = res.parts.filter((p) => p.functionCall && p.functionCall.name);
     if (functionCalls.length === 0 || isFinalFallbackRound || typeof executeTool !== 'function') {
@@ -188,6 +203,8 @@ export async function callGeminiWithTools({
         rawText,
         parsed: parsed || { reply: rawText },
         toolsUsed: [...new Set(toolsUsed)],
+        usage: totalUsage,
+        latencyMs: Date.now() - startMs,
       };
     }
 
@@ -225,8 +242,8 @@ export async function callGeminiWithTools({
 export async function logAiTrainingSample(pool, isDbConnected, { taskType, systemInstruction, userInput, modelOutput, modelUsed }) {
   if (!pool || !isDbConnected) return null;
   try {
-    const outputStr = typeof modelOutput === 'string' ? modelOutput : JSON.stringify(modelOutput);
-    const inputStr = typeof userInput === 'string' ? userInput : JSON.stringify(userInput);
+    const outputStr = redactPii(typeof modelOutput === 'string' ? modelOutput : JSON.stringify(modelOutput));
+    const inputStr = redactPii(typeof userInput === 'string' ? userInput : JSON.stringify(userInput));
     const [res] = await pool.execute(
       `INSERT INTO ai_training_logs (task_type, system_instruction, user_input, model_output, model_used, is_approved)
        VALUES (?, ?, ?, ?, ?, TRUE) RETURNING id`,

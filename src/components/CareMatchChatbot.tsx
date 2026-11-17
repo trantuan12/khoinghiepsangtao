@@ -90,6 +90,7 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
 
   const [messages, setMessages] = useState<CareMatchChatMessage[]>(readStoredMessages);
   const [sending, setSending] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<string>('');
 
   useEffect(() => {
     setMessages(readStoredMessages());
@@ -128,6 +129,10 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
     const withUser = [...messages, userMsg];
     persistAndBroadcast(withUser);
     setSending(true);
+    setStreamStatus('CareMatchAI đang xử lý yêu cầu...');
+
+    const botId = `b_${Date.now()}`;
+    let streamedText = '';
 
     try {
       const historyPayload = messages
@@ -135,32 +140,102 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
         .slice(-8)
         .map((m) => ({ sender: m.sender, content: m.content }));
 
-      const res = await fetch(`${API}/ai/chat`, {
+      const payloadBody = JSON.stringify({
+        message: text,
+        history: historyPayload,
+        userRole,
+        userId,
+        userName,
+      });
+
+      const res = await fetch(`${API}/ai/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: text,
-          history: historyPayload,
-          userRole,
-          userId,
-          userName,
-        }),
+        body: payloadBody,
       });
-      const data = await res.json();
-      const botText =
-        res.ok && data?.reply
-          ? String(data.reply)
-          : data?.error || 'Xin lỗi, CareMatchAI tạm thời chưa kết nối được. Bạn vui lòng thử lại sau giây lát nhé.';
 
-      const botMsg: CareMatchChatMessage = {
-        id: `b_${Date.now()}`,
-        sender: 'bot',
-        content: botText,
-        time: nowTime(),
-        quickReplies: Array.isArray(data?.quick_replies) ? data.quick_replies : undefined,
-        grounded: Boolean(data?.grounded),
-      };
-      persistAndBroadcast([...withUser, botMsg]);
+      if (res.ok && res.body) {
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let finalMeta: { quick_replies?: string[]; grounded?: boolean } = {};
+
+        const pushStreamFrame = (contentText: string, doneMeta?: { quick_replies?: string[]; grounded?: boolean }) => {
+          const botMsg: CareMatchChatMessage = {
+            id: botId,
+            sender: 'bot',
+            content: contentText,
+            time: nowTime(),
+            quickReplies: Array.isArray(doneMeta?.quick_replies) ? doneMeta.quick_replies : undefined,
+            grounded: Boolean(doneMeta?.grounded),
+          };
+          persistAndBroadcast([...withUser, botMsg]);
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const blocks = buffer.split('\n\n');
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            const lines = block.split('\n');
+            let eventName = 'message';
+            let dataStr = '';
+            for (const line of lines) {
+              if (line.startsWith('event:')) eventName = line.slice(6).trim();
+              else if (line.startsWith('data:')) dataStr += line.slice(5).trim();
+            }
+            if (!dataStr) continue;
+            try {
+              const evtData = JSON.parse(dataStr);
+              if (eventName === 'status' && evtData?.text) {
+                setStreamStatus(String(evtData.text));
+              } else if (eventName === 'chunk' && evtData?.text) {
+                streamedText += String(evtData.text);
+                pushStreamFrame(streamedText);
+              } else if (eventName === 'done') {
+                finalMeta = evtData || {};
+                const finalReply = String(evtData?.reply || streamedText || 'Xin lỗi, CareMatchAI chưa thể trả lời lúc này.');
+                pushStreamFrame(finalReply, finalMeta);
+              } else if (eventName === 'error') {
+                pushStreamFrame(evtData?.error || 'Xin lỗi, CareMatchAI tạm thời gặp sự cố.');
+              }
+            } catch { }
+          }
+        }
+        if (!streamedText && !finalMeta.quick_replies && !finalMeta.grounded) {
+          // Trường hợp hiếm stream kết thúc không có frame done -> fallback an toàn
+          const fallbackRes = await fetch(`${API}/ai/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payloadBody,
+          });
+          const fData = await fallbackRes.json();
+          pushStreamFrame(
+            fallbackRes.ok && fData?.reply ? String(fData.reply) : fData?.error || 'Xin lỗi, CareMatchAI tạm thời chưa kết nối được.',
+            fData
+          );
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        const botText =
+          res.ok && data?.reply
+            ? String(data.reply)
+            : data?.error || 'Xin lỗi, CareMatchAI tạm thời chưa kết nối được. Bạn vui lòng thử lại sau giây lát nhé.';
+
+        const botMsg: CareMatchChatMessage = {
+          id: botId,
+          sender: 'bot',
+          content: botText,
+          time: nowTime(),
+          quickReplies: Array.isArray(data?.quick_replies) ? data.quick_replies : undefined,
+          grounded: Boolean(data?.grounded),
+        };
+        persistAndBroadcast([...withUser, botMsg]);
+      }
     } catch {
       const errMsg: CareMatchChatMessage = {
         id: `b_err_${Date.now()}`,
@@ -171,6 +246,7 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
       persistAndBroadcast([...withUser, errMsg]);
     } finally {
       setSending(false);
+      setStreamStatus('');
     }
   };
 
@@ -178,7 +254,7 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
     persistAndBroadcast([createWelcomeMessage(userRole, userName)]);
   };
 
-  return { messages, sending, sendMessage, resetChat };
+  return { messages, sending, streamStatus, sendMessage, resetChat };
 }
 
 interface CareMatchChatPanelProps extends CareMatchChatUserContext {
@@ -195,7 +271,7 @@ export function CareMatchChatPanel({
   onBackMobile,
   embedded = false,
 }: CareMatchChatPanelProps) {
-  const { messages, sending, sendMessage, resetChat } = useCareMatchChat({ userRole, userId, userName });
+  const { messages, sending, streamStatus, sendMessage, resetChat } = useCareMatchChat({ userRole, userId, userName });
   const [inputVal, setInputVal] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -329,7 +405,7 @@ export function CareMatchChatPanel({
             </div>
             <div className="rounded-2xl rounded-bl-[4px] bg-white border border-[#dce8d8] px-3.5 py-2.5 text-[12px] text-[#456344] flex items-center gap-2 shadow-2xs">
               <Loader2 size={14} className="animate-spin text-emerald-700" />
-              CareMatchAI đang soạn câu trả lời...
+              {streamStatus || 'CareMatchAI đang soạn câu trả lời...'}
             </div>
           </div>
         )}

@@ -3,6 +3,8 @@
  * Cho phép chatbot tra cứu dữ liệu thật từ Supabase PostgreSQL theo đúng vai trò & quyền hạn người dùng.
  */
 
+import { semanticSearchKnowledge } from './rag.js';
+
 function parseJsonSafe(val, fallback) {
   if (val === null || val === undefined) return fallback;
   if (typeof val === 'object') return val;
@@ -89,6 +91,18 @@ export const CAREMATCH_CHAT_TOOL_DECLARATIONS = [
       properties: {},
     },
   },
+  {
+    name: 'search_knowledge_base',
+    description:
+      'Tìm kiếm ngữ nghĩa (Vector Semantic RAG) trong cẩm nang chăm sóc người cao tuổi (tai biến, đột quỵ, Alzheimer, tiểu đường, huyết áp) và quy trình/chính sách của CARE-MATCH.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: { type: 'STRING', description: 'Câu hỏi hoặc chủ đề cần tìm trong cẩm nang chăm sóc & chính sách' },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 export async function executeCareMatchTool(toolName, args = {}, context = {}, { pool, isDbConnected }) {
@@ -136,9 +150,61 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       sql += ` ORDER BY COALESCE(cp.care_score, 0) DESC, COALESCE(cp.rating, 0) DESC LIMIT 8`;
       const [rows] = await pool.execute(sql, params);
 
+      // Hybrid Semantic RAG: nếu tìm theo từ khóa bệnh lý/kỹ năng (hoặc SQL LIKE ít kết quả), tìm thêm bằng pgvector cosine similarity
+      let mergedRows = [...rows];
+      const semanticHits =
+        keyword || rows.length === 0
+          ? await semanticSearchKnowledge(pool, isDbConnected, `${district} ${keyword}`.trim(), {
+              sourceTypes: ['caregiver'],
+              limit: 6,
+              minSimilarity: 0.42,
+            })
+          : [];
+
+      const simMap = new Map();
+      for (const hit of semanticHits) {
+        const cid = Number(hit.metadata?.caregiver_user_id || hit.source_id);
+        if (cid) simMap.set(cid, Number(Number(hit.similarity || 0).toFixed(3)));
+      }
+
+      if (semanticHits.length > 0 && rows.length < 5) {
+        const missingIds = [...simMap.keys()].filter((cid) => !mergedRows.some((r) => Number(r.caregiver_user_id) === cid));
+        if (missingIds.length > 0) {
+          const placeholders = missingIds.map(() => '?').join(',');
+          let extraSql = `
+            SELECT u.id AS caregiver_user_id, u.full_name, cp.title, cp.district, cp.experience_years,
+                   cp.hourly_rate, cp.shift_rate, cp.night_shift_rate, cp.care_score, cp.rating,
+                   cp.reviews_count, cp.skills, cp.bio, cp.verification_status
+            FROM caregiver_profiles cp
+            JOIN users u ON cp.user_id = u.id
+            WHERE u.id IN (${placeholders})
+          `;
+          const extraParams = [...missingIds];
+          if (verifiedOnly) extraSql += ` AND cp.verification_status = 'approved'`;
+          if (district) {
+            extraSql += ` AND LOWER(COALESCE(cp.district, '')) LIKE ?`;
+            extraParams.push(`%${district.toLowerCase()}%`);
+          }
+          if (maxRate > 0) {
+            extraSql += ` AND COALESCE(cp.shift_rate, 400000) <= ?`;
+            extraParams.push(maxRate);
+          }
+          const [extraRows] = await pool.execute(extraSql, extraParams);
+          mergedRows = [...mergedRows, ...extraRows];
+        }
+      }
+
+      mergedRows.sort((a, b) => {
+        const sa = simMap.get(Number(a.caregiver_user_id)) || 0;
+        const sb = simMap.get(Number(b.caregiver_user_id)) || 0;
+        if (sb !== sa) return sb - sa;
+        return Number(b.care_score || 0) - Number(a.care_score || 0);
+      });
+
       return {
-        total_found: rows.length,
-        caregivers: rows.map((r) => ({
+        search_mode: semanticHits.length > 0 ? 'hybrid_pgvector_sql' : 'sql_filter',
+        total_found: mergedRows.length,
+        caregivers: mergedRows.slice(0, 8).map((r) => ({
           id: r.caregiver_user_id,
           name: r.full_name,
           title: r.title,
@@ -152,6 +218,7 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
           reviews_count: Number(r.reviews_count || 0),
           skills: parseJsonSafe(r.skills, []),
           verified: r.verification_status === 'approved',
+          semantic_similarity: simMap.get(Number(r.caregiver_user_id)) || null,
         })),
       };
     }
@@ -369,6 +436,24 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
       }
 
       return result;
+    }
+
+    if (toolName === 'search_knowledge_base') {
+      const q = String(args?.query || '').trim();
+      const hits = await semanticSearchKnowledge(pool, isDbConnected, q, {
+        sourceTypes: ['policy', 'medical_guide'],
+        limit: 4,
+        minSimilarity: 0.38,
+      });
+      return {
+        search_mode: 'pgvector_cosine_rag',
+        matches: hits.map((h) => ({
+          title: h.title,
+          category: h.source_type,
+          similarity: Number(Number(h.similarity || 0).toFixed(3)),
+          content: h.content,
+        })),
+      };
     }
 
     return { error: `Không hỗ trợ công cụ ${toolName}` };

@@ -385,10 +385,46 @@ CREATE TABLE IF NOT EXISTS ai_training_logs (
   edited_output TEXT DEFAULT NULL,
   rating INTEGER DEFAULT NULL,
   is_approved BOOLEAN DEFAULT TRUE,
-  model_used VARCHAR(128) DEFAULT 'gemini-2.5-flash',
+  model_used VARCHAR(128) DEFAULT 'gemini-3.1-flash-lite',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_ai_training_task ON ai_training_logs (task_type);
+
+-- 20. Vector Store (pgvector) cho Hybrid Semantic RAG (ai_knowledge_chunks)
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
+  id SERIAL PRIMARY KEY,
+  source_type VARCHAR(40) NOT NULL,
+  source_id VARCHAR(80) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  content TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  embedding vector(768),
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (source_type, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_source ON ai_knowledge_chunks (source_type);
+CREATE INDEX IF NOT EXISTS idx_ai_knowledge_embedding ON ai_knowledge_chunks USING hnsw (embedding vector_cosine_ops);
+
+-- 21. Bảng AI Observability & Guardrail Metrics (ai_metrics_logs)
+CREATE TABLE IF NOT EXISTS ai_metrics_logs (
+  id SERIAL PRIMARY KEY,
+  endpoint VARCHAR(80) NOT NULL,
+  model_used VARCHAR(128) DEFAULT NULL,
+  prompt_tokens INTEGER DEFAULT 0,
+  candidates_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
+  estimated_cost_usd DOUBLE PRECISION DEFAULT 0,
+  latency_ms INTEGER DEFAULT 0,
+  tools_used TEXT DEFAULT NULL,
+  cache_hit BOOLEAN DEFAULT FALSE,
+  guardrail_triggered VARCHAR(64) DEFAULT NULL,
+  status VARCHAR(24) DEFAULT 'ok',
+  error_message TEXT DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ai_metrics_created ON ai_metrics_logs (created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_metrics_endpoint ON ai_metrics_logs (endpoint);
 
 -- Triggers tự động cập nhật updated_at
 DO $$
