@@ -14,6 +14,7 @@ import { CareLogsView } from '@/components/CareLogsView';
 import { FamilyCareHistory3Step } from '@/components/FamilyCareHistory3Step';
 import { CareShiftReportModal } from '@/components/CareShiftReportModal';
 import { PatientMedicalHistoryModal } from '@/components/PatientMedicalHistoryModal';
+import { AiCareMatcherModal } from '@/components/AiCareMatcherModal';
 import { useDeviceDetect } from '@/lib/useDeviceDetect';
 import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -2759,6 +2760,7 @@ function Matches({ notify }: { notify: (message: string) => void }) {
   const [saved, setSaved] = useState<string[]>([]);
   const [caregiverList, setCaregiverList] = useState<Caregiver[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAiMatcher, setShowAiMatcher] = useState(false);
 
   const fetchCaregivers = async () => {
     try {
@@ -2794,12 +2796,29 @@ function Matches({ notify }: { notify: (message: string) => void }) {
         title="Những người chăm sóc phù hợp nhất"
         description={`CARE-MATCH đã thẩm định và chọn lọc ${results.length || caregiverList.length} người chăm sóc đạt tiêu chuẩn trên hệ thống.`}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              onClick={() => setShowAiMatcher(true)}
+              className="bg-gradient-to-r from-[#2c4e2a] to-[#3f6d3c] text-white hover:opacity-95 shadow-sm"
+              testId="button-open-ai-matcher"
+            >
+              <Sparkles size={15} className="text-[#f3d485]" /> Tư vấn tìm người bằng AI
+            </Button>
             <Button variant="outline" onClick={() => { setLoading(true); fetchCaregivers().finally(() => setLoading(false)); notify('Đã cập nhật danh sách người chăm sóc mới nhất.'); }}>
               Làm mới danh sách
             </Button>
           </div>
         }
+      />
+      <AiCareMatcherModal
+        isOpen={showAiMatcher}
+        onClose={() => setShowAiMatcher(false)}
+        onViewCaregiver={(id) => setLocation(`/matches/${id}`)}
+        onMessageCaregiver={(id, name) => {
+          setLocation(`/messages?user=${id}`);
+          notify(`Đang mở đoạn chat trực tiếp với ${name}...`);
+        }}
+        notify={notify}
       />
       <Card className="mb-6 p-3 sm:p-4" testId="card-match-filters">
         <div className="flex flex-col gap-3 sm:flex-row">
@@ -10911,6 +10930,29 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                   </div>
                 </div>
               </Card>
+            </div>
+
+            {/* Card AI Gemini & Xuất dữ liệu Fine-tune (Vertex AI JSONL) */}
+            <div className="rounded-2xl bg-gradient-to-r from-[#f2f7f0] to-[#faf7ef] border border-[#c8dcc2] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={16} className="text-emerald-700" />
+                  <h4 className="font-display font-bold text-[15px] text-gray-900">
+                    Trợ Lý AI Gemini & Xuất Dữ Liệu Fine-Tune (Vertex AI .JSONL)
+                  </h4>
+                </div>
+                <p className="text-[12px] text-gray-600">
+                  Mọi lượt AI gợi ý người chăm sóc, phân tích sinh hiệu & chuẩn hóa báo cáo ca đều được lưu vào bảng <code>ai_training_logs</code> trên Supabase để xuất file <code>.jsonl</code> huấn luyện mô hình riêng.
+                </p>
+              </div>
+              <a
+                href={`${API}/ai/export-finetune-jsonl`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#294927] hover:bg-[#1f391e] text-white px-4 py-2.5 text-[12.5px] font-bold transition shrink-0 shadow-xs"
+              >
+                <Download size={15} /> Tải Dataset Fine-tune (.JSONL)
+              </a>
             </div>
 
             {/* Bottom Save Bar */}

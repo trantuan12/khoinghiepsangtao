@@ -11,7 +11,9 @@ import {
   FileText,
   UserRound,
   ShieldCheck,
-  Calendar
+  Calendar,
+  Sparkles,
+  Loader2
 } from 'lucide-react';
 import { API, API_BASE_URL } from '@/lib/apiConfig';
 
@@ -65,6 +67,7 @@ export function CareShiftReportModal({
   const [notes, setNotes] = useState<string>('');
 
   const [loading, setLoading] = useState(false);
+  const [aiDrafting, setAiDrafting] = useState(false);
   const [existingLog, setExistingLog] = useState<any | null>(null);
   const [fetchingLog, setFetchingLog] = useState(false);
 
@@ -112,6 +115,41 @@ export function CareShiftReportModal({
   }, [isOpen, mode, shift.id, patientName]);
 
   if (!isOpen) return null;
+
+  const handleAiDraftReport = async () => {
+    setAiDrafting(true);
+    try {
+      const res = await fetch(`${API}/ai/draft-shift-report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientName,
+          bpSys,
+          bpDia,
+          heartRate,
+          temp,
+          spo2,
+          bloodSugar,
+          condition,
+          quickNotes: notes.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.draft_notes) {
+        setNotes(data.draft_notes);
+        if (data.suggested_condition && ['good', 'normal', 'attention', 'warning'].includes(data.suggested_condition)) {
+          setCondition(data.suggested_condition);
+        }
+        notify('✨ AI đã chuẩn hóa báo cáo bàn giao từ chỉ số sinh hiệu và ghi chú của bạn!');
+      } else {
+        notify(data.error || 'Không thể tạo nháp báo cáo AI lúc này.');
+      }
+    } catch {
+      notify('Lỗi kết nối trợ lý AI.');
+    } finally {
+      setAiDrafting(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -423,14 +461,25 @@ export function CareShiftReportModal({
 
             {/* GHI CHÚ VÀ DẶN DÒ CHO GIA ĐÌNH: HOÀN TOÀN TRỐNG THEO AUDIO 2 */}
             <div>
-              <label className="block text-stone-700 font-bold mb-1">
-                Ghi chú & Dặn dò ca tiếp theo cho gia đình
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                <label className="block text-stone-700 font-bold">
+                  Ghi chú & Dặn dò ca tiếp theo cho gia đình
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAiDraftReport}
+                  disabled={aiDrafting}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
+                >
+                  {aiDrafting ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                  {aiDrafting ? 'AI đang viết...' : 'AI chuẩn hóa báo cáo'}
+                </button>
+              </div>
               <textarea
                 rows={3}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="Ghi chú diễn biến sức khỏe, nhắc thuốc hoặc dặn dò cho ca tiếp theo..."
+                placeholder="Ghi vài ý ngắn (vd: ăn hết cháo, uống thuốc đúng giờ...) rồi bấm 'AI chuẩn hóa báo cáo', hoặc tự nhập chi tiết..."
                 className="w-full bg-stone-50 border border-stone-200 rounded-xl p-3 text-stone-800 text-xs focus:outline-none focus:bg-white focus:border-emerald-600 transition"
               />
             </div>

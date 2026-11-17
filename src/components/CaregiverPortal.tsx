@@ -324,6 +324,8 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
 
   // Danh sách tài liệu đã upload
   const [documents, setDocuments] = useState<CaregiverDoc[]>([]);
+  const [aiCheckingDoc, setAiCheckingDoc] = useState(false);
+  const [aiDocCheckResult, setAiDocCheckResult] = useState<any | null>(null);
 
   // Dữ liệu biểu mẫu (kinh nghiệm cho phép nhập tự do, lưu hậu kỳ thành 0x)
   const [formData, setFormData] = useState({
@@ -571,6 +573,47 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       notify('Lỗi đọc tệp từ thiết bị của bạn.');
     } finally {
       if (e.target) e.target.value = '';
+    }
+  };
+
+  // 3B. AI kiểm tra sơ bộ ảnh CCCD / Chứng chỉ eKYC & tự động trích xuất số CCCD
+  const handleAiVerifyDocuments = async () => {
+    const frontDoc = documents.find(d => d.type === 'cccd_front' || d.type === 'cccd');
+    const certDoc = documents.find(d => d.type === 'medical_certificate' || d.type === 'police_check' || d.type === 'health_check');
+    const targetDoc = frontDoc || certDoc || documents[0];
+    if (!targetDoc || !targetDoc.url || !targetDoc.url.startsWith('data:image')) {
+      notify('Vui lòng tải lên ít nhất 1 ảnh CCCD mặt trước hoặc chứng chỉ dạng ảnh (JPG/PNG) trước khi kiểm tra AI.');
+      return;
+    }
+
+    setAiCheckingDoc(true);
+    setAiDocCheckResult(null);
+    try {
+      const res = await fetch(`${API}/ai/verify-document`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataUrl: targetDoc.url,
+          documentType: targetDoc.type || 'cccd_front',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify(data.error || 'Không thể kiểm tra ảnh tài liệu bằng AI.');
+      } else {
+        setAiDocCheckResult(data);
+        if (data.id_number && !formData.idNumber) {
+          setFormData(prev => ({ ...prev, idNumber: String(data.id_number).trim() }));
+          hasUnsavedChangesRef.current = true;
+          notify(`✨ AI đã kiểm tra ảnh và tự động điền số CCCD: ${data.id_number}!`);
+        } else {
+          notify(data.summary || '✨ AI đã hoàn tất kiểm tra sơ bộ tài liệu eKYC!');
+        }
+      }
+    } catch {
+      notify('Lỗi kết nối tới dịch vụ AI kiểm tra eKYC.');
+    } finally {
+      setAiCheckingDoc(false);
     }
   };
 
@@ -1573,6 +1616,53 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 <p className="mt-2 text-[12px] text-[hsl(var(--muted-foreground))]">
                   Tải lên ảnh chụp thực tế của 4 tài liệu sau để Admin đối soát và thẩm định cấp điểm CARE SCORE.
                 </p>
+              )}
+
+              {/* Thanh kiểm tra sơ bộ eKYC bằng Gemini Vision */}
+              <div className="mt-3 rounded-2xl bg-[#f3f8f1] border border-[#cde0c8] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="text-[11.5px] text-[#284527]">
+                  <strong className="flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-amber-600" /> AI Kiểm Tra Sơ Bộ Hồ Sơ eKYC
+                  </strong>
+                  <span className="text-[11px] text-[#4c694b]">
+                    Tự động kiểm tra ảnh rõ nét & trích xuất số CCCD trước khi gửi Admin duyệt
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAiVerifyDocuments}
+                  disabled={aiCheckingDoc || documents.length === 0}
+                  className="rounded-xl bg-[#2f522d] hover:bg-[#234022] text-white px-3.5 py-2 text-[11.5px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Sparkles size={13} className={aiCheckingDoc ? 'animate-spin' : ''} />
+                  {aiCheckingDoc ? 'AI đang đọc ảnh...' : 'Kiểm tra ảnh bằng AI'}
+                </button>
+              </div>
+
+              {aiDocCheckResult && (
+                <div className={`mt-2.5 rounded-2xl border p-3 text-[12px] space-y-1 ${
+                  aiDocCheckResult.is_valid_image && aiDocCheckResult.clarity === 'clear'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                    : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <strong>
+                      {aiDocCheckResult.is_valid_image ? '✓ Ảnh hợp lệ' : '⚠️ Cần chụp lại rõ hơn'}
+                      {aiDocCheckResult.detected_type ? ` · ${aiDocCheckResult.detected_type}` : ''}
+                    </strong>
+                    {aiDocCheckResult.id_number && (
+                      <span className="font-mono font-bold bg-white px-2 py-0.5 rounded-lg border border-emerald-200">
+                        CCCD: {aiDocCheckResult.id_number}
+                      </span>
+                    )}
+                  </div>
+                  {aiDocCheckResult.summary && <p>{aiDocCheckResult.summary}</p>}
+                  {Array.isArray(aiDocCheckResult.warnings) && aiDocCheckResult.warnings.length > 0 && (
+                    <ul className="list-disc pl-4 text-[11px]">
+                      {aiDocCheckResult.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                    </ul>
+                  )}
+                </div>
               )}
 
               <div className="mt-4 space-y-3.5">

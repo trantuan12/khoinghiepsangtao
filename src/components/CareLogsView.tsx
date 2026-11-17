@@ -119,6 +119,8 @@ export function CareLogsView({
   const [selectedLogForDetail, setSelectedLogForDetail] = useState<PatientCareLog | null>(null);
   const [acknowledgingLogId, setAcknowledgingLogId] = useState<number | null>(null);
   const [acknowledgeNote, setAcknowledgeNote] = useState('');
+  const [aiAnalysis, setAiAnalysis] = useState<any | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Form tạo báo cáo mới
   const [formPatientName, setFormPatientName] = useState('Nguyễn Đỗ Tiến Danh');
@@ -224,6 +226,7 @@ export function CareLogsView({
   // Đồng bộ lại khi đổi gia đình
   const handleSelectFamily = (familyId: number) => {
     setSelectedFamilyId(familyId);
+    setAiAnalysis(null);
     const fam = familyTree.find(f => f.id === familyId);
     if (fam && fam.patients.length > 0) {
       setSelectedPatientId(fam.patients[0].id);
@@ -234,9 +237,36 @@ export function CareLogsView({
 
   const handleSelectPatient = (patientId: number) => {
     setSelectedPatientId(patientId);
+    setAiAnalysis(null);
     const p = currentSelectedFamily?.patients.find(pt => pt.id === patientId);
     if (p) {
       setFormPatientName(p.full_name);
+    }
+  };
+
+  const handleAiAnalyzePatient = async () => {
+    if (!currentSelectedPatient) return;
+    setAiLoading(true);
+    try {
+      const res = await fetch(`${API}/ai/summarize-care-logs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          elderlyProfileId: currentSelectedPatient.id,
+          elderlyName: currentSelectedPatient.full_name,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        notify(data.error || 'Chưa đủ dữ liệu nhật ký để AI phân tích.', 'error');
+      } else {
+        setAiAnalysis(data);
+        notify(`✨ AI đã phân tích xong hồ sơ sức khỏe của ${currentSelectedPatient.full_name}!`, 'success');
+      }
+    } catch {
+      notify('Lỗi kết nối trợ lý AI.', 'error');
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -646,6 +676,99 @@ export function CareLogsView({
               Lưu vết y bạ sau mỗi buổi
             </p>
           </div>
+        </div>
+      )}
+
+      {/* KHỐI AI PHÂN TÍCH XU HƯỚNG SỨC KHỎE (GEMINI) */}
+      {currentSelectedPatient && (
+        <div className="rounded-2xl bg-gradient-to-br from-[#f3f8f1] via-white to-[#f7f4ec] border border-[#c9dec2] p-4 sm:p-5 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-800 text-amber-300 flex items-center justify-center shrink-0">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <h3 className="text-[14px] font-bold text-stone-900">
+                  AI Phân Tích Xu Hướng Sức Khỏe · {currentSelectedPatient.full_name}
+                </h3>
+                <p className="text-[11.5px] text-stone-500">
+                  Tổng hợp huyết áp, nhịp tim, đường huyết & ghi chú qua các ca thành nhận xét dễ hiểu
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleAiAnalyzePatient}
+              disabled={aiLoading || patientVitals.count === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-4 py-2 text-[12.5px] font-bold transition cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              <Sparkles size={14} className={aiLoading ? 'animate-spin' : ''} />
+              {aiLoading ? 'AI đang phân tích...' : aiAnalysis ? 'Phân tích lại' : 'AI Tóm tắt sức khỏe'}
+            </button>
+          </div>
+
+          {aiAnalysis && (
+            <div className="pt-3 border-t border-emerald-200/70 space-y-3 text-[12.5px]">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-bold text-stone-900 text-[13.5px]">{aiAnalysis.headline}</span>
+                <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                  aiAnalysis.overall_status === 'warning'
+                    ? 'bg-rose-100 text-rose-800'
+                    : aiAnalysis.overall_status === 'attention'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {aiAnalysis.overall_status === 'warning' ? '🚨 Cần chú ý' : aiAnalysis.overall_status === 'attention' ? '⚠️ Theo dõi thêm' : '✓ Ổn định'}
+                </span>
+              </div>
+              <p className="text-stone-700 leading-relaxed">{aiAnalysis.summary}</p>
+
+              {aiAnalysis.vital_trends && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  <div className="rounded-xl bg-white p-3 border border-stone-200">
+                    <span className="text-[10.5px] font-bold uppercase text-stone-400 block">Huyết áp</span>
+                    <p className="mt-1 text-stone-800 text-[12px]">{aiAnalysis.vital_trends.blood_pressure}</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3 border border-stone-200">
+                    <span className="text-[10.5px] font-bold uppercase text-stone-400 block">Nhịp tim & Thân nhiệt</span>
+                    <p className="mt-1 text-stone-800 text-[12px]">{aiAnalysis.vital_trends.heart_rate_temp}</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3 border border-stone-200">
+                    <span className="text-[10.5px] font-bold uppercase text-stone-400 block">Ăn uống, Thuốc & Ngủ</span>
+                    <p className="mt-1 text-stone-800 text-[12px]">{aiAnalysis.vital_trends.nutrition_sleep}</p>
+                  </div>
+                </div>
+              )}
+
+              {Array.isArray(aiAnalysis.alerts) && aiAnalysis.alerts.length > 0 && (
+                <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-rose-900">
+                  <strong className="block mb-1">⚠️ Điểm cần lưu ý:</strong>
+                  <ul className="list-disc pl-4 space-y-0.5 text-[12px]">
+                    {aiAnalysis.alerts.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                {Array.isArray(aiAnalysis.recommendations_for_family) && aiAnalysis.recommendations_for_family.length > 0 && (
+                  <div className="rounded-xl bg-emerald-50/70 border border-emerald-200 p-3">
+                    <strong className="text-emerald-900 block mb-1">🏠 Gợi ý cho gia đình:</strong>
+                    <ul className="list-disc pl-4 space-y-0.5 text-stone-700 text-[12px]">
+                      {aiAnalysis.recommendations_for_family.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(aiAnalysis.recommendations_for_next_shift) && aiAnalysis.recommendations_for_next_shift.length > 0 && (
+                  <div className="rounded-xl bg-amber-50/70 border border-amber-200 p-3">
+                    <strong className="text-amber-900 block mb-1">🩺 Dặn dò ca tiếp theo:</strong>
+                    <ul className="list-disc pl-4 space-y-0.5 text-stone-700 text-[12px]">
+                      {aiAnalysis.recommendations_for_next_shift.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

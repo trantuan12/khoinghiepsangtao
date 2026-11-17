@@ -375,6 +375,21 @@ CREATE INDEX IF NOT EXISTS idx_care_logs_caregiver ON patient_care_logs (caregiv
 CREATE INDEX IF NOT EXISTS idx_care_logs_elderly ON patient_care_logs (elderly_name);
 CREATE INDEX IF NOT EXISTS idx_care_logs_date ON patient_care_logs (log_date);
 
+-- 19. Bảng lưu dữ liệu AI phục vụ Fine-tune Vertex AI (ai_training_logs)
+CREATE TABLE IF NOT EXISTS ai_training_logs (
+  id SERIAL PRIMARY KEY,
+  task_type VARCHAR(64) NOT NULL,
+  system_instruction TEXT NOT NULL,
+  user_input TEXT NOT NULL,
+  model_output TEXT NOT NULL,
+  edited_output TEXT DEFAULT NULL,
+  rating INTEGER DEFAULT NULL,
+  is_approved BOOLEAN DEFAULT TRUE,
+  model_used VARCHAR(128) DEFAULT 'gemini-2.5-flash',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ai_training_task ON ai_training_logs (task_type);
+
 -- Triggers tự động cập nhật updated_at
 DO $$
 DECLARE

@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { pool, getPgPool, getDbSummary } from './db.js';
+import { callGemini, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -245,12 +246,12 @@ async function initMySql() {
       return null;
     }
 
-    // Fast-path cho Serverless/Production: nếu đủ 18 bảng và đã có system_settings, bỏ qua ~90 câu DDL/seed lặp lại khi cold start
+    // Fast-path cho Serverless/Production: nếu đủ 19 bảng (gồm ai_training_logs) và đã có system_settings, bỏ qua ~90 câu DDL/seed lặp lại khi cold start
     try {
       const [tblRows] = await pool.execute(
-        "SELECT COUNT(*)::int AS cnt FROM pg_tables WHERE schemaname = 'public'"
+        "SELECT COUNT(*)::int AS cnt, (to_regclass('public.ai_training_logs') IS NOT NULL) AS has_ai FROM pg_tables WHERE schemaname = 'public'"
       );
-      if ((tblRows[0]?.cnt || 0) >= 18) {
+      if ((tblRows[0]?.cnt || 0) >= 19 && tblRows[0]?.has_ai) {
         const [setRows] = await pool.execute('SELECT COUNT(*)::int AS cnt FROM system_settings');
         if ((setRows[0]?.cnt || 0) >= 20) {
           return pool;
@@ -274,7 +275,8 @@ async function initMySql() {
       initSchedulesTableMigrations(),
       initVouchersTable(),
       initSystemSettingsTable(),
-      initPatientCareLogsTable()
+      initPatientCareLogsTable(),
+      initAiTrainingLogsTable()
     ]);
 
     // Đảm bảo trigger tự động cập nhật updated_at hoạt động trên toàn bộ bảng
@@ -1266,6 +1268,29 @@ async function initPatientCareLogsTable() {
     }
   } catch (err) {
     console.error('⚠️ [MySQL] Lỗi khởi tạo bảng patient_care_logs:', err.message);
+  }
+}
+
+async function initAiTrainingLogsTable() {
+  if (!pool || !isMySqlConnected) return;
+  try {
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS ai_training_logs (
+        id SERIAL PRIMARY KEY,
+        task_type VARCHAR(64) NOT NULL,
+        system_instruction TEXT NOT NULL,
+        user_input TEXT NOT NULL,
+        model_output TEXT NOT NULL,
+        edited_output TEXT DEFAULT NULL,
+        rating INTEGER DEFAULT NULL,
+        is_approved BOOLEAN DEFAULT TRUE,
+        model_used VARCHAR(128) DEFAULT 'gemini-3.1-flash-lite',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.execute("CREATE INDEX IF NOT EXISTS idx_ai_training_task ON ai_training_logs (task_type)");
+  } catch (err) {
+    console.warn('⚠️ [PostgreSQL] Lỗi khởi tạo ai_training_logs:', err.message);
   }
 }
 
@@ -6531,6 +6556,417 @@ app.get('/api/export/schedules-csv', async (req, res) => {
     return res.send(csvContent);
   } catch (err) {
     return res.status(500).send('Lỗi: ' + err.message);
+  }
+});
+
+// ========================================================
+// TÍCH HỢP GOOGLE GEMINI AI & FINE-TUNE DATASET (CARE-MATCH AI)
+// ========================================================
+
+app.get('/api/ai/status', async (req, res) => {
+  const cfg = getGeminiConfig();
+  let totalLogs = 0;
+  let approvedLogs = 0;
+  if (isMySqlConnected) {
+    try {
+      await initAiTrainingLogsTable();
+      const [rows] = await pool.execute(
+        'SELECT COUNT(*)::int AS total, COALESCE(SUM(CASE WHEN is_approved THEN 1 ELSE 0 END), 0)::int AS approved FROM ai_training_logs'
+      );
+      totalLogs = rows[0]?.total || 0;
+      approvedLogs = rows[0]?.approved || 0;
+    } catch { }
+  }
+  return res.json({
+    configured: cfg.configured,
+    model: cfg.model,
+    tunedModel: cfg.tunedModel,
+    totalTrainingLogs: totalLogs,
+    approvedTrainingLogs: approvedLogs,
+  });
+});
+
+// 1. AI TƯ VẤN & GỢI Ý NGƯỜI CHĂM SÓC (AI CARE MATCHER)
+app.post('/api/ai/match-caregiver', async (req, res) => {
+  const { query, familyUserId, elderlyProfileId } = req.body || {};
+  if (!query || !String(query).trim()) {
+    return res.status(400).json({ error: 'Vui lòng mô tả nhu cầu chăm sóc người thân.' });
+  }
+  if (!isMySqlConnected) {
+    await initMySql();
+  }
+  if (!isMySqlConnected) {
+    return res.status(503).json({ error: 'Chưa kết nối cơ sở dữ liệu.' });
+  }
+
+  try {
+    const [cgRows] = await pool.execute(`
+      SELECT u.id AS user_id, u.full_name, cp.title, cp.experience_years, cp.care_score,
+             cp.shift_rate, cp.night_shift_rate, cp.district, cp.skills, cp.bio, cp.rating,
+             cp.verification_status
+      FROM users u
+      JOIN caregiver_profiles cp ON u.id = cp.user_id
+      WHERE u.role = 'caregiver'
+      ORDER BY COALESCE(cp.care_score, 0) DESC, u.id ASC
+    `);
+
+    let elderlyContext = null;
+    if (elderlyProfileId) {
+      const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE id = ? LIMIT 1', [Number(elderlyProfileId)]);
+      if (eRows.length > 0) elderlyContext = eRows[0];
+    } else if (familyUserId) {
+      const [eRows] = await pool.execute('SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 3', [Number(familyUserId)]);
+      if (eRows.length > 0) elderlyContext = eRows;
+    }
+
+    const caregiversSummary = cgRows.map((r) => ({
+      caregiver_id: String(r.user_id),
+      name: r.full_name,
+      title: r.title,
+      experience_years: Number(r.experience_years) || 1,
+      care_score: Number(r.care_score) || 90,
+      shift_rate_vnd: Number(r.shift_rate) || 400000,
+      night_shift_rate_vnd: Number(r.night_shift_rate) || 600000,
+      district: r.district || 'Hà Nội',
+      skills: parseJson(r.skills, []),
+      bio: r.bio || '',
+      rating: Number(r.rating) || 4.8,
+      verification_status: r.verification_status,
+    }));
+
+    const systemInstruction = `Bạn là chuyên gia điều phối chăm sóc người cao tuổi của nền tảng CARE-MATCH Việt Nam.
+Nhiệm vụ: dựa vào nhu cầu gia đình và danh sách chuyên viên chăm sóc có sẵn trong hệ thống, hãy chọn tối đa 3 người phù hợp nhất.
+Chỉ dùng đúng caregiver_id và số liệu từ danh sách được cung cấp, KHÔNG bịa người không có trong danh sách.
+Trả về JSON đúng cấu trúc:
+{
+  "summary": "Nhận xét ngắn gọn 1-2 câu bằng tiếng Việt ấm áp, chuyên nghiệp",
+  "recommendations": [
+    {
+      "caregiver_id": "id chuỗi",
+      "name": "tên chuyên viên",
+      "match_score": 95,
+      "shift_rate": 400000,
+      "district": "khu vực",
+      "reasons": ["lý do 1", "lý do 2"]
+    }
+  ],
+  "care_advice": "1 lời khuyên ngắn về lưu ý chăm sóc hoặc gợi ý hỏi thêm"
+}`;
+
+    const userInputPayload = {
+      family_request: String(query).trim(),
+      elderly_profile: elderlyContext,
+      available_caregivers: caregiversSummary,
+    };
+
+    const aiRes = await callGemini({
+      systemInstruction,
+      parts: [{ text: JSON.stringify(userInputPayload) }],
+      responseSchemaJson: true,
+      temperature: 0.3,
+    });
+
+    await initAiTrainingLogsTable();
+    const logId = await logAiTrainingSample(pool, isMySqlConnected, {
+      taskType: 'care_matcher',
+      systemInstruction,
+      userInput: userInputPayload,
+      modelOutput: aiRes.parsed,
+      modelUsed: aiRes.model,
+    });
+
+    return res.json({
+      success: true,
+      model: aiRes.model,
+      trainingLogId: logId,
+      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { summary: aiRes.rawText, recommendations: [] }),
+    });
+  } catch (err) {
+    console.error('Lỗi AI match-caregiver:', err.message);
+    return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
+
+// 2. AI PHÂN TÍCH & TÓM TẮT SỔ THEO DÕI SỨC KHỎE SAU CA (PATIENT CARE LOGS)
+app.post('/api/ai/summarize-care-logs', async (req, res) => {
+  const { elderlyProfileId, elderlyName, familyUserId, limit = 10 } = req.body || {};
+  if (!isMySqlConnected) {
+    await initMySql();
+  }
+  if (!isMySqlConnected) {
+    return res.status(503).json({ error: 'Chưa kết nối cơ sở dữ liệu.' });
+  }
+
+  try {
+    let sql = 'SELECT * FROM patient_care_logs WHERE 1=1';
+    const params = [];
+    if (elderlyProfileId) {
+      sql += ' AND elderly_profile_id = ?';
+      params.push(Number(elderlyProfileId));
+    } else if (elderlyName) {
+      sql += ' AND elderly_name ILIKE ?';
+      params.push(`%${String(elderlyName).trim()}%`);
+    } else if (familyUserId) {
+      sql += ' AND family_user_id = ?';
+      params.push(Number(familyUserId));
+    }
+    sql += ` ORDER BY log_date DESC, created_at DESC LIMIT ${Math.min(20, Math.max(1, Number(limit) || 10))}`;
+
+    const [logs] = await pool.execute(sql, params);
+    if (logs.length === 0) {
+      return res.status(404).json({ error: 'Chưa có nhật ký chăm sóc nào cho người bệnh này để AI phân tích.' });
+    }
+
+    const compactLogs = logs.map((l) => ({
+      date: l.log_date,
+      time_slot: l.time_slot,
+      caregiver: l.caregiver_name,
+      bp: `${l.blood_pressure_systolic}/${l.blood_pressure_diastolic}`,
+      heart_rate: l.heart_rate,
+      temp_c: l.temperature,
+      spo2: l.spo2,
+      blood_sugar: l.blood_sugar,
+      meal: l.meal_status,
+      medication: l.medication_status,
+      sleep_mood: l.sleep_mood,
+      mobility: l.mobility_exercise,
+      condition: l.overall_condition,
+      notes: l.caregiver_notes,
+    }));
+
+    const systemInstruction = `Bạn là trợ lý phân tích hồ sơ theo dõi sức khỏe người cao tuổi của CARE-MATCH.
+Hãy phân tích chuỗi chỉ số sinh hiệu và ghi chú qua các ca dưới góc độ hỗ trợ gia đình nắm bắt tình hình (không thay thế chẩn đoán bác sĩ).
+Trả về JSON đúng cấu trúc:
+{
+  "overall_status": "stable" | "attention" | "warning",
+  "headline": "Tiêu đề tóm tắt ngắn gọn (vd: Sức khỏe ổn định qua 3 ca gần nhất)",
+  "summary": "Đoạn tóm tắt dễ hiểu 2-3 câu dành cho người nhà",
+  "vital_trends": {
+    "blood_pressure": "Nhận xét huyết áp",
+    "heart_rate_temp": "Nhận xét nhịp tim & thân nhiệt",
+    "nutrition_sleep": "Nhận xét ăn uống, thuốc & giấc ngủ"
+  },
+  "alerts": ["Cảnh báo nếu có chỉ số cao/thấp bất thường, không có thì mảng rỗng"],
+  "recommendations_for_family": ["Gợi ý 1 cho gia đình", "Gợi ý 2"],
+  "recommendations_for_next_shift": ["Lưu ý cho điều dưỡng ca tiếp theo"]
+}`;
+
+    const userInputPayload = {
+      patient_name: logs[0].elderly_name,
+      total_logs: compactLogs.length,
+      logs: compactLogs,
+    };
+
+    const aiRes = await callGemini({
+      systemInstruction,
+      parts: [{ text: JSON.stringify(userInputPayload) }],
+      responseSchemaJson: true,
+      temperature: 0.3,
+    });
+
+    await initAiTrainingLogsTable();
+    const logId = await logAiTrainingSample(pool, isMySqlConnected, {
+      taskType: 'care_log_summary',
+      systemInstruction,
+      userInput: userInputPayload,
+      modelOutput: aiRes.parsed,
+      modelUsed: aiRes.model,
+    });
+
+    return res.json({
+      success: true,
+      model: aiRes.model,
+      patientName: logs[0].elderly_name,
+      analyzedCount: logs.length,
+      trainingLogId: logId,
+      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { summary: aiRes.rawText }),
+    });
+  } catch (err) {
+    console.error('Lỗi AI summarize-care-logs:', err.message);
+    return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
+
+// 3A. AI CHUẨN HÓA BÁO CÁO BÀN GIAO SAU CA (CHO ĐIỀU DƯỠNG)
+app.post('/api/ai/draft-shift-report', async (req, res) => {
+  const { quickNotes, bpSys, bpDia, heartRate, temp, spo2, bloodSugar, condition, patientName } = req.body || {};
+
+  const systemInstruction = `Bạn là trợ lý điều dưỡng của CARE-MATCH.
+Nhiệm vụ: dựa vào chỉ số sinh hiệu và ghi chú vắn tắt của chuyên viên chăm sóc, hãy viết thành một đoạn "Ghi chú & Dặn dò ca tiếp theo" rõ ràng, chuyên nghiệp, ấm áp và dễ hiểu cho người nhà bệnh nhân (3-5 câu).
+Trả về JSON:
+{
+  "draft_notes": "Nội dung báo cáo bàn giao hoàn chỉnh bằng tiếng Việt",
+  "suggested_condition": "good" | "normal" | "attention" | "warning"
+}`;
+
+  const userInputPayload = {
+    patient_name: patientName || 'Người cao tuổi',
+    vitals: {
+      blood_pressure: `${bpSys || 120}/${bpDia || 80} mmHg`,
+      heart_rate: `${heartRate || 75} bpm`,
+      temperature: `${temp || 36.8} °C`,
+      spo2: spo2 ? `${spo2}%` : 'Không đo',
+      blood_sugar: bloodSugar ? `${bloodSugar} mmol/L` : 'Không đo',
+    },
+    current_condition_flag: condition || 'good',
+    quick_notes: quickNotes || 'Ca làm diễn ra bình thường, người bệnh hợp tác tốt.',
+  };
+
+  try {
+    const aiRes = await callGemini({
+      systemInstruction,
+      parts: [{ text: JSON.stringify(userInputPayload) }],
+      responseSchemaJson: true,
+      temperature: 0.4,
+    });
+
+    await initAiTrainingLogsTable();
+    const logId = await logAiTrainingSample(pool, isMySqlConnected, {
+      taskType: 'shift_report_draft',
+      systemInstruction,
+      userInput: userInputPayload,
+      modelOutput: aiRes.parsed,
+      modelUsed: aiRes.model,
+    });
+
+    return res.json({
+      success: true,
+      model: aiRes.model,
+      trainingLogId: logId,
+      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { draft_notes: aiRes.rawText }),
+    });
+  } catch (err) {
+    console.error('Lỗi AI draft-shift-report:', err.message);
+    return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
+
+// 3B. AI KIỂM TRA ẢNH eKYC / CHỨNG CHỈ Y TẾ ĐA PHƯƠNG THỨC (GEMINI VISION)
+app.post('/api/ai/verify-document', async (req, res) => {
+  const { dataUrl, documentType } = req.body || {};
+  const imagePart = parseDataUrlToGeminiPart(dataUrl);
+  if (!imagePart) {
+    return res.status(400).json({ error: 'Thiếu ảnh hoặc định dạng dataUrl (base64) không hợp lệ.' });
+  }
+
+  const docTypeLabels = {
+    cccd_front: 'CCCD gắn chip mặt trước',
+    cccd_back: 'CCCD gắn chip mặt sau',
+    cccd: 'Căn cước công dân',
+    police_check: 'Phiếu lý lịch tư pháp',
+    medical_certificate: 'Chứng chỉ / Bằng cấp y tế điều dưỡng',
+    health_check: 'Giấy khám sức khỏe',
+  };
+  const expectedLabel = docTypeLabels[documentType] || documentType || 'Giấy tờ xác thực eKYC';
+
+  const systemInstruction = `Bạn là hệ thống kiểm tra sơ bộ tài liệu xác thực eKYC của nền tảng CARE-MATCH.
+Hãy quan sát ảnh người dùng tải lên, đối chiếu với loại giấy tờ kỳ vọng ("${expectedLabel}"), đánh giá độ rõ nét và trích xuất thông tin cơ bản nếu nhìn thấy rõ.
+Trả về JSON đúng cấu trúc:
+{
+  "is_valid_image": true/false,
+  "matches_expected_type": true/false,
+  "clarity": "clear" | "blurry" | "cropped",
+  "detected_type": "Tên loại giấy tờ nhận diện được",
+  "id_number": "Số CCCD 12 chữ số nếu có, không thì chuỗi rỗng",
+  "full_name": "Họ tên trên giấy tờ nếu đọc được, không thì chuỗi rỗng",
+  "warnings": ["Danh sách cảnh báo nếu mờ/mất góc/sai loại giấy tờ, không có thì mảng rỗng"],
+  "summary": "Nhận xét ngắn gọn 1 câu bằng tiếng Việt"
+}`;
+
+  try {
+    const aiRes = await callGemini({
+      systemInstruction,
+      parts: [
+        { text: `Hãy kiểm tra ảnh tài liệu loại: ${expectedLabel}` },
+        imagePart,
+      ],
+      responseSchemaJson: true,
+      temperature: 0.1,
+    });
+
+    // Không lưu ảnh CCCD thô vào ai_training_logs để bảo vệ dữ liệu cá nhân
+    await initAiTrainingLogsTable();
+    await logAiTrainingSample(pool, isMySqlConnected, {
+      taskType: 'ekyc_document_check',
+      systemInstruction,
+      userInput: { expected_document_type: expectedLabel, image_omitted_for_privacy: true },
+      modelOutput: aiRes.parsed,
+      modelUsed: aiRes.model,
+    });
+
+    return res.json({
+      success: true,
+      model: aiRes.model,
+      ...(typeof aiRes.parsed === 'object' ? aiRes.parsed : { summary: aiRes.rawText }),
+    });
+  } catch (err) {
+    console.error('Lỗi AI verify-document:', err.message);
+    return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
+
+// 4. QUẢN LÝ & XUẤT DỮ LIỆU FINE-TUNE VERTEX AI (.JSONL) CHO ADMIN
+app.get('/api/ai/training-logs', async (req, res) => {
+  if (!isMySqlConnected) return res.json([]);
+  try {
+    await initAiTrainingLogsTable();
+    const [rows] = await pool.execute('SELECT * FROM ai_training_logs ORDER BY created_at DESC LIMIT 100');
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/ai/training-logs/:id', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  const id = Number(req.params.id);
+  const { edited_output, rating, is_approved } = req.body || {};
+  try {
+    await pool.execute(
+      `UPDATE ai_training_logs SET
+        edited_output = COALESCE(?, edited_output),
+        rating = COALESCE(?, rating),
+        is_approved = COALESCE(?, is_approved)
+       WHERE id = ?`,
+      [
+        edited_output !== undefined ? (typeof edited_output === 'string' ? edited_output : JSON.stringify(edited_output)) : null,
+        rating !== undefined ? Number(rating) : null,
+        is_approved !== undefined ? Boolean(is_approved) : null,
+        id,
+      ]
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/ai/export-finetune-jsonl', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).send('Database not connected');
+  try {
+    await initAiTrainingLogsTable();
+    const [rows] = await pool.execute(
+      "SELECT * FROM ai_training_logs WHERE is_approved = TRUE AND task_type != 'ekyc_document_check' ORDER BY id ASC"
+    );
+
+    const lines = rows.map((r) =>
+      JSON.stringify({
+        systemInstruction: {
+          role: 'system',
+          parts: [{ text: r.system_instruction }],
+        },
+        contents: [
+          { role: 'user', parts: [{ text: r.user_input }] },
+          { role: 'model', parts: [{ text: r.edited_output || r.model_output }] },
+        ],
+      })
+    );
+
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="carematch_vertex_finetune.jsonl"');
+    return res.send(lines.join('\n'));
+  } catch (err) {
+    return res.status(500).send('Lỗi xuất JSONL: ' + err.message);
   }
 });
 
