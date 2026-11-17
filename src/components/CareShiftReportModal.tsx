@@ -140,12 +140,12 @@ export function CareShiftReportModal({
         if (data.suggested_condition && ['good', 'normal', 'attention', 'warning'].includes(data.suggested_condition)) {
           setCondition(data.suggested_condition);
         }
-        notify('✨ AI đã chuẩn hóa báo cáo bàn giao từ chỉ số sinh hiệu và ghi chú của bạn!');
+        notify('✨ CareMatchAI đã chuẩn hóa báo cáo bàn giao từ chỉ số sinh hiệu và ghi chú của bạn!');
       } else {
-        notify(data.error || 'Không thể tạo nháp báo cáo AI lúc này.');
+        notify(data.error || 'Không thể tạo nháp báo cáo CareMatchAI lúc này.');
       }
     } catch {
-      notify('Lỗi kết nối trợ lý AI.');
+      notify('Lỗi kết nối CareMatchAI.');
     } finally {
       setAiDrafting(false);
     }
@@ -472,14 +472,14 @@ export function CareShiftReportModal({
                   className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-50"
                 >
                   {aiDrafting ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                  {aiDrafting ? 'AI đang viết...' : 'AI chuẩn hóa báo cáo'}
+                  {aiDrafting ? 'CareMatchAI đang viết...' : 'CareMatchAI chuẩn hóa báo cáo'}
                 </button>
               </div>
               <textarea
                 rows={3}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="Ghi vài ý ngắn (vd: ăn hết cháo, uống thuốc đúng giờ...) rồi bấm 'AI chuẩn hóa báo cáo', hoặc tự nhập chi tiết..."
+                placeholder="Ghi vài ý ngắn (vd: ăn hết cháo, uống thuốc đúng giờ...) rồi bấm 'CareMatchAI chuẩn hóa báo cáo', hoặc tự nhập chi tiết..."
                 className="w-full bg-stone-50 border border-stone-200 rounded-xl p-3 text-stone-800 text-xs focus:outline-none focus:bg-white focus:border-emerald-600 transition"
               />
             </div>

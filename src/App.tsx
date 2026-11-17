@@ -1966,7 +1966,7 @@ function Dashboard({ notify, currentUser }: { notify: (message: string) => void;
                 </span>
               </div>
               <p className="text-[12.5px] text-gray-600 mt-1 leading-relaxed">
-                ⭐ Ưu tiên tìm người & ghép đôi AI (CARE SCORE 95đ+) · 📅 Ưu tiên đặt lịch Lễ Tết & giờ vàng · ⚡ Hỗ trợ CSKH 15 phút · 🩺 Hotline y tế trực 24/7.
+                ⭐ Ưu tiên tìm người & ghép đôi CareMatchAI (CARE SCORE 95đ+) · 📅 Ưu tiên đặt lịch Lễ Tết & giờ vàng · ⚡ Hỗ trợ CSKH 15 phút · 🩺 Hotline y tế trực 24/7.
               </p>
             </div>
           </div>
@@ -2802,7 +2802,7 @@ function Matches({ notify }: { notify: (message: string) => void }) {
               className="bg-gradient-to-r from-[#2c4e2a] to-[#3f6d3c] text-white hover:opacity-95 shadow-sm"
               testId="button-open-ai-matcher"
             >
-              <Sparkles size={15} className="text-[#f3d485]" /> Tư vấn tìm người bằng AI
+              <Sparkles size={15} className="text-[#f3d485]" /> Tư vấn tìm người bằng CareMatchAI
             </Button>
             <Button variant="outline" onClick={() => { setLoading(true); fetchCaregivers().finally(() => setLoading(false)); notify('Đã cập nhật danh sách người chăm sóc mới nhất.'); }}>
               Làm mới danh sách
@@ -9663,7 +9663,7 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       <tr>
-                        <td className="py-2.5 px-3 font-semibold text-gray-800">Ưu tiên tìm người & Ghép ca AI</td>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">Ưu tiên tìm người & Ghép ca CareMatchAI</td>
                         <td className="py-2.5 px-3 text-center text-gray-500">Theo thuật toán thông thường</td>
                         <td className="py-2.5 px-3 text-center font-bold text-[#8a5b12] bg-amber-50/30">⭐ Ưu tiên số 1 (CARE SCORE 95đ+)</td>
                       </tr>
@@ -10932,17 +10932,17 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
               </Card>
             </div>
 
-            {/* Card AI & Xuất dữ liệu huấn luyện (.JSONL) */}
+            {/* Card CareMatchAI & Xuất dữ liệu huấn luyện (.JSONL) */}
             <div className="rounded-2xl bg-gradient-to-r from-[#f2f7f0] to-[#faf7ef] border border-[#c8dcc2] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Sparkles size={16} className="text-emerald-700" />
                   <h4 className="font-display font-bold text-[15px] text-gray-900">
-                    Trợ Lý AI & Xuất Dữ Liệu Huấn Luyện (.JSONL)
+                    CareMatchAI & Xuất Dữ Liệu Huấn Luyện (.JSONL)
                   </h4>
                 </div>
                 <p className="text-[12px] text-gray-600">
-                  Mọi lượt AI gợi ý người chăm sóc, phân tích sinh hiệu & chuẩn hóa báo cáo ca đều được lưu vào bảng <code>ai_training_logs</code> trên Supabase để xuất file <code>.jsonl</code> phục vụ huấn luyện AI.
+                  Mọi lượt CareMatchAI gợi ý người chăm sóc, phân tích sinh hiệu & chuẩn hóa báo cáo ca đều được lưu vào bảng <code>ai_training_logs</code> trên Supabase để xuất file <code>.jsonl</code> phục vụ huấn luyện CareMatchAI.
                 </p>
               </div>
               <a

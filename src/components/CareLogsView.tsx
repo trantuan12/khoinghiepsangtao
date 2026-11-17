@@ -258,13 +258,13 @@ export function CareLogsView({
       });
       const data = await res.json();
       if (!res.ok) {
-        notify(data.error || 'Chưa đủ dữ liệu nhật ký để AI phân tích.', 'error');
+        notify(data.error || 'Chưa đủ dữ liệu nhật ký để CareMatchAI phân tích.', 'error');
       } else {
         setAiAnalysis(data);
-        notify(`✨ AI đã phân tích xong hồ sơ sức khỏe của ${currentSelectedPatient.full_name}!`, 'success');
+        notify(`✨ CareMatchAI đã phân tích xong hồ sơ sức khỏe của ${currentSelectedPatient.full_name}!`, 'success');
       }
     } catch {
-      notify('Lỗi kết nối trợ lý AI.', 'error');
+      notify('Lỗi kết nối CareMatchAI.', 'error');
     } finally {
       setAiLoading(false);
     }
@@ -679,7 +679,7 @@ export function CareLogsView({
         </div>
       )}
 
-      {/* KHỐI AI PHÂN TÍCH XU HƯỚNG SỨC KHỎE */}
+      {/* KHỐI CAREMATCHAI PHÂN TÍCH XU HƯỚNG SỨC KHỎE */}
       {currentSelectedPatient && (
         <div className="rounded-2xl bg-gradient-to-br from-[#f3f8f1] via-white to-[#f7f4ec] border border-[#c9dec2] p-4 sm:p-5 shadow-xs space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -689,7 +689,7 @@ export function CareLogsView({
               </div>
               <div>
                 <h3 className="text-[14px] font-bold text-stone-900">
-                  AI Phân Tích Xu Hướng Sức Khỏe · {currentSelectedPatient.full_name}
+                  CareMatchAI Phân Tích Xu Hướng Sức Khỏe · {currentSelectedPatient.full_name}
                 </h3>
                 <p className="text-[11.5px] text-stone-500">
                   Tổng hợp huyết áp, nhịp tim, đường huyết & ghi chú qua các ca thành nhận xét dễ hiểu
@@ -703,7 +703,7 @@ export function CareLogsView({
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white px-4 py-2 text-[12.5px] font-bold transition cursor-pointer disabled:opacity-50 shrink-0"
             >
               <Sparkles size={14} className={aiLoading ? 'animate-spin' : ''} />
-              {aiLoading ? 'AI đang phân tích...' : aiAnalysis ? 'Phân tích lại' : 'AI Tóm tắt sức khỏe'}
+              {aiLoading ? 'CareMatchAI đang phân tích...' : aiAnalysis ? 'Phân tích lại' : 'CareMatchAI Tóm tắt sức khỏe'}
             </button>
           </div>
 

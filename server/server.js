@@ -6714,7 +6714,7 @@ app.post('/api/ai/summarize-care-logs', async (req, res) => {
 
     const [logs] = await pool.execute(sql, params);
     if (logs.length === 0) {
-      return res.status(404).json({ error: 'Chưa có nhật ký chăm sóc nào cho người bệnh này để AI phân tích.' });
+      return res.status(404).json({ error: 'Chưa có nhật ký chăm sóc nào cho người bệnh này để CareMatchAI phân tích.' });
     }
 
     const compactLogs = logs.map((l) => ({

@@ -582,7 +582,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
     const certDoc = documents.find(d => d.type === 'medical_certificate' || d.type === 'police_check' || d.type === 'health_check');
     const targetDoc = frontDoc || certDoc || documents[0];
     if (!targetDoc || !targetDoc.url || !targetDoc.url.startsWith('data:image')) {
-      notify('Vui lòng tải lên ít nhất 1 ảnh CCCD mặt trước hoặc chứng chỉ dạng ảnh (JPG/PNG) trước khi kiểm tra AI.');
+      notify('Vui lòng tải lên ít nhất 1 ảnh CCCD mặt trước hoặc chứng chỉ dạng ảnh (JPG/PNG) trước khi kiểm tra bằng CareMatchAI.');
       return;
     }
 
@@ -599,19 +599,19 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
       });
       const data = await res.json();
       if (!res.ok) {
-        notify(data.error || 'Không thể kiểm tra ảnh tài liệu bằng AI.');
+        notify(data.error || 'Không thể kiểm tra ảnh tài liệu bằng CareMatchAI.');
       } else {
         setAiDocCheckResult(data);
         if (data.id_number && !formData.idNumber) {
           setFormData(prev => ({ ...prev, idNumber: String(data.id_number).trim() }));
           hasUnsavedChangesRef.current = true;
-          notify(`✨ AI đã kiểm tra ảnh và tự động điền số CCCD: ${data.id_number}!`);
+          notify(`✨ CareMatchAI đã kiểm tra ảnh và tự động điền số CCCD: ${data.id_number}!`);
         } else {
-          notify(data.summary || '✨ AI đã hoàn tất kiểm tra sơ bộ tài liệu eKYC!');
+          notify(data.summary || '✨ CareMatchAI đã hoàn tất kiểm tra sơ bộ tài liệu eKYC!');
         }
       }
     } catch {
-      notify('Lỗi kết nối tới dịch vụ AI kiểm tra eKYC.');
+      notify('Lỗi kết nối tới dịch vụ CareMatchAI kiểm tra eKYC.');
     } finally {
       setAiCheckingDoc(false);
     }
@@ -1618,11 +1618,11 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                 </p>
               )}
 
-              {/* Thanh kiểm tra sơ bộ eKYC bằng AI */}
+              {/* Thanh kiểm tra sơ bộ eKYC bằng CareMatchAI */}
               <div className="mt-3 rounded-2xl bg-[#f3f8f1] border border-[#cde0c8] p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="text-[11.5px] text-[#284527]">
                   <strong className="flex items-center gap-1.5">
-                    <Sparkles size={13} className="text-amber-600" /> AI Kiểm Tra Sơ Bộ Hồ Sơ eKYC
+                    <Sparkles size={13} className="text-amber-600" /> CareMatchAI Kiểm Tra Sơ Bộ Hồ Sơ eKYC
                   </strong>
                   <span className="text-[11px] text-[#4c694b]">
                     Tự động kiểm tra ảnh rõ nét & trích xuất số CCCD trước khi gửi Admin duyệt
@@ -1635,7 +1635,7 @@ export function CaregiverPortal({ notify, onNavigateToRole, currentUser, initial
                   className="rounded-xl bg-[#2f522d] hover:bg-[#234022] text-white px-3.5 py-2 text-[11.5px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-50 shrink-0"
                 >
                   <Sparkles size={13} className={aiCheckingDoc ? 'animate-spin' : ''} />
-                  {aiCheckingDoc ? 'AI đang đọc ảnh...' : 'Kiểm tra ảnh bằng AI'}
+                  {aiCheckingDoc ? 'CareMatchAI đang đọc ảnh...' : 'Kiểm tra ảnh bằng CareMatchAI'}
                 </button>
               </div>
 

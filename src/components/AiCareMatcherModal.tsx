@@ -75,12 +75,12 @@ export function AiCareMatcherModal({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Không thể kết nối trợ lý AI lúc này.');
+        setError(data.error || 'Không thể kết nối CareMatchAI lúc này.');
       } else {
         setResult(data);
       }
     } catch {
-      setError('Lỗi kết nối tới máy chủ AI.');
+      setError('Lỗi kết nối tới máy chủ CareMatchAI.');
     } finally {
       setLoading(false);
     }
@@ -97,10 +97,10 @@ export function AiCareMatcherModal({
             </div>
             <div>
               <h3 className="font-display text-[18px] font-bold">
-                Trợ Lý AI Tư Vấn & Gợi Ý Người Chăm Sóc
+                CareMatchAI Tư Vấn & Gợi Ý Người Chăm Sóc
               </h3>
               <p className="text-[11.5px] text-emerald-100/85">
-                Phân tích nhu cầu bệnh lý & ghép nối từ hồ sơ chuyên viên thực tế bằng AI
+                Phân tích nhu cầu bệnh lý & ghép nối từ hồ sơ chuyên viên thực tế bằng CareMatchAI
               </p>
             </div>
           </div>
@@ -167,7 +167,7 @@ export function AiCareMatcherModal({
                 <div className="rounded-2xl bg-[#f2f7f0] border border-[#cbe0c5] p-4">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-[#2f572d] flex items-center gap-1.5">
-                      <Sparkles size={13} /> Đánh giá từ Trợ lý AI CareMatch
+                      <Sparkles size={13} /> Đánh giá từ CareMatchAI
                     </span>
                   </div>
                   <p className="text-[13px] text-gray-800 leading-relaxed">{result.summary}</p>

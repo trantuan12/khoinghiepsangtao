@@ -185,7 +185,7 @@ export function FamilyPremiumModal({
 
   const comparisonRows = [
     {
-      feature: 'Ưu tiên tìm người & Ghép đôi AI',
+      feature: 'Ưu tiên tìm người & Ghép đôi CareMatchAI',
       desc: 'Tự động gợi ý và ưu tiên kết nối với Điều dưỡng & Người chăm sóc có CARE SCORE cao nhất (95đ+).',
       standard: 'Ghép đôi thông thường',
       premium: '⭐ Ưu tiên số 1 (CARE SCORE 95đ+)',
