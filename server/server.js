@@ -4695,13 +4695,13 @@ app.get('/api/admin/payments/stats', async (req, res) => {
   try {
     const [rows] = await pool.execute(`
       SELECT 
-        COALESCE(SUM(total_amount), 0) AS totalRevenue,
-        COALESCE(SUM(CASE WHEN family_payment_status = 'paid' THEN total_amount ELSE 0 END), 0) AS paidAmount,
-        COALESCE(SUM(CASE WHEN family_payment_status = 'pending' THEN total_amount ELSE 0 END), 0) AS pendingAmount,
-        COALESCE(SUM(CASE WHEN caregiver_payout_status = 'paid' THEN payout_amount ELSE 0 END), 0) AS caregiverPayoutTotal,
-        COALESCE(SUM(CASE WHEN caregiver_payout_status = 'pending' OR caregiver_payout_status = 'processing' THEN payout_amount ELSE 0 END), 0) AS caregiverPayoutPending,
-        COALESCE(SUM(CASE WHEN family_payment_status = 'paid' THEN platform_fee ELSE 0 END), 0) AS platformFeeTotal,
-        COUNT(*) AS transactionCount
+        COALESCE(SUM(total_amount), 0) AS "totalRevenue",
+        COALESCE(SUM(CASE WHEN family_payment_status = 'paid' THEN total_amount ELSE 0 END), 0) AS "paidAmount",
+        COALESCE(SUM(CASE WHEN family_payment_status = 'pending' THEN total_amount ELSE 0 END), 0) AS "pendingAmount",
+        COALESCE(SUM(CASE WHEN caregiver_payout_status = 'paid' THEN payout_amount ELSE 0 END), 0) AS "caregiverPayoutTotal",
+        COALESCE(SUM(CASE WHEN caregiver_payout_status = 'pending' OR caregiver_payout_status = 'processing' THEN payout_amount ELSE 0 END), 0) AS "caregiverPayoutPending",
+        COALESCE(SUM(CASE WHEN family_payment_status = 'paid' THEN platform_fee ELSE 0 END), 0) AS "platformFeeTotal",
+        COUNT(*) AS "transactionCount"
       FROM transactions
     `);
     const r = rows[0] || {};
