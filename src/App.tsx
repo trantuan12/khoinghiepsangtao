@@ -16,6 +16,7 @@ import { CareShiftReportModal } from '@/components/CareShiftReportModal';
 import { PatientMedicalHistoryModal } from '@/components/PatientMedicalHistoryModal';
 import { AiCareMatcherModal } from '@/components/AiCareMatcherModal';
 import { CareMatchChatBubble, CareMatchChatPanel } from '@/components/CareMatchChatbot';
+import { CareMatchAiStudioCard } from '@/components/CareMatchAiStudioCard';
 import { useDeviceDetect } from '@/lib/useDeviceDetect';
 import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -10986,28 +10987,8 @@ function Admin({ notify }: { notify: (message: string, actionLink?: string, acti
               </Card>
             </div>
 
-            {/* Card CareMatchAI & Xuất dữ liệu huấn luyện (.JSONL) */}
-            <div className="rounded-2xl bg-gradient-to-r from-[#f2f7f0] to-[#faf7ef] border border-[#c8dcc2] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={16} className="text-emerald-700" />
-                  <h4 className="font-display font-bold text-[15px] text-gray-900">
-                    CareMatchAI & Xuất Dữ Liệu Huấn Luyện (.JSONL)
-                  </h4>
-                </div>
-                <p className="text-[12px] text-gray-600">
-                  Mọi lượt CareMatchAI gợi ý người chăm sóc, phân tích sinh hiệu & chuẩn hóa báo cáo ca đều được lưu vào bảng <code>ai_training_logs</code> trên Supabase để xuất file <code>.jsonl</code> phục vụ huấn luyện CareMatchAI.
-                </p>
-              </div>
-              <a
-                href={`${API}/ai/export-finetune-jsonl`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#294927] hover:bg-[#1f391e] text-white px-4 py-2.5 text-[12.5px] font-bold transition shrink-0 shadow-xs"
-              >
-                <Download size={15} /> Tải Dataset Fine-tune (.JSONL)
-              </a>
-            </div>
+            {/* Card Trung tâm Tri thức & Huấn luyện CareMatchAI */}
+            <CareMatchAiStudioCard notify={notify} />
 
             {/* Bottom Save Bar */}
             <div className="flex items-center justify-between p-4.5 rounded-2xl bg-white border border-gray-200 shadow-sm flex-wrap gap-3">

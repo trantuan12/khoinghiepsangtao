@@ -8,6 +8,7 @@ export interface CareMatchChatMessage {
   content: string;
   time: string;
   quickReplies?: string[];
+  grounded?: boolean;
 }
 
 export interface CareMatchChatUserContext {
@@ -29,22 +30,29 @@ function nowTime() {
 function getDefaultPrompts(userRole?: string): string[] {
   if (userRole === 'caregiver') {
     return [
-      'Cách chuẩn bị hồ sơ eKYC để được duyệt nhanh?',
-      'Quy trình hoàn thành ca & viết báo cáo sinh hiệu',
-      'CARE SCORE được tính như thế nào?',
+      'Xem lịch nhận ca hiện tại của tôi',
+      'Thu nhập và các giao dịch gần đây của tôi',
+      'Cách nâng điểm CARE SCORE & hoàn thành ca',
     ];
   }
   if (userRole === 'admin') {
     return [
-      'Hướng dẫn duyệt hồ sơ chuyên viên eKYC',
-      'Cách theo dõi log sinh hiệu & chỉ số bất thường',
-      'Xuất dữ liệu huấn luyện CareMatchAI ở đâu?',
+      'Thống kê hồ sơ chờ duyệt & doanh thu hệ thống',
+      'Xem lịch chăm sóc gần nhất trên hệ thống',
+      'Kiểm tra nhật ký sinh hiệu bệnh nhân mới nhất',
+    ];
+  }
+  if (userRole === 'family') {
+    return [
+      'Tìm chuyên viên chăm sóc ở quận Đống Đa',
+      'Xem lịch chăm sóc sắp tới của gia đình tôi',
+      'Chỉ số sinh hiệu mới nhất của người thân thế nào?',
     ];
   }
   return [
-    'Tư vấn tìm chuyên viên chăm sóc người cao tuổi',
-    'Quy trình đặt lịch & thanh toán an toàn',
-    'Chính sách bảo mật & eKYC tại CareMatch',
+    'Tìm chuyên viên chăm sóc tại Hà Nội',
+    'Bảng giá ca chăm sóc & quy trình đặt lịch',
+    'Chính sách thẩm định eKYC tại CareMatch',
   ];
 }
 
@@ -150,6 +158,7 @@ export function useCareMatchChat({ userRole = 'guest', userId = null, userName =
         content: botText,
         time: nowTime(),
         quickReplies: Array.isArray(data?.quick_replies) ? data.quick_replies : undefined,
+        grounded: Boolean(data?.grounded),
       };
       persistAndBroadcast([...withUser, botMsg]);
     } catch {
@@ -300,7 +309,14 @@ export function CareMatchChatPanel({
                 >
                   {m.content}
                 </div>
-                <span className="mt-1 px-1 text-[10px] text-gray-400">{m.time}</span>
+                <span className="mt-1 px-1 text-[10px] text-gray-400 flex items-center gap-1.5">
+                  <span>{m.time}</span>
+                  {!isUser && m.grounded && (
+                    <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.2 text-[9px] font-semibold">
+                      Đã tra cứu dữ liệu hệ thống
+                    </span>
+                  )}
+                </span>
               </div>
             </div>
           );

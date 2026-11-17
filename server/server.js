@@ -6,7 +6,8 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { pool, getPgPool, getDbSummary } from './db.js';
-import { callGemini, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
+import { callGemini, callGeminiWithTools, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
+import { CAREMATCH_CHAT_TOOL_DECLARATIONS, executeCareMatchTool, loadAiGroundingKnowledge } from './aiTools.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -6905,7 +6906,7 @@ Trả về JSON đúng cấu trúc:
   }
 });
 
-// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT (CAREMATCHAI)
+// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT + TRUY XUẤT DỮ LIỆU LIVE (CAREMATCHAI)
 app.post('/api/ai/chat', async (req, res) => {
   const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
   const userText = String(message || '').trim();
@@ -6913,41 +6914,13 @@ app.post('/api/ai/chat', async (req, res) => {
     return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
   }
 
+  if (!isMySqlConnected) {
+    await initMySql();
+  }
+
   try {
-    let caregiversSummary = [];
-    let elderlySummary = [];
-
-    if (isMySqlConnected) {
-      const [cgRows] = await pool.execute(`
-        SELECT cp.id, u.full_name, cp.title, cp.district, cp.shift_rate, cp.night_shift_rate,
-               cp.care_score, cp.experience_years, cp.rating, cp.skills, cp.verification_status
-        FROM caregiver_profiles cp
-        JOIN users u ON cp.user_id = u.id
-        WHERE u.role = 'caregiver'
-        ORDER BY COALESCE(cp.care_score, 0) DESC, COALESCE(cp.rating, 0) DESC
-        LIMIT 8
-      `);
-      caregiversSummary = cgRows.map((c) => ({
-        name: c.full_name,
-        title: c.title || 'Chăm sóc người cao tuổi',
-        district: c.district || 'Hà Nội',
-        shift_rate_vnd: Number(c.shift_rate || 400000),
-        night_shift_rate_vnd: Number(c.night_shift_rate || 600000),
-        care_score: Number(c.care_score || 90),
-        experience_years: Number(c.experience_years || 1),
-        rating: Number(c.rating || 4.8),
-        skills: parseJson(c.skills, []),
-        verified: c.verification_status === 'approved',
-      }));
-
-      if (userRole === 'family' && Number(userId) > 0) {
-        const [eRows] = await pool.execute(
-          'SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 3',
-          [Number(userId)]
-        );
-        elderlySummary = eRows;
-      }
-    }
+    await initAiTrainingLogsTable();
+    const knowledge = await loadAiGroundingKnowledge(pool, isMySqlConnected);
 
     const roleLabel =
       userRole === 'caregiver'
@@ -6958,25 +6931,39 @@ app.post('/api/ai/chat', async (req, res) => {
             ? 'Gia đình người cao tuổi'
             : 'Khách tìm hiểu dịch vụ';
 
+    const customRulesBlock = knowledge.customRules
+      ? `\nKiến thức & quy tắc ưu tiên do Quản trị viên cấu hình:\n${knowledge.customRules}\n`
+      : '';
+
+    const fewShotBlock = knowledge.faqExamples.length
+      ? `\nCác mẫu Hỏi-Đáp chuẩn mực của CARE-MATCH để tham khảo giọng văn & nghiệp vụ:\n${knowledge.faqExamples
+          .map((f, idx) => `${idx + 1}. Hỏi: ${f.question}\n   Đáp chuẩn: ${f.answer}`)
+          .join('\n')}\n`
+      : '';
+
     const systemInstruction = `Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam.
-Vai trò người dùng đang trò chuyện: ${roleLabel}${userName ? ` (${userName})` : ''}.
-Thông tin nền tảng:
-- CARE-MATCH kết nối gia đình với điều dưỡng/người chăm sóc đã thẩm định eKYC, điểm CARE SCORE, theo dõi sinh hiệu sau từng ca, thanh toán minh bạch qua hệ thống và hỗ trợ Admin 24/7.
-- Gia đình có thể đặt ca theo giờ/ngày, xem nhật ký sinh hiệu (huyết áp, nhịp tim, thân nhiệt, SpO2, đường huyết) và nâng cấp gói CareMatch Care+ VIP.
-- Chuyên viên chăm sóc nộp CCCD & chứng chỉ eKYC để được duyệt, nhận ca tại Lịch nhận ca và gửi báo cáo sinh hiệu sau khi hoàn thành ca.
-Dữ liệu chuyên viên nổi bật hiện có: ${JSON.stringify(caregiversSummary)}
-${elderlySummary.length ? `Hồ sơ người thân của gia đình: ${JSON.stringify(elderlySummary)}` : ''}
+Vai trò người dùng đang trò chuyện: ${roleLabel}${userName ? ` (${userName})` : ''}${Number(userId) > 0 ? ` · Mã tài khoản: #${Number(userId)}` : ''}.
 
-Quy tắc:
-- Trả lời bằng tiếng Việt ấm áp, lịch sự, chính xác, súc tích (2-6 câu hoặc gạch đầu dòng ngắn dễ đọc).
-- Luôn tự xưng là CareMatchAI (tuyệt đối không nhắc tên công nghệ, API hay mô hình bên thứ ba).
-- Chỉ gợi ý tên chuyên viên có trong dữ liệu ở trên nếu được hỏi; nếu chưa có thông tin cụ thể, hướng dẫn người dùng vào mục "Tìm người chăm sóc" hoặc liên hệ Admin.
-- Với câu hỏi y khoa khẩn cấp (đau ngực, khó thở, tụt SpO2 < 90%, đột quỵ...), luôn nhắc gọi cấp cứu 115 hoặc cơ sở y tế ngay trước tiên.
+QUAN TRỌNG VỀ TRUY XUẤT DỮ LIỆU THẬT (TOOL USE):
+- Bạn được trang bị các công cụ tra cứu trực tiếp cơ sở dữ liệu của CARE-MATCH:
+  + search_caregivers: Tìm chuyên viên thật theo quận, kỹ năng, mức giá, CARE SCORE.
+  + get_caregiver_detail: Xem chi tiết hồ sơ, giá ca, kỹ năng và đánh giá của chuyên viên.
+  + get_my_elderly_profiles: Xem hồ sơ người thân/người cao tuổi của gia đình đang đăng nhập.
+  + get_my_schedules: Xem lịch ca chăm sóc sắp tới, đang diễn ra hoặc đã xong của tài khoản đang đăng nhập.
+  + get_patient_care_logs: Xem chỉ số sinh hiệu mới nhất (huyết áp, nhịp tim, đường huyết, SpO2, nhiệt độ, ghi chú ca).
+  + get_my_payments: Xem giao dịch thanh toán hoặc thu nhập từ ca chăm sóc.
+  + get_platform_info: Xem thông số cấu hình hệ thống (hotline, phí nền tảng, thống kê tổng quan...).
+- BẤT CỨ KHI NÀO người dùng hỏi thông tin cụ thể (tìm người ở quận nào, giá bao nhiêu, lịch của tôi, sinh hiệu mới nhất của ông/bà, giao dịch/thu nhập, tình hình hệ thống), HÃY GỌI CÔNG CỤ TƯƠNG ỨNG TRƯỚC RỒI MỚI TRẢ LỜI bằng số liệu thật vừa tra được. Tuyệt đối KHÔNG tự bịa đặt tên chuyên viên, giá tiền, lịch hẹn hay chỉ số sức khỏe.
+${customRulesBlock}${fewShotBlock}
+Quy tắc trả lời:
+- Luôn trả lời bằng tiếng Việt ấm áp, lịch sự, chính xác, súc tích (2-6 câu hoặc gạch đầu dòng ngắn gọn, dễ đọc trên khung chat).
+- Tự xưng là CareMatchAI (tuyệt đối không nhắc tên công nghệ, API hay mô hình bên thứ ba).
+- Với câu hỏi y khoa khẩn cấp (đau ngực, khó thở, tụt SpO2 < 90%, dấu hiệu đột quỵ...), luôn nhắc gọi cấp cứu 115 hoặc đưa tới cơ sở y tế ngay trước tiên.
 
-Trả về JSON theo đúng định dạng:
+Ở lượt trả lời cuối cùng sau khi đã tra cứu đủ thông tin, hãy trả về đúng chuỗi JSON hợp lệ (không bọc trong markdown code fence nếu không cần):
 {
-  "reply": "Nội dung trả lời gửi người dùng",
-  "quick_replies": ["Câu hỏi gợi ý tiếp 1", "Câu hỏi gợi ý tiếp 2"]
+  "reply": "Nội dung trả lời đầy đủ gửi người dùng",
+  "quick_replies": ["Gợi ý hỏi tiếp 1", "Gợi ý hỏi tiếp 2"]
 }`;
 
     const sanitizedHistory = (Array.isArray(history) ? history : [])
@@ -6984,7 +6971,7 @@ Trả về JSON theo đúng định dạng:
       .filter((m) => m && typeof m.content === 'string' && m.content.trim())
       .map((m) => ({
         role: m.sender === 'bot' || m.role === 'model' ? 'model' : 'user',
-        parts: [{ text: m.sender === 'bot' || m.role === 'model' ? JSON.stringify({ reply: m.content.trim() }) : m.content.trim() }],
+        parts: [{ text: m.content.trim() }],
       }));
 
     const contents = [
@@ -6992,11 +6979,14 @@ Trả về JSON theo đúng định dạng:
       { role: 'user', parts: [{ text: userText }] },
     ];
 
-    const aiRes = await callGemini({
+    const aiRes = await callGeminiWithTools({
       systemInstruction,
       contents,
-      responseSchemaJson: true,
-      temperature: 0.45,
+      functionDeclarations: CAREMATCH_CHAT_TOOL_DECLARATIONS,
+      executeTool: (name, args) =>
+        executeCareMatchTool(name, args, { userRole, userId, userName }, { pool, isDbConnected: isMySqlConnected }),
+      temperature: 0.35,
+      maxToolRounds: 3,
     });
 
     const reply =
@@ -7007,11 +6997,10 @@ Trả về JSON theo đúng định dạng:
       ? aiRes.parsed.quick_replies.slice(0, 3).map((q) => String(q))
       : [];
 
-    await initAiTrainingLogsTable();
     await logAiTrainingSample(pool, isMySqlConnected, {
       taskType: 'chatbot',
       systemInstruction,
-      userInput: { role: userRole, message: userText },
+      userInput: { role: userRole, message: userText, tools_used: aiRes.toolsUsed },
       modelOutput: { reply, quick_replies: quickReplies },
       modelUsed: aiRes.model,
     });
@@ -7020,6 +7009,8 @@ Trả về JSON theo đúng định dạng:
       success: true,
       reply,
       quick_replies: quickReplies,
+      grounded: Array.isArray(aiRes.toolsUsed) && aiRes.toolsUsed.length > 0,
+      tools_used: aiRes.toolsUsed || [],
     });
   } catch (err) {
     console.error('Lỗi CareMatchAI chat:', err.message);
@@ -7027,7 +7018,74 @@ Trả về JSON theo đúng định dạng:
   }
 });
 
-// 4. QUẢN LÝ & XUẤT DỮ LIỆU FINE-TUNE VERTEX AI (.JSONL) CHO ADMIN
+// 4. QUẢN LÝ TRI THỨC, MẪU HUẤN LUYỆN & XUẤT DATASET FINE-TUNE (.JSONL) CHO ADMIN
+app.get('/api/ai/knowledge', async (req, res) => {
+  if (!isMySqlConnected) {
+    return res.json({ customRules: '', faqSamples: [], totalTrainingLogs: 0 });
+  }
+  try {
+    await initAiTrainingLogsTable();
+    const [ruleRows] = await pool.execute(
+      "SELECT setting_value FROM system_settings WHERE setting_key = 'carematchai_custom_rules' LIMIT 1"
+    );
+    const [faqRows] = await pool.execute(
+      `SELECT id, task_type, user_input, model_output, edited_output, is_approved, created_at
+       FROM ai_training_logs
+       WHERE task_type IN ('chatbot', 'chatbot_faq')
+       ORDER BY CASE WHEN task_type = 'chatbot_faq' OR edited_output IS NOT NULL THEN 0 ELSE 1 END, id DESC
+       LIMIT 20`
+    );
+    const [countRows] = await pool.execute('SELECT COUNT(*)::int AS cnt FROM ai_training_logs');
+
+    return res.json({
+      customRules: String(ruleRows[0]?.setting_value || ''),
+      faqSamples: faqRows,
+      totalTrainingLogs: Number(countRows[0]?.cnt || 0),
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ai/knowledge', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  const { customRules } = req.body || {};
+  try {
+    await pool.execute(
+      `INSERT INTO system_settings (setting_key, setting_value, setting_type, setting_group, description)
+       VALUES ('carematchai_custom_rules', ?, 'text', 'ai', 'Quy tắc, bảng giá & kiến thức tùy chỉnh nạp trực tiếp cho CareMatchAI')
+       ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP`,
+      [String(customRules ?? '')]
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ai/training-logs', async (req, res) => {
+  if (!isMySqlConnected) return res.status(500).json({ error: 'Chưa kết nối CSDL' });
+  const { question, answer } = req.body || {};
+  if (!String(question || '').trim() || !String(answer || '').trim()) {
+    return res.status(400).json({ error: 'Vui lòng nhập đầy đủ câu hỏi và câu trả lời chuẩn.' });
+  }
+  try {
+    await initAiTrainingLogsTable();
+    const [r] = await pool.execute(
+      `INSERT INTO ai_training_logs (task_type, system_instruction, user_input, model_output, edited_output, rating, is_approved, model_used)
+       VALUES ('chatbot_faq', 'Bạn là CareMatchAI — trợ lý ảo chính thức của CARE-MATCH.', ?, ?, ?, 5, TRUE, 'admin-curated')
+       RETURNING id`,
+      [
+        JSON.stringify({ message: String(question).trim() }),
+        JSON.stringify({ reply: String(answer).trim() }),
+        JSON.stringify({ reply: String(answer).trim() }),
+      ]
+    );
+    return res.json({ success: true, id: r.insertId });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 app.get('/api/ai/training-logs', async (req, res) => {
   if (!isMySqlConnected) return res.json([]);
   try {
