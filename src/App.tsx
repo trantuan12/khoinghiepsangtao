@@ -15,6 +15,7 @@ import { FamilyCareHistory3Step } from '@/components/FamilyCareHistory3Step';
 import { CareShiftReportModal } from '@/components/CareShiftReportModal';
 import { PatientMedicalHistoryModal } from '@/components/PatientMedicalHistoryModal';
 import { AiCareMatcherModal } from '@/components/AiCareMatcherModal';
+import { CareMatchChatBubble, CareMatchChatPanel } from '@/components/CareMatchChatbot';
 import { useDeviceDetect } from '@/lib/useDeviceDetect';
 import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -6725,6 +6726,7 @@ const ADMIN_CONTACT: ChatContact = {
 function Messages({ notify, currentUserRole = 'family', currentUser }: { notify: (message: string) => void; currentUserRole?: 'family' | 'caregiver' | 'admin'; currentUser?: CurrentUser }) {
   const [location] = useLocation();
   const currentUserId = Number(currentUser?.id || 0);
+  const AI_CHAT_ID = -1;
 
   // Đọc mục tiêu từ URL query params (?user=... hoặc ?conv=...)
   const getUrlTargetUserId = () => {
@@ -6735,6 +6737,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
     if (u && !isNaN(Number(u))) return Number(u);
     const conv = params.get('conv');
     if (conv) {
+      if (conv === 'carematchai') return AI_CHAT_ID;
       if (conv === 'admin') return 1;
       if (conv === 'lan-anh') return 2;
       if (conv === 'thu-ha') return 3;
@@ -6893,15 +6896,24 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
     };
   }, [currentUserId, currentUserRole, location]);
 
-  // Xử lý khi người dùng bấm chọn một người trong danh bạ
+  // Xử lý khi người dùng bấm chọn một người trong danh bạ (hoặc CareMatchAI)
   const handleSelectContact = (targetUserId: number) => {
     setSelectedUserId(targetUserId);
     selectedUserIdRef.current = targetUserId;
     setShowMobileChat(true);
+    if (targetUserId === AI_CHAT_ID) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('user');
+        url.searchParams.set('conv', 'carematchai');
+        window.history.replaceState({}, '', url.toString());
+      } catch { }
+      return;
+    }
     // Ngay lập tức đưa số tin chưa đọc của người này về 0 trên giao diện
     setContacts(prev => prev.map(c => Number(c.userId) === Number(targetUserId) ? { ...c, unread: 0 } : c));
     // Đánh dấu đã đọc trong cơ sở dữ liệu MySQL
-    if (currentUserId && targetUserId) {
+    if (currentUserId && targetUserId > 0) {
       fetch(`${API}/messages/read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -6910,6 +6922,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
     }
     try {
       const url = new URL(window.location.href);
+      url.searchParams.delete('conv');
       url.searchParams.set('user', String(targetUserId));
       window.history.replaceState({}, '', url.toString());
     } catch { }
@@ -6927,7 +6940,7 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
   // Tải tin nhắn 1-on-1 trực tiếp từ MySQL (nghiêm ngặt chỉ giữa 2 tài khoản)
   const loadMessagesFromDb = async () => {
     const targetId = selectedUserIdRef.current || currentContact?.userId || selectedUserId;
-    if (!targetId || !currentUserId) return;
+    if (!targetId || targetId <= 0 || !currentUserId) return;
     try {
       const res = await fetch(`${API}/messages?userId=${currentUserId}&otherUserId=${targetId}`);
       if (res.ok) {
@@ -7097,6 +7110,35 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
           </div>
 
           <div className="divide-y divide-[hsl(var(--border))] overflow-y-auto flex-1 min-h-0">
+            {/* Mục trò chuyện cố định với CareMatchAI */}
+            <button
+              type="button"
+              onClick={() => handleSelectContact(AI_CHAT_ID)}
+              data-testid="button-select-carematchai"
+              className={`flex w-full gap-3 p-4 text-left transition cursor-pointer ${
+                Number(selectedUserId) === AI_CHAT_ID
+                  ? 'border-l-[4px] border-[#2c4e2a] bg-[#e9f4e6]'
+                  : 'bg-[#f6faf4] hover:bg-[#edf5ea]'
+              }`}
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#233d22] to-[#3f6d3c] text-[#f4d78b] shadow-2xs">
+                <Sparkles size={17} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-1">
+                  <strong className="text-[13px] text-[#223922] truncate flex items-center gap-1">
+                    CareMatchAI
+                  </strong>
+                  <span className="rounded-full bg-[#2c4e2a] px-2 py-0.5 text-[9.5px] font-bold text-[#f4d78b] shrink-0">
+                    24/7
+                  </span>
+                </div>
+                <span className="mt-0.5 block truncate text-[11px] text-[#4b694a]">
+                  Chatbot hỗ trợ tìm chuyên viên & hỏi đáp nhanh
+                </span>
+              </div>
+            </button>
+
             {loadingContacts && contacts.length === 0 ? (
               <div className="p-6 text-center text-[12px] text-gray-500">Đang tải danh bạ...</div>
             ) : contacts.length === 0 ? (
@@ -7145,6 +7187,16 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
           }`} 
           testId="card-active-conversation"
         >
+          {Number(selectedUserId) === AI_CHAT_ID ? (
+            <CareMatchChatPanel
+              embedded
+              userRole={currentUserRole}
+              userId={currentUserId}
+              userName={currentUser?.full_name}
+              onBackMobile={() => setShowMobileChat(false)}
+            />
+          ) : (
+            <>
           <div className="shrink-0 flex items-center justify-between border-b border-[hsl(var(--border))] px-3.5 py-3 sm:px-6 sm:py-3.5 bg-white z-10 shadow-2xs">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <button
@@ -7255,6 +7307,8 @@ function Messages({ notify, currentUserRole = 'family', currentUser }: { notify:
               </button>
             </div>
           </div>
+            </>
+          )}
         </Card>
       </div>
 
@@ -12348,6 +12402,11 @@ function Router() {
           )}
         </Route>
       </Switch>
+      <CareMatchChatBubble
+        userRole={loggedIn ? userRole : 'guest'}
+        userId={loggedIn ? (currentUser?.id || null) : null}
+        userName={loggedIn ? (currentUser?.full_name || '') : ''}
+      />
     </>
   );
 }

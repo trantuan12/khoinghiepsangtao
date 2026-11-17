@@ -19,9 +19,9 @@ export function getGeminiConfig() {
 }
 
 /**
- * Gọi Google Gemini generateContent API (hỗ trợ text, multimodal inlineData, JSON output và fallback model)
+ * Gọi Google Gemini generateContent API (hỗ trợ single-turn parts, multi-turn contents, multimodal inlineData, JSON output và fallback model)
  */
-export async function callGemini({ systemInstruction, parts, responseSchemaJson = true, temperature = 0.4 }) {
+export async function callGemini({ systemInstruction, parts, contents, responseSchemaJson = true, temperature = 0.4 }) {
   const { configured, apiKey, model } = getGeminiConfig();
   if (!configured) {
     const err = new Error('CareMatchAI hiện chưa được kích hoạt trên hệ thống.');
@@ -32,13 +32,18 @@ export async function callGemini({ systemInstruction, parts, responseSchemaJson 
 
   const modelChain = [model, ...FALLBACK_MODELS.filter((m) => m !== model)];
 
+  const normalizedContents =
+    Array.isArray(contents) && contents.length > 0
+      ? contents
+      : [
+          {
+            role: 'user',
+            parts: Array.isArray(parts) ? parts : [{ text: String(parts || '') }],
+          },
+        ];
+
   const basePayload = {
-    contents: [
-      {
-        role: 'user',
-        parts: Array.isArray(parts) ? parts : [{ text: String(parts || '') }],
-      },
-    ],
+    contents: normalizedContents,
     generationConfig: {
       temperature,
       ...(responseSchemaJson ? { responseMimeType: 'application/json' } : {}),

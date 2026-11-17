@@ -6905,6 +6905,128 @@ Trả về JSON đúng cấu trúc:
   }
 });
 
+// 3C. CHATBOT TRÒ CHUYỆN HỖ TRỢ ĐA LƯỢT (CAREMATCHAI)
+app.post('/api/ai/chat', async (req, res) => {
+  const { message, history = [], userRole = 'guest', userId = null, userName = '' } = req.body || {};
+  const userText = String(message || '').trim();
+  if (!userText) {
+    return res.status(400).json({ error: 'Vui lòng nhập nội dung tin nhắn.' });
+  }
+
+  try {
+    let caregiversSummary = [];
+    let elderlySummary = [];
+
+    if (isMySqlConnected) {
+      const [cgRows] = await pool.execute(`
+        SELECT cp.id, u.full_name, cp.title, cp.district, cp.shift_rate, cp.night_shift_rate,
+               cp.care_score, cp.experience_years, cp.rating, cp.skills, cp.verification_status
+        FROM caregiver_profiles cp
+        JOIN users u ON cp.user_id = u.id
+        WHERE u.role = 'caregiver'
+        ORDER BY COALESCE(cp.care_score, 0) DESC, COALESCE(cp.rating, 0) DESC
+        LIMIT 8
+      `);
+      caregiversSummary = cgRows.map((c) => ({
+        name: c.full_name,
+        title: c.title || 'Chăm sóc người cao tuổi',
+        district: c.district || 'Hà Nội',
+        shift_rate_vnd: Number(c.shift_rate || 400000),
+        night_shift_rate_vnd: Number(c.night_shift_rate || 600000),
+        care_score: Number(c.care_score || 90),
+        experience_years: Number(c.experience_years || 1),
+        rating: Number(c.rating || 4.8),
+        skills: parseJson(c.skills, []),
+        verified: c.verification_status === 'approved',
+      }));
+
+      if (userRole === 'family' && Number(userId) > 0) {
+        const [eRows] = await pool.execute(
+          'SELECT * FROM elderly_profiles WHERE user_id = ? ORDER BY created_at DESC LIMIT 3',
+          [Number(userId)]
+        );
+        elderlySummary = eRows;
+      }
+    }
+
+    const roleLabel =
+      userRole === 'caregiver'
+        ? 'Chuyên viên chăm sóc'
+        : userRole === 'admin'
+          ? 'Quản trị viên hệ thống'
+          : userRole === 'family'
+            ? 'Gia đình người cao tuổi'
+            : 'Khách tìm hiểu dịch vụ';
+
+    const systemInstruction = `Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam.
+Vai trò người dùng đang trò chuyện: ${roleLabel}${userName ? ` (${userName})` : ''}.
+Thông tin nền tảng:
+- CARE-MATCH kết nối gia đình với điều dưỡng/người chăm sóc đã thẩm định eKYC, điểm CARE SCORE, theo dõi sinh hiệu sau từng ca, thanh toán minh bạch qua hệ thống và hỗ trợ Admin 24/7.
+- Gia đình có thể đặt ca theo giờ/ngày, xem nhật ký sinh hiệu (huyết áp, nhịp tim, thân nhiệt, SpO2, đường huyết) và nâng cấp gói CareMatch Care+ VIP.
+- Chuyên viên chăm sóc nộp CCCD & chứng chỉ eKYC để được duyệt, nhận ca tại Lịch nhận ca và gửi báo cáo sinh hiệu sau khi hoàn thành ca.
+Dữ liệu chuyên viên nổi bật hiện có: ${JSON.stringify(caregiversSummary)}
+${elderlySummary.length ? `Hồ sơ người thân của gia đình: ${JSON.stringify(elderlySummary)}` : ''}
+
+Quy tắc:
+- Trả lời bằng tiếng Việt ấm áp, lịch sự, chính xác, súc tích (2-6 câu hoặc gạch đầu dòng ngắn dễ đọc).
+- Luôn tự xưng là CareMatchAI (tuyệt đối không nhắc tên công nghệ, API hay mô hình bên thứ ba).
+- Chỉ gợi ý tên chuyên viên có trong dữ liệu ở trên nếu được hỏi; nếu chưa có thông tin cụ thể, hướng dẫn người dùng vào mục "Tìm người chăm sóc" hoặc liên hệ Admin.
+- Với câu hỏi y khoa khẩn cấp (đau ngực, khó thở, tụt SpO2 < 90%, đột quỵ...), luôn nhắc gọi cấp cứu 115 hoặc cơ sở y tế ngay trước tiên.
+
+Trả về JSON theo đúng định dạng:
+{
+  "reply": "Nội dung trả lời gửi người dùng",
+  "quick_replies": ["Câu hỏi gợi ý tiếp 1", "Câu hỏi gợi ý tiếp 2"]
+}`;
+
+    const sanitizedHistory = (Array.isArray(history) ? history : [])
+      .slice(-8)
+      .filter((m) => m && typeof m.content === 'string' && m.content.trim())
+      .map((m) => ({
+        role: m.sender === 'bot' || m.role === 'model' ? 'model' : 'user',
+        parts: [{ text: m.sender === 'bot' || m.role === 'model' ? JSON.stringify({ reply: m.content.trim() }) : m.content.trim() }],
+      }));
+
+    const contents = [
+      ...sanitizedHistory,
+      { role: 'user', parts: [{ text: userText }] },
+    ];
+
+    const aiRes = await callGemini({
+      systemInstruction,
+      contents,
+      responseSchemaJson: true,
+      temperature: 0.45,
+    });
+
+    const reply =
+      typeof aiRes.parsed === 'object' && aiRes.parsed?.reply
+        ? String(aiRes.parsed.reply)
+        : String(aiRes.rawText || 'Xin lỗi, CareMatchAI chưa thể trả lời câu hỏi này lúc này.');
+    const quickReplies = Array.isArray(aiRes.parsed?.quick_replies)
+      ? aiRes.parsed.quick_replies.slice(0, 3).map((q) => String(q))
+      : [];
+
+    await initAiTrainingLogsTable();
+    await logAiTrainingSample(pool, isMySqlConnected, {
+      taskType: 'chatbot',
+      systemInstruction,
+      userInput: { role: userRole, message: userText },
+      modelOutput: { reply, quick_replies: quickReplies },
+      modelUsed: aiRes.model,
+    });
+
+    return res.json({
+      success: true,
+      reply,
+      quick_replies: quickReplies,
+    });
+  } catch (err) {
+    console.error('Lỗi CareMatchAI chat:', err.message);
+    return res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
+
 // 4. QUẢN LÝ & XUẤT DỮ LIỆU FINE-TUNE VERTEX AI (.JSONL) CHO ADMIN
 app.get('/api/ai/training-logs', async (req, res) => {
   if (!isMySqlConnected) return res.json([]);
