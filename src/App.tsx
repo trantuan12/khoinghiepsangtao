@@ -1,24 +1,79 @@
 import { LandingBannerCarousel } from '@/components/LandingBannerCarousel';
 import { DashboardBannerCarousel } from '@/components/DashboardBannerCarousel';
-import { CaregiverPortal } from '@/components/CaregiverPortal';
-import { FamilyProfileModal, type FamilyProfileData } from '@/components/FamilyProfileModal';
-import { FamilyPremiumModal } from '@/components/FamilyPremiumModal';
-import { FamilyPaymentsView } from '@/components/payments/FamilyPaymentsView';
-import { CaregiverPaymentsView } from '@/components/payments/CaregiverPaymentsView';
-import { AdminPaymentsView as FullAdminPaymentsView } from '@/components/payments/AdminPaymentsView';
-import { EkycRequiredModal } from '@/components/EkycRequiredModal';
-import { CommunityView } from '@/components/CommunityView';
-import { CommunityManagementView } from '@/components/CommunityManagementView';
-import { CaregiverRatingModal } from '@/components/CaregiverRatingModal';
-import { CareLogsView } from '@/components/CareLogsView';
-import { FamilyCareHistory3Step } from '@/components/FamilyCareHistory3Step';
-import { CareShiftReportModal } from '@/components/CareShiftReportModal';
-import { PatientMedicalHistoryModal } from '@/components/PatientMedicalHistoryModal';
-import { AiCareMatcherModal } from '@/components/AiCareMatcherModal';
-import { CareMatchChatBubble, CareMatchChatPanel } from '@/components/CareMatchChatbot';
-import { CareMatchAiStudioCard } from '@/components/CareMatchAiStudioCard';
+import { type FamilyProfileData } from '@/components/FamilyProfileModal';
 import { useDeviceDetect } from '@/lib/useDeviceDetect';
-import { type ReactNode, useMemo, useState, useEffect, useRef } from 'react';
+import { type ReactNode, type ComponentType, lazy, Suspense, useMemo, useState, useEffect, useRef } from 'react';
+
+function withLazyNamed<P extends object>(loader: () => Promise<ComponentType<P>>): ComponentType<P> {
+  const LazyComp = lazy(async () => ({ default: await loader() }));
+  return function LazyWrapper(props: P) {
+    return (
+      <Suspense fallback={<div className="py-6 text-center text-xs text-stone-400">Đang tải giao diện...</div>}>
+        <LazyComp {...props} />
+      </Suspense>
+    );
+  };
+}
+
+const CaregiverPortal = withLazyNamed(() => import('@/components/CaregiverPortal').then((m) => m.CaregiverPortal));
+const FamilyProfileModal = withLazyNamed(() => import('@/components/FamilyProfileModal').then((m) => m.FamilyProfileModal));
+const FamilyPremiumModal = withLazyNamed(() => import('@/components/FamilyPremiumModal').then((m) => m.FamilyPremiumModal));
+const FamilyPaymentsView = withLazyNamed(() => import('@/components/payments/FamilyPaymentsView').then((m) => m.FamilyPaymentsView));
+const CaregiverPaymentsView = withLazyNamed(() => import('@/components/payments/CaregiverPaymentsView').then((m) => m.CaregiverPaymentsView));
+const FullAdminPaymentsView = withLazyNamed(() => import('@/components/payments/AdminPaymentsView').then((m) => m.AdminPaymentsView));
+const EkycRequiredModal = withLazyNamed(() => import('@/components/EkycRequiredModal').then((m) => m.EkycRequiredModal));
+const CommunityView = withLazyNamed(() => import('@/components/CommunityView').then((m) => m.CommunityView));
+const CommunityManagementView = withLazyNamed(() => import('@/components/CommunityManagementView').then((m) => m.CommunityManagementView));
+const CaregiverRatingModal = withLazyNamed(() => import('@/components/CaregiverRatingModal').then((m) => m.CaregiverRatingModal));
+const CareLogsView = withLazyNamed(() => import('@/components/CareLogsView').then((m) => m.CareLogsView));
+const FamilyCareHistory3Step = withLazyNamed(() => import('@/components/FamilyCareHistory3Step').then((m) => m.FamilyCareHistory3Step));
+const CareShiftReportModal = withLazyNamed(() => import('@/components/CareShiftReportModal').then((m) => m.CareShiftReportModal));
+const PatientMedicalHistoryModal = withLazyNamed(() => import('@/components/PatientMedicalHistoryModal').then((m) => m.PatientMedicalHistoryModal));
+const AiCareMatcherModal = withLazyNamed(() => import('@/components/AiCareMatcherModal').then((m) => m.AiCareMatcherModal));
+const CareMatchChatPanel = withLazyNamed(() => import('@/components/CareMatchChatbot').then((m) => m.CareMatchChatPanel));
+const CareMatchAiStudioCard = withLazyNamed(() => import('@/components/CareMatchAiStudioCard').then((m) => m.CareMatchAiStudioCard));
+
+function CareMatchChatBubble(props: { userRole?: 'family' | 'caregiver' | 'admin' | 'guest'; userId?: number | null; userName?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[95] flex flex-col items-end gap-3">
+      {open && (
+        <div
+          className="w-[calc(100vw-2rem)] sm:w-[390px] h-[520px] max-h-[80dvh] rounded-3xl overflow-hidden shadow-[0_24px_60px_rgba(23,41,22,0.28)] border border-[#c8dcc2] bg-white animate-rise"
+          data-testid="carematchai-bubble-window"
+        >
+          <CareMatchChatPanel {...props} onClose={() => setOpen(false)} />
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        data-testid="button-carematchai-bubble"
+        aria-label={open ? 'Đóng CareMatchAI' : 'Mở trợ lý CareMatchAI'}
+        className="group relative flex items-center gap-2.5 rounded-full bg-gradient-to-r from-[#233d22] to-[#345832] hover:from-[#1b311a] hover:to-[#2b4929] text-white px-4 py-3 shadow-[0_12px_30px_rgba(35,61,34,0.35)] border border-[#61895f]/40 transition-all hover:scale-[1.03] active:scale-[0.98] cursor-pointer"
+      >
+        <span className="relative flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-[#f4d78b]">
+          {open ? <X size={16} /> : <MessageCircle size={16} />}
+          {!open && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 border border-[#233d22]" />
+            </span>
+          )}
+        </span>
+        <div className="text-left pr-0.5">
+          <span className="text-[12.5px] font-bold leading-none flex items-center gap-1">
+            <Sparkles size={11} className="text-[#f4d78b]" />
+            CareMatchAI
+          </span>
+          <span className="block text-[10px] text-emerald-100/80 mt-0.5 leading-none">
+            {open ? 'Thu gọn chat' : 'Hỏi đáp 24/7'}
+          </span>
+        </div>
+      </button>
+    </div>
+  );
+}
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { store, MessageItem, ScheduleItem, CaregiverItem } from '@/lib/store';
 import { ErrorBoundary } from '@/components/error-boundary';

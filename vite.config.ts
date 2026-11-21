@@ -39,5 +39,18 @@ export default defineConfig({
   preview: {
     port,
     host: '0.0.0.0'
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('@radix-ui') || id.includes('framer-motion') || id.includes('cmdk')) return 'vendor-ui';
+            if (id.includes('react') || id.includes('wouter') || id.includes('@tanstack')) return 'vendor-react';
+          }
+        }
+      }
+    }
   }
 });

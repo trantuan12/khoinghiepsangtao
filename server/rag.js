@@ -4,8 +4,14 @@
  * - Lưu trữ & tìm kiếm cosine similarity trên Supabase pgvector (ai_knowledge_chunks)
  */
 
+import crypto from 'node:crypto';
+
 const EMBED_MODEL = 'models/gemini-embedding-001';
 const EMBED_DIM = 768;
+
+function computeContentHash(text) {
+  return crypto.createHash('sha256').update(String(text || '').trim(), 'utf8').digest('hex').slice(0, 32);
+}
 
 // Cẩm nang chăm sóc người cao tuổi & chính sách chuẩn CARE-MATCH để làm Knowledge Base ngữ nghĩa
 const CARE_MATCH_GUIDES = [
@@ -124,7 +130,7 @@ export async function ensureVectorTable(pool, isDbConnected) {
 /**
  * Đồng bộ toàn bộ hồ sơ chuyên viên + cẩm nang CARE-MATCH thành vector 768d trên Supabase
  */
-export async function syncCareMatchKnowledgeVectors(pool, isDbConnected) {
+export async function syncCareMatchKnowledgeVectors(pool, isDbConnected, { forceReembed = false } = {}) {
   const ok = await ensureVectorTable(pool, isDbConnected);
   if (!ok) return { indexed: 0, error: 'Không khởi tạo được pgvector.' };
 
@@ -188,11 +194,35 @@ export async function syncCareMatchKnowledgeVectors(pool, isDbConnected) {
     });
   }
 
+  // Đọc danh sách content_hash hiện có để KHÔNG gọi lại Gemini Embedding API nếu nội dung chưa thay đổi (Giai đoạn 3)
+  const existingHashes = new Map();
+  if (!forceReembed) {
+    try {
+      const [existingRows] = await pool.execute(
+        "SELECT source_type, source_id, metadata->>'content_hash' AS content_hash, (embedding IS NOT NULL) AS has_vec FROM ai_knowledge_chunks"
+      );
+      for (const r of existingRows) {
+        if (r.has_vec && r.content_hash) {
+          existingHashes.set(`${r.source_type}::${r.source_id}`, String(r.content_hash));
+        }
+      }
+    } catch { }
+  }
+
   let indexed = 0;
+  let skippedUnchanged = 0;
   for (const item of items) {
+    const contentHash = computeContentHash(`${item.title} || ${item.content}`);
+    const key = `${item.source_type}::${item.source_id}`;
+    if (!forceReembed && existingHashes.get(key) === contentHash) {
+      skippedUnchanged++;
+      continue;
+    }
+
     const vec = await generateEmbedding(item.content, { taskType: 'RETRIEVAL_DOCUMENT' });
     if (!vec) continue;
     const vecLiteral = formatPgVectorLiteral(vec);
+    const metaWithHash = { ...(item.metadata || {}), content_hash: contentHash };
     await pool.execute(
       `INSERT INTO ai_knowledge_chunks (source_type, source_id, title, content, metadata, embedding, updated_at)
        VALUES (?, ?, ?, ?, ?::jsonb, ?::vector, CURRENT_TIMESTAMP)
@@ -203,12 +233,12 @@ export async function syncCareMatchKnowledgeVectors(pool, isDbConnected) {
          metadata = EXCLUDED.metadata,
          embedding = EXCLUDED.embedding,
          updated_at = CURRENT_TIMESTAMP`,
-      [item.source_type, item.source_id, item.title, item.content, JSON.stringify(item.metadata), vecLiteral]
+      [item.source_type, item.source_id, item.title, item.content, JSON.stringify(metaWithHash), vecLiteral]
     );
     indexed++;
   }
 
-  return { totalCandidates: items.length, indexed };
+  return { totalCandidates: items.length, indexed, skippedUnchanged };
 }
 
 /**

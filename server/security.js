@@ -77,8 +77,20 @@ export function createCorsOptions({ onBlockedOrigin } = {}) {
 // 3. SLIDING-WINDOW RATE LIMITER & AI CONCURRENCY / QUOTA
 // ========================================================
 export function getClientIp(req) {
-  const xff = String(req?.headers?.['x-forwarded-for'] || '').split(',')[0].trim();
-  return xff || req?.socket?.remoteAddress || '127.0.0.1';
+  const trustProxyEnabled = Boolean(
+    process.env.VERCEL ||
+      process.env.TRUST_PROXY === 'true' ||
+      (typeof req?.app?.get === 'function' && req.app.get('trust proxy'))
+  );
+  if (trustProxyEnabled) {
+    if (req?.ip) return String(req.ip).replace(/^::ffff:/, '');
+    const xff = String(req?.headers?.['x-forwarded-for'] || '')
+      .split(',')[0]
+      .trim();
+    if (xff) return xff.replace(/^::ffff:/, '');
+  }
+  const directIp = req?.socket?.remoteAddress || '127.0.0.1';
+  return String(directIp).replace(/^::ffff:/, '');
 }
 
 export function createRateLimiter({ windowMs = 60_000, max = 20, keyPrefix = 'rl', onBlocked = null } = {}) {
@@ -260,22 +272,45 @@ export function validateUploadDataUrl(dataUrl, { maxBytes = 4 * 1024 * 1024, all
 }
 
 // ========================================================
-// 5. MÃ HÓA DỮ LIỆU NHẠY CẢM AT-REST (AES-256-GCM)
+// 5. MÃ HÓA DỮ LIỆU NHẠY CẢM AT-REST (AES-256-GCM + KEY ROTATION)
 // ========================================================
-function getFieldEncryptionKey() {
-  const rawSecret = (process.env.FIELD_ENCRYPTION_KEY || process.env.AUTH_SECRET || '').trim();
-  const seed = rawSecret || 'carematch-dev-only-field-key-do-not-use-in-prod';
-  return crypto.createHash('sha256').update(`aes256gcm::${seed}`).digest();
+function deriveAesKey(rawSecret) {
+  return crypto.createHash('sha256').update(`aes256gcm::${rawSecret}`).digest();
 }
 
-export function encryptSensitiveField(plainText) {
+function getFieldEncryptionKey() {
+  const rawSecret = (process.env.FIELD_ENCRYPTION_KEY || process.env.AUTH_SECRET || '').trim();
+  const isProdRuntime = process.env.NODE_ENV === 'production' && Boolean(process.env.VERCEL);
+  if (isProdRuntime && rawSecret.length < 32) {
+    throw new Error('Cấu hình bảo mật nghiêm trọng: Thiếu FIELD_ENCRYPTION_KEY hoặc AUTH_SECRET (>= 32 ký tự) trên Production!');
+  }
+  const seed = rawSecret || 'carematch-dev-only-field-key-do-not-use-in-prod';
+  return deriveAesKey(seed);
+}
+
+function getCandidateDecryptionKeys() {
+  const keys = [getFieldEncryptionKey()];
+  const oldKey = (process.env.FIELD_ENCRYPTION_KEY_OLD || '').trim();
+  if (oldKey) {
+    keys.push(deriveAesKey(oldKey));
+  }
+  const authSecret = (process.env.AUTH_SECRET || '').trim();
+  if (authSecret) {
+    keys.push(deriveAesKey(authSecret));
+  }
+  return keys;
+}
+
+export function encryptSensitiveField(plainText, { forceReencrypt = false } = {}) {
   const clean = String(plainText ?? '').trim();
   if (!clean) return '';
-  if (clean.startsWith('enc:v1:')) return clean;
+  if (clean.startsWith('enc:v1:') && !forceReencrypt) return clean;
+  const actualPlain = clean.startsWith('enc:v1:') ? decryptSensitiveField(clean) : clean;
+  if (!actualPlain) return '';
 
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', getFieldEncryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(clean, 'utf8'), cipher.final()]);
+  const encrypted = Buffer.concat([cipher.update(actualPlain, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `enc:v1:${iv.toString('base64url')}:${tag.toString('base64url')}:${encrypted.toString('base64url')}`;
 }
@@ -287,16 +322,20 @@ export function decryptSensitiveField(storedValue) {
 
   const parts = raw.split(':');
   if (parts.length !== 5) return '';
-  try {
-    const iv = Buffer.from(parts[2], 'base64url');
-    const tag = Buffer.from(parts[3], 'base64url');
-    const data = Buffer.from(parts[4], 'base64url');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', getFieldEncryptionKey(), iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
-  } catch {
-    return '';
+  const iv = Buffer.from(parts[2], 'base64url');
+  const tag = Buffer.from(parts[3], 'base64url');
+  const data = Buffer.from(parts[4], 'base64url');
+
+  for (const key of getCandidateDecryptionKeys()) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+    } catch {
+      // Thử tiếp khóa cũ trong trường hợp đang xoay khóa (key rotation)
+    }
   }
+  return '';
 }
 
 export function maskIdNumber(idNum) {

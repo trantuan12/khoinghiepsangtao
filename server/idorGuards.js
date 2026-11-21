@@ -76,6 +76,8 @@ export function createApiAccessGuard(pool, getIsDbConnected) {
     // 3. Nhóm API công khai (không cần đăng nhập)
     if (
       p === '/health' ||
+      p === '/system/limits' ||
+      p === '/system/health-detailed' ||
       p === '/auth/login' ||
       p === '/auth/admin/verify-mfa' ||
       p === '/auth/register' ||

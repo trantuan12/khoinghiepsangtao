@@ -49,6 +49,14 @@ import {
   writeAuditLog,
 } from './security.js';
 import { createApiAccessGuard } from './idorGuards.js';
+import { SYSTEM_LIMITS } from './config/limits.js';
+import {
+  requestBoundsValidatorMiddleware,
+  parsePagination,
+  attachPaginationHeaders,
+} from './validators/requestBoundsValidator.js';
+import { runVersionedMigrations } from './db/migrations.js';
+import { createSystemRouter } from './routes/systemRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,10 +65,25 @@ config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = Number(process.env.PORT) || 5000;
 
+// Cấu hình Trusted Proxy (1 hop: Vercel / Reverse Proxy) để lấy đúng IP thực và không tin X-Forwarded-For giả
+app.set('trust proxy', 1);
+
 let isMySqlConnected = false; // Giữ tên biến nội bộ cho tương thích các route, kết nối tới PostgreSQL / Supabase
 
 // 1. Security Headers (CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy)
 app.use(securityHeadersMiddleware);
+
+// Bắt buộc HTTPS trên Production (Vercel)
+app.use((req, res, next) => {
+  if (
+    process.env.NODE_ENV === 'production' &&
+    process.env.VERCEL &&
+    req.headers['x-forwarded-proto'] === 'http'
+  ) {
+    return res.status(403).json({ error: 'Vui lòng sử dụng kết nối bảo mật HTTPS.' });
+  }
+  next();
+});
 
 // 2. Strict CORS Allowlist (chặn tuyệt đối wildcard * trên production, hỗ trợ HttpOnly Cookie credentials)
 app.use(
@@ -110,7 +133,9 @@ app.use('/api', async (req, res, next) => {
   next();
 });
 
+app.use('/api', requestBoundsValidatorMiddleware);
 app.use('/api', createApiAccessGuard(pool, () => isMySqlConnected));
+app.use('/api', createSystemRouter({ pool, getIsDbConnected: () => isMySqlConnected }));
 
 const authRateLimiter = createRateLimiter({
   windowMs: 60_000,
@@ -360,12 +385,11 @@ async function initMySql() {
       return null;
     }
 
-    // Luôn đảm bảo bảng bảo mật (auth_sessions, audit_logs) & tự động băm bcrypt cho mật khẩu cũ ngay cả ở fast-path
+    // Luôn đảm bảo bảng bảo mật (auth_sessions, audit_logs), băm bcrypt mật khẩu cũ & tạo đầy đủ Index tối ưu (Giai đoạn 3)
     try {
-      await ensureSecurityTables(pool, isMySqlConnected);
-      await ensureAuthSchemaAndMigrateUsers(pool, isMySqlConnected);
+      await runVersionedMigrations(pool, isMySqlConnected);
     } catch (secErr) {
-      console.warn('⚠️ [Security Migration] Lưu ý khi đồng bộ schema bảo mật:', secErr.message);
+      console.warn('⚠️ [Security & Index Migration] Lưu ý khi đồng bộ schema:', secErr.message);
     }
 
     // Fast-path cho Serverless/Production: nếu đủ 19 bảng (gồm ai_training_logs) và đã có system_settings, bỏ qua ~90 câu DDL/seed lặp lại khi cold start
@@ -1395,9 +1419,13 @@ async function initPatientCareLogsTable() {
   }
 }
 
+let aiTrainingTablesInitialized = false;
+let aiTrainingTablesPromise = null;
 async function initAiTrainingLogsTable() {
-  if (!pool || !isMySqlConnected) return;
-  try {
+  if (!pool || !isMySqlConnected || aiTrainingTablesInitialized) return;
+  if (aiTrainingTablesPromise) return aiTrainingTablesPromise;
+  aiTrainingTablesPromise = (async () => {
+    try {
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS ai_training_logs (
         id SERIAL PRIMARY KEY,
@@ -1436,9 +1464,14 @@ async function initAiTrainingLogsTable() {
       );
     `);
     await pool.execute("CREATE INDEX IF NOT EXISTS idx_ai_metrics_created ON ai_metrics_logs (created_at)");
+    aiTrainingTablesInitialized = true;
   } catch (err) {
     console.warn('⚠️ [PostgreSQL] Lỗi khởi tạo ai_training_logs:', err.message);
+  } finally {
+    aiTrainingTablesPromise = null;
   }
+  })();
+  return aiTrainingTablesPromise;
 }
 
 // Helper hàm an toàn parse JSON
@@ -3775,7 +3808,10 @@ app.get('/api/schedules', async (req, res) => {
         params.push(`%${caregiverName}%`);
       }
 
-      query += ' ORDER BY s.created_at DESC';
+      const pg = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
+      attachPaginationHeaders(res, pg);
+      query += ' ORDER BY s.created_at DESC LIMIT ? OFFSET ?';
+      params.push(pg.limit, pg.offset);
 
       const [rows] = await pool.execute(query, params);
       return res.json(rows);
@@ -6645,7 +6681,10 @@ app.get('/api/care-logs', async (req, res) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    query += ' ORDER BY pcl.log_date DESC, pcl.created_at DESC';
+    const pg = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
+    attachPaginationHeaders(res, pg);
+    query += ' ORDER BY pcl.log_date DESC, pcl.created_at DESC LIMIT ? OFFSET ?';
+    params.push(pg.limit, pg.offset);
     const [rows] = await pool.execute(query, params);
 
     const logs = rows.map(r => ({
@@ -7188,7 +7227,7 @@ app.post('/api/ai/match-caregiver', async (req, res) => {
       ORDER BY COALESCE(cp.care_score, 0) DESC, u.id ASC
     `);
 
-    const caregiversSummary = cgRows.map((r) => ({
+    const caregiversSummary = cgRows.slice(0, 12).map((r) => ({
       caregiver_id: String(r.user_id),
       name: r.full_name,
       title: r.title,
@@ -7197,8 +7236,8 @@ app.post('/api/ai/match-caregiver', async (req, res) => {
       shift_rate_vnd: Number(r.shift_rate) || 400000,
       night_shift_rate_vnd: Number(r.night_shift_rate) || 600000,
       district: r.district || 'Hà Nội',
-      skills: parseJson(r.skills, []),
-      bio: r.bio || '',
+      skills: parseJson(r.skills, []).slice(0, 6),
+      bio: String(r.bio || '').slice(0, 160),
       rating: Number(r.rating) || 4.8,
       verification_status: r.verification_status,
     }));
@@ -7635,14 +7674,14 @@ async function runCareMatchChatEngine({ req, message, history = [], authContext,
   const cached = getCachedChatResponse(userText, authContext, safeHistory.length);
   if (cached) {
     const latencyMs = Date.now() - reqStart;
-    await recordAiMetric(pool, isMySqlConnected, {
+    void recordAiMetric(pool, isMySqlConnected, {
       endpoint,
       modelUsed: 'response-cache',
       latencyMs,
       toolsUsed: cached.tools_used || [],
       cacheHit: true,
       status: 'ok',
-    });
+    }).catch(() => {});
     return {
       ...cached,
       cache_hit: true,
@@ -7698,13 +7737,24 @@ Quy tắc trả lời:
   "quick_replies": ["Gợi ý hỏi tiếp 1", "Gợi ý hỏi tiếp 2"]
 }`;
 
-  const sanitizedHistory = safeHistory
-    .slice(-8)
+  // Cắt lịch sử chatbot theo cả số lượt (<= 6) và ngân sách ký tự/token (<= 2400 ký tự) để giảm >20% chi phí AI
+  const recentRawTurns = safeHistory
     .filter((m) => m && typeof m.content === 'string' && m.content.trim())
-    .map((m) => ({
-      role: m.sender === 'bot' || m.role === 'model' ? 'model' : 'user',
-      parts: [{ text: m.content.trim() }],
-    }));
+    .slice(-SYSTEM_LIMITS.ai.maxChatHistoryTurns);
+
+  let usedHistoryChars = 0;
+  const trimmedTurns = [];
+  for (let i = recentRawTurns.length - 1; i >= 0; i--) {
+    const turn = recentRawTurns[i];
+    const cleanText = turn.content.trim().slice(0, 600);
+    if (usedHistoryChars + cleanText.length > SYSTEM_LIMITS.ai.maxChatHistoryTotalChars) break;
+    usedHistoryChars += cleanText.length;
+    trimmedTurns.unshift({
+      role: turn.sender === 'bot' || turn.role === 'model' ? 'model' : 'user',
+      parts: [{ text: cleanText }],
+    });
+  }
+  const sanitizedHistory = trimmedTurns;
 
   const contents = [
     ...sanitizedHistory,

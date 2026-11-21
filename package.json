@@ -9,7 +9,9 @@
     "start": "node server/server.js",
     "build": "vite build",
     "preview": "vite preview",
+    "db:migrate": "node server/db/migrations.js",
     "test:security": "node evals/security_test.mjs",
+    "test:backtest": "node evals/comprehensive_backtest.mjs",
     "test:eval": "node evals/run_eval.mjs"
   },
   "dependencies": {

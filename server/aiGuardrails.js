@@ -15,7 +15,7 @@ const INJECTION_PATTERNS = [
   /ignore\s+(all\s+)?(previous|prior|above)\s+instructions?/i,
   /bỏ\s*qua\s*(tất\s*cả\s*)?(chỉ\s*thị|hướng\s*dẫn|quy\s*tắc)\s*(trước|ở\s*trên)/i,
   /system\s+prompt|developer\s+message|reveal\s+your\s+instructions/i,
-  /(drop|truncate|delete\s+from|alter)\s+table/i,
+  /\b(drop|truncate|alter)\s+table\b|\bdelete\s+from\s+[a-z0-9_]+/i,
   /(lấy|xem|xuất|dump)\s*(toàn\s*bộ\s*)?(mật\s*khẩu|password|cccd|api\s*key|secret|database)/i,
 ];
 
@@ -30,8 +30,9 @@ export function redactPii(input, options = {}) {
   if (input === null || input === undefined) return '';
   let text = typeof input === 'string' ? input : JSON.stringify(input);
   text = text
-    .replace(/(?:\+?84|0)\d{8,10}\b/g, '[PHONE_REDACTED]')
-    .replace(/\b\d{12}\b|\b\d{9}\b/g, '[ID_REDACTED]')
+    .replace(/\b\d{12}\b/g, '[ID_REDACTED]')
+    .replace(/(?:\+84|\b84|\b0)\d{8,9}\b/g, '[PHONE_REDACTED]')
+    .replace(/\b\d{9}\b/g, '[ID_REDACTED]')
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[EMAIL_REDACTED]')
     .replace(/Mã tài khoản:\s*#\d+/gi, 'Mã tài khoản: #[ACCOUNT_REDACTED]');
 
