@@ -9,3 +9,4 @@ server/.env*
 __pycache__/
 *.py[cod]
 *.code-workspace
+training/outputs/

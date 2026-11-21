@@ -105,6 +105,62 @@ export const CAREMATCH_CHAT_TOOL_DECLARATIONS = [
   },
 ];
 
+const PUBLIC_SETTING_WHITELIST = [
+  'hotline_support',
+  'slogan_text',
+  'home_headline',
+  'vip_monthly_price',
+  'base_shift_rate_4h',
+  'night_shift_multiplier',
+  'hourly_divisor',
+  'min_care_score_recommended',
+  'escrow_deposit_percent',
+  'cancel_free_hours_notice',
+  'emergency_sla_minutes',
+  'support_email',
+  'caregiver_payout_rate',
+  'platform_commission_rate',
+];
+
+const TOOL_ALLOWLIST_BY_ROLE = {
+  guest: new Set(['search_caregivers', 'get_caregiver_detail', 'get_platform_info', 'search_knowledge_base']),
+  family: new Set([
+    'search_caregivers',
+    'get_caregiver_detail',
+    'get_my_elderly_profiles',
+    'get_my_schedules',
+    'get_patient_care_logs',
+    'get_my_payments',
+    'get_platform_info',
+    'search_knowledge_base',
+  ]),
+  caregiver: new Set([
+    'search_caregivers',
+    'get_caregiver_detail',
+    'get_my_elderly_profiles',
+    'get_my_schedules',
+    'get_patient_care_logs',
+    'get_my_payments',
+    'get_platform_info',
+    'search_knowledge_base',
+  ]),
+  admin: new Set([
+    'search_caregivers',
+    'get_caregiver_detail',
+    'get_my_elderly_profiles',
+    'get_my_schedules',
+    'get_patient_care_logs',
+    'get_platform_info',
+    'search_knowledge_base',
+  ]),
+};
+
+export function getAllowedToolDeclarations(userRole = 'guest', authenticated = false) {
+  const effectiveRole = authenticated && TOOL_ALLOWLIST_BY_ROLE[userRole] ? userRole : 'guest';
+  const allowSet = TOOL_ALLOWLIST_BY_ROLE[effectiveRole];
+  return CAREMATCH_CHAT_TOOL_DECLARATIONS.filter((decl) => allowSet.has(decl.name));
+}
+
 export async function executeCareMatchTool(toolName, args = {}, context = {}, { pool, isDbConnected }) {
   if (!isDbConnected || !pool) {
     return { error: 'Cơ sở dữ liệu hiện chưa sẵn sàng để tra cứu trực tiếp.' };
@@ -113,6 +169,17 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
   const authenticated = Boolean(context?.authenticated && Number(context?.userId) > 0);
   const userRole = authenticated ? context.userRole : 'guest';
   const userId = authenticated ? Number(context.userId) : 0;
+  const allowSet = TOOL_ALLOWLIST_BY_ROLE[authenticated && TOOL_ALLOWLIST_BY_ROLE[userRole] ? userRole : 'guest'];
+
+  if (!allowSet.has(toolName)) {
+    return {
+      requires_login: !authenticated,
+      denied: true,
+      message: !authenticated
+        ? 'Chức năng tra cứu dữ liệu cá nhân yêu cầu đăng nhập tài khoản CARE-MATCH.'
+        : 'Tài khoản hiện tại không có quyền truy cập công cụ dữ liệu này.',
+    };
+  }
 
   try {
     if (toolName === 'search_caregivers') {
@@ -251,7 +318,7 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
 
       const cg = rows[0];
       const [reviews] = await pool.execute(
-        `SELECT family_name, patient_name, service_title, rating, review_text, created_at
+        `SELECT service_title, rating, review_text, created_at
          FROM caregiver_reviews
          WHERE caregiver_user_id = ? AND COALESCE(status, 'approved') != 'hidden'
          ORDER BY created_at DESC LIMIT 5`,
@@ -425,8 +492,10 @@ export async function executeCareMatchTool(toolName, args = {}, context = {}, { 
     }
 
     if (toolName === 'get_platform_info') {
+      const placeholders = PUBLIC_SETTING_WHITELIST.map(() => '?').join(',');
       const [settingRows] = await pool.execute(
-        "SELECT setting_key, setting_value, description FROM system_settings WHERE setting_key != 'carematchai_custom_rules' LIMIT 25"
+        `SELECT setting_key, setting_value, description FROM system_settings WHERE setting_key IN (${placeholders})`,
+        PUBLIC_SETTING_WHITELIST
       );
       const settings = {};
       for (const s of settingRows) {

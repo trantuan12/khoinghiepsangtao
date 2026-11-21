@@ -30,8 +30,13 @@ import {
 import {
   redactPii,
   inspectInputSafety,
+  inspectOutputSafety,
   evaluateMedicalEmergencyRules,
 } from '../server/aiGuardrails.js';
+import {
+  getAllowedToolDeclarations,
+  executeCareMatchTool,
+} from '../server/aiTools.js';
 import {
   AiOutputValidationError,
   validateCareMatcherOutput,
@@ -340,8 +345,38 @@ async function main() {
     }
   }
   assert.equal(piiRedactedChecks, 80);
+
+  // 3.6 Kiểm tra Role-Scoped Tool Declarations, Public Whitelist & Output Leak Guard
+  const guestTools = getAllowedToolDeclarations('guest', false).map((t) => t.name);
+  assert.ok(!guestTools.includes('get_patient_care_logs'), 'Guest must NEVER see get_patient_care_logs declaration');
+  assert.ok(!guestTools.includes('get_my_schedules'), 'Guest must NEVER see get_my_schedules declaration');
+  assert.ok(!guestTools.includes('get_my_payments'), 'Guest must NEVER see get_my_payments declaration');
+  assert.ok(!guestTools.includes('get_my_elderly_profiles'), 'Guest must NEVER see get_my_elderly_profiles declaration');
+
+  const deniedGuestTool = await executeCareMatchTool(
+    'get_patient_care_logs',
+    {},
+    { authenticated: false, userRole: 'guest', userId: 0 },
+    { pool, isDbConnected: true }
+  );
+  assert.equal(deniedGuestTool.denied, true, 'Direct invocation of private tool as guest must be denied');
+
+  const platInfo = await executeCareMatchTool(
+    'get_platform_info',
+    {},
+    { authenticated: false, userRole: 'guest', userId: 0 },
+    { pool, isDbConnected: true }
+  );
+  assert.equal(platInfo?.settings?.vietqr_api_key, undefined, 'get_platform_info must NEVER expose vietqr_api_key');
+  assert.equal(platInfo?.settings?.vietqr_client_id, undefined, 'get_platform_info must NEVER expose vietqr_client_id');
+  assert.equal(platInfo?.settings?.admin_bank_account, undefined, 'get_platform_info must NEVER expose admin_bank_account');
+
+  assert.equal(inspectOutputSafety('Khóa API là AIzaSyFakeSecretKey1234567890abc').safe, false);
+  assert.equal(inspectOutputSafety('Bảng password_hash và get_patient_care_logs').safe, false);
+  assert.equal(inspectOutputSafety('CareMatchAI gợi ý chuyên viên tại quận Đống Đa.').safe, true);
+
   console.log(
-    '✅ [Section 6.3 AI Backtest - 340 Scenarios] 100/100 Medical Emergency & Normal Care, 50/50 Prompt Injection, 30/30 Malformed JSON, 30/30 Empty DB, 50/50 Hallucination Guard & 80/80 Privacy/Missing-Vital checks passed (0% leakage, 0% hallucination)'
+    '✅ [Section 6.3 AI Backtest - 340+ Scenarios] Medical Emergency, Prompt Injection, Role-Scoped Tools, Whitelist Settings, Output Leak Guard & PII checks passed'
   );
 
   // ---------------------------------------------------------------------------

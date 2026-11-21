@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-21T08:33:11.513Z",
+  "generatedAt": "2026-11-21T10:55:35.855Z",
   "migrationVersion": "20261119_01_indexes_and_security_hardening",
   "frontendBundleOptimization": {
     "baselineEntryChunkKb": 1104.36,
@@ -9,87 +9,87 @@
     "chunksOver500Kb": 0,
     "chunks": [
       {
-        "file": "index-DRCPXf_i.js",
+        "file": "index-B9OToZPn.js",
         "sizeKb": 474.73
       },
       {
-        "file": "vendor-react-K301BYJQ.js",
-        "sizeKb": 194.37
+        "file": "vendor-react-DPLfQYmN.js",
+        "sizeKb": 194.38
       },
       {
-        "file": "CaregiverPortal-CEtr_xmH.js",
+        "file": "CaregiverPortal-1Kn_Ppzg.js",
         "sizeKb": 105.63
       },
       {
-        "file": "vendor-ui-DKWErmiC.js",
+        "file": "vendor-ui-D2EbmI9v.js",
         "sizeKb": 44.94
       },
       {
-        "file": "CareLogsView-DPsvx88q.js",
+        "file": "CareLogsView-UKwzuv3P.js",
         "sizeKb": 39.02
       },
       {
-        "file": "vendor-icons-CYHzSrQh.js",
+        "file": "vendor-icons-Bkvdi9hW.js",
         "sizeKb": 33.13
       },
       {
-        "file": "FamilyPaymentsView-Cz8Q923Q.js",
+        "file": "FamilyPaymentsView-DHIQaXrg.js",
         "sizeKb": 24.04
       },
       {
-        "file": "FamilyPremiumModal-B91jiEQc.js",
+        "file": "FamilyPremiumModal-C3wGaIRO.js",
         "sizeKb": 23.91
       },
       {
-        "file": "CaregiverPaymentsView-CFUFn2qF.js",
+        "file": "CaregiverPaymentsView-Cq6Y6OP6.js",
         "sizeKb": 21.36
       },
       {
-        "file": "AdminPaymentsView-Du7fmloi.js",
+        "file": "AdminPaymentsView-C9iK9rqz.js",
         "sizeKb": 20.66
       },
       {
-        "file": "PatientMedicalHistoryModal-BSZs05cd.js",
+        "file": "PatientMedicalHistoryModal-DtX8RAY3.js",
         "sizeKb": 20.64
       },
       {
-        "file": "FamilyProfileModal-Gx6cwwjo.js",
+        "file": "FamilyProfileModal-yf3MNidV.js",
         "sizeKb": 17.76
       },
       {
-        "file": "CareShiftReportModal-7IAHIXRW.js",
+        "file": "CareShiftReportModal-C_DgQLy0.js",
         "sizeKb": 17.7
       },
       {
-        "file": "CommunityManagementView-ivVJQPeV.js",
+        "file": "CommunityManagementView-Q_S5dBCt.js",
         "sizeKb": 17.37
       },
       {
-        "file": "FamilyCareHistory3Step-biKmvmn8.js",
+        "file": "FamilyCareHistory3Step-C6UhFbgz.js",
         "sizeKb": 12.71
       },
       {
-        "file": "CareMatchChatbot-VxRc53Q6.js",
-        "sizeKb": 11.91
+        "file": "CareMatchChatbot-L2-MSWtr.js",
+        "sizeKb": 12.14
       },
       {
-        "file": "CommunityView-ComhW4dt.js",
+        "file": "CommunityView-7Sj1YNrF.js",
         "sizeKb": 11.79
       },
       {
-        "file": "CareMatchAiStudioCard-BatbuPDN.js",
+        "file": "CareMatchAiStudioCard-CNNkhmdm.js",
         "sizeKb": 11.17
       },
       {
-        "file": "AiCareMatcherModal-DGHjk6D_.js",
+        "file": "AiCareMatcherModal-bn6VZzBd.js",
         "sizeKb": 7.15
       },
       {
-        "file": "CaregiverRatingModal-BYZ8e4iz.js",
+        "file": "CaregiverRatingModal-CGlxfB4E.js",
         "sizeKb": 5.41
       },
       {
-        "file": "EkycRequiredModal-9E2tJbAD.js",
+        "file": "EkycRequiredModal-BL5p7CkM.js",
         "sizeKb": 3.19
       },
       {
@@ -107,19 +107,19 @@
     },
     "explainQueryPlans": {
       "schedules_by_family": {
-        "latencyMs": 364,
+        "latencyMs": 119,
         "planHead": "OK"
       },
       "care_logs_by_family": {
-        "latencyMs": 148,
+        "latencyMs": 123,
         "planHead": "OK"
       },
       "escrow_by_family": {
-        "latencyMs": 147,
+        "latencyMs": 117,
         "planHead": "OK"
       },
       "messages_by_conv": {
-        "latencyMs": 601,
+        "latencyMs": 120,
         "planHead": "OK"
       }
     }
@@ -139,10 +139,10 @@
       "scenario": "GET /api/system/limits (Read API)",
       "totalRequests": 100,
       "concurrency": 25,
-      "wallTimeMs": 177,
-      "requestsPerSec": 565,
-      "p50Ms": 36,
-      "p95Ms": 76,
+      "wallTimeMs": 162,
+      "requestsPerSec": 617.3,
+      "p50Ms": 35,
+      "p95Ms": 68,
       "errorCount": 0,
       "errorRatePct": 0
     },
@@ -150,10 +150,10 @@
       "scenario": "GET /api/caregivers (DB List)",
       "totalRequests": 40,
       "concurrency": 10,
-      "wallTimeMs": 3123,
-      "requestsPerSec": 12.8,
-      "p50Ms": 517,
-      "p95Ms": 2136,
+      "wallTimeMs": 1647,
+      "requestsPerSec": 24.3,
+      "p50Ms": 249,
+      "p95Ms": 878,
       "errorCount": 0,
       "errorRatePct": 0
     },
@@ -161,10 +161,10 @@
       "scenario": "GET /api/schedules?limit=20 (Authenticated RBAC)",
       "totalRequests": 40,
       "concurrency": 10,
-      "wallTimeMs": 1499,
-      "requestsPerSec": 26.7,
-      "p50Ms": 297,
-      "p95Ms": 585,
+      "wallTimeMs": 1150,
+      "requestsPerSec": 34.8,
+      "p50Ms": 267,
+      "p95Ms": 371,
       "errorCount": 0,
       "errorRatePct": 0
     },
@@ -172,16 +172,16 @@
       "scenario": "POST /api/ai/chat (Cached Response)",
       "totalRequests": 30,
       "concurrency": 10,
-      "wallTimeMs": 1006,
-      "requestsPerSec": 29.8,
-      "p50Ms": 32,
-      "p95Ms": 962,
+      "wallTimeMs": 790,
+      "requestsPerSec": 38,
+      "p50Ms": 24,
+      "p95Ms": 749,
       "errorCount": 0,
       "errorRatePct": 0
     }
   ],
   "runtimeResourceUsage": {
-    "rssMb": 87,
-    "heapUsedMb": 23.03
+    "rssMb": 90.12,
+    "heapUsedMb": 25.05
   }
 }

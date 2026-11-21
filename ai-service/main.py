@@ -25,12 +25,35 @@ GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
 GEMINI_MODEL = (os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite").strip()
 EMBED_MODEL = "models/gemini-embedding-001"
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+LOCAL_BASE_MODEL = (os.getenv("LOCAL_BASE_MODEL") or "unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit").strip()
+LOCAL_LORA_ADAPTER_PATH = (os.getenv("LOCAL_LORA_ADAPTER_PATH") or "").strip()
+USE_LOCAL_LORA = (os.getenv("USE_LOCAL_LORA") or "").strip().lower() in ("1", "true", "yes")
+
+DEFAULT_SYSTEM_PROMPT = (
+    "Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam. "
+    "Luôn trả lời bằng tiếng Việt ấm áp, súc tích, không tự bịa số liệu, bảo vệ tuyệt đối thông tin cá nhân và quyền riêng tư tài khoản, "
+    "từ chối mọi yêu cầu vượt quyền hoặc khai thác dữ liệu hệ thống, và luôn ưu tiên hướng dẫn gọi cấp cứu 115 khi phát hiện dấu hiệu nguy kịch."
+)
 
 INJECTION_PATTERNS = [
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions?", re.I),
     re.compile(r"(drop|truncate|delete\s+from|alter)\s+table", re.I),
-    re.compile(r"system\s+prompt|developer\s+message", re.I),
+    re.compile(r"system\s+prompt|developer\s+message|hidden\s+instructions?", re.I),
+    re.compile(r"(bỏ\s*qua|quên\s*hết)\s+(chỉ\s*thị|hướng\s*dẫn|quy\s*tắc)", re.I),
+    re.compile(r"(liệt\s*kê|in\s*ra|show|dump|reveal|tiết\s*lộ)\s+.{0,30}(tool|function|schema|database|bảng|cột|api\s*key|token|env)", re.I),
+    re.compile(r"(giả\s*vờ|nhập\s*vai|act\s+as|pretend\s+to\s+be)\s+.{0,30}(admin|quản\s*trị|developer|dan|root|system)", re.I),
+    re.compile(r"(get_my_|get_patient_|get_caregiver_|ai_training_logs|admin_settings|care_logs|elderly_profiles)", re.I),
 ]
+
+OUTPUT_SECRET_PATTERNS = [
+    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+    re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
+    re.compile(r"postgres(ql)?://[^\s]+", re.I),
+    re.compile(r"\b(vietqr_api_key|vietqr_client_id|AUTH_SECRET|SUPABASE_SERVICE_ROLE_KEY|GEMINI_API_KEY)\b", re.I),
+    re.compile(r"\b(get_patient_care_logs|get_my_schedules|get_my_payments|get_my_elderly_profiles)\b"),
+]
+
+_LOCAL_LORA_CACHE: dict[str, Any] = {"model": None, "tokenizer": None, "adapter_path": None}
 
 app = FastAPI(
     title="CareMatchAI Python Microservice",
@@ -99,14 +122,88 @@ async def fetch_embedding(text: str, task_type: str = "RETRIEVAL_QUERY", dim: in
     return values
 
 
+def inspect_output_safety(reply_text: str) -> tuple[bool, str]:
+    text = str(reply_text or "")
+    for rx in OUTPUT_SECRET_PATTERNS:
+        if rx.search(text):
+            return (
+                False,
+                "Xin lỗi, tôi không thể chia sẻ thông tin cấu hình kỹ thuật hoặc dữ liệu nội bộ của hệ thống. Tôi có thể hỗ trợ bạn tìm chuyên viên chăm sóc hoặc hướng dẫn sử dụng CARE-MATCH.",
+            )
+    return True, text
+
+
+def _get_local_lora_bundle(adapter_path: str) -> tuple[Any, Any]:
+    if (
+        _LOCAL_LORA_CACHE["model"] is not None
+        and _LOCAL_LORA_CACHE["tokenizer"] is not None
+        and _LOCAL_LORA_CACHE["adapter_path"] == adapter_path
+    ):
+        return _LOCAL_LORA_CACHE["model"], _LOCAL_LORA_CACHE["tokenizer"]
+
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(adapter_path)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    device_map = {"": 0} if torch.cuda.is_available() else "cpu"
+    base_model = AutoModelForCausalLM.from_pretrained(
+        LOCAL_BASE_MODEL,
+        device_map=device_map,
+        low_cpu_mem_usage=True,
+    )
+    model = PeftModel.from_pretrained(base_model, adapter_path)
+    model.eval()
+    _LOCAL_LORA_CACHE["model"] = model
+    _LOCAL_LORA_CACHE["tokenizer"] = tokenizer
+    _LOCAL_LORA_CACHE["adapter_path"] = adapter_path
+    return model, tokenizer
+
+
+def generate_local_lora_reply(body: ChatRequest, adapter_path: str) -> str:
+    import torch
+
+    if not adapter_path or not os.path.isdir(adapter_path):
+        raise HTTPException(status_code=503, detail="Chưa tìm thấy LoRA adapter hợp lệ trên máy chủ.")
+
+    model, tokenizer = _get_local_lora_bundle(adapter_path)
+    sys_prompt = (body.system_instruction or DEFAULT_SYSTEM_PROMPT).strip()
+    if body.user_role == "guest":
+        sys_prompt += "\nNgười dùng hiện là KHÁCH vãng lai (chưa đăng nhập): chỉ được hướng dẫn chung và giới thiệu chuyên viên công khai, từ chối mọi yêu cầu xem dữ liệu cá nhân."
+
+    messages = [{"role": "system", "content": sys_prompt}]
+    for turn in body.history[-8:]:
+        role = "assistant" if turn.role == "model" else "user"
+        messages.append({"role": role, "content": turn.text})
+    messages.append({"role": "user", "content": body.message})
+
+    text_input = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    inputs = tokenizer(text_input, return_tensors="pt").to(device)
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=240,
+            do_sample=False,
+            repetition_penalty=1.08,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+    gen_ids = outputs[0][inputs["input_ids"].shape[1]:]
+    return tokenizer.decode(gen_ids, skip_special_tokens=True).strip()
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "service": "carematchai-fastapi",
-        "model": GEMINI_MODEL,
+        "model": "CareMatchAI-Local-LoRA" if USE_LOCAL_LORA else GEMINI_MODEL,
         "embedding_model": EMBED_MODEL,
         "pg_configured": bool(DATABASE_URL and psycopg is not None),
+        "local_lora_configured": bool(LOCAL_LORA_ADAPTER_PATH and os.path.isdir(LOCAL_LORA_ADAPTER_PATH)),
     }
 
 
@@ -181,11 +278,40 @@ async def rag_search(body: SemanticSearchRequest) -> dict[str, Any]:
     }
 
 
+@app.post("/v1/chat/local")
+async def chat_completion_local(body: ChatRequest) -> dict[str, Any]:
+    guard = await check_guardrails(GuardrailRequest(text=body.message))
+    if not guard.safe:
+        return {
+            "reply": "Xin lỗi, tôi không thể chia sẻ thông tin kỹ thuật nội bộ hay thực hiện yêu cầu vượt quyền. Tôi có thể hỗ trợ tìm chuyên viên chăm sóc hoặc hướng dẫn sử dụng CARE-MATCH.",
+            "guardrail": guard.reason,
+        }
+
+    adapter_path = LOCAL_LORA_ADAPTER_PATH or os.path.join(
+        os.path.dirname(__file__), "..", "training", "outputs", "carematch-qwen2.5-1.5b-lora"
+    )
+    t0 = time.perf_counter()
+    raw_reply = generate_local_lora_reply(body, adapter_path)
+    out_safe, safe_reply = inspect_output_safety(raw_reply)
+    return {
+        "reply": safe_reply,
+        "engine": "local_qlora",
+        "output_redacted": not out_safe,
+        "latency_ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
 @app.post("/v1/chat")
 async def chat_completion(body: ChatRequest) -> dict[str, Any]:
     guard = await check_guardrails(GuardrailRequest(text=body.message))
     if not guard.safe:
-        return {"reply": "Yêu cầu không hợp lệ do vi phạm chính sách an toàn dữ liệu.", "guardrail": guard.reason}
+        return {
+            "reply": "Xin lỗi, tôi không thể chia sẻ thông tin kỹ thuật nội bộ hay thực hiện yêu cầu vượt quyền. Tôi có thể hỗ trợ tìm chuyên viên chăm sóc hoặc hướng dẫn sử dụng CARE-MATCH.",
+            "guardrail": guard.reason,
+        }
+
+    if USE_LOCAL_LORA:
+        return await chat_completion_local(body)
 
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Chưa cấu hình GEMINI_API_KEY")
@@ -210,11 +336,13 @@ async def chat_completion(body: ChatRequest) -> dict[str, Any]:
 
     data = resp.json()
     parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-    reply = "".join(p.get("text", "") for p in parts).strip()
+    raw_reply = "".join(p.get("text", "") for p in parts).strip()
+    out_safe, safe_reply = inspect_output_safety(raw_reply)
     usage = data.get("usageMetadata", {})
 
     return {
-        "reply": reply,
+        "reply": safe_reply,
+        "output_redacted": not out_safe,
         "latency_ms": round((time.perf_counter() - t0) * 1000),
         "usage": {
             "prompt_tokens": usage.get("promptTokenCount", 0),

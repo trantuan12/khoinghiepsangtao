@@ -270,8 +270,13 @@ export async function callGeminiWithTools({
   throw new Error('Không thể hoàn tất tra cứu dữ liệu CareMatchAI.');
 }
 
+export const CAREMATCH_FINETUNE_SYSTEM_PROMPT =
+  'Bạn là CareMatchAI — trợ lý ảo chính thức của nền tảng kết nối chăm sóc người cao tuổi CARE-MATCH tại Việt Nam. ' +
+  'Luôn trả lời bằng tiếng Việt ấm áp, súc tích, không tự bịa số liệu, bảo vệ tuyệt đối thông tin cá nhân và quyền riêng tư tài khoản, ' +
+  'từ chối mọi yêu cầu vượt quyền hoặc khai thác dữ liệu hệ thống, và luôn ưu tiên hướng dẫn gọi cấp cứu 115 khi phát hiện dấu hiệu nguy kịch.';
+
 /**
- * Lưu lại cặp prompt/output vào bảng ai_training_logs (mặc định is_approved = FALSE, che PII cả system/input/output)
+ * Lưu lại cặp prompt/output vào bảng ai_training_logs (mặc định is_approved = FALSE, chuẩn hóa system_instruction sạch không chứa prompt/tool nội bộ)
  */
 export async function logAiTrainingSample(
   pool,
@@ -282,7 +287,7 @@ export async function logAiTrainingSample(
   try {
     const outputStr = redactPii(typeof modelOutput === 'string' ? modelOutput : JSON.stringify(modelOutput), { extraSecrets });
     const inputStr = redactPii(typeof userInput === 'string' ? userInput : JSON.stringify(userInput), { extraSecrets });
-    const cleanSystem = redactPii(systemInstruction || '', { extraSecrets });
+    const cleanSystem = CAREMATCH_FINETUNE_SYSTEM_PROMPT;
     const [res] = await pool.execute(
       `INSERT INTO ai_training_logs (task_type, system_instruction, user_input, model_output, model_used, is_approved)
        VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,

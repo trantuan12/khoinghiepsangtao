@@ -17,7 +17,34 @@ const INJECTION_PATTERNS = [
   /system\s+prompt|developer\s+message|reveal\s+your\s+instructions/i,
   /\b(drop|truncate|alter)\s+table\b|\bdelete\s+from\s+[a-z0-9_]+/i,
   /(lấy|xem|xuất|dump)\s*(toàn\s*bộ\s*)?(mật\s*khẩu|password|cccd|api\s*key|secret|database)/i,
+  /(liệt\s*kê|cho\s*biết|in\s*ra|show|list|print|repeat|output)\s*(tất\s*cả\s*)?(các\s*)?(công\s*cụ|hàm|function|tool|schema|prompt|chỉ\s*thị|quy\s*tắc\s*nội\s*bộ)/i,
+  /(bạn\s+là|đóng\s+vai|giả\s+sử|act\s+as|pretend\s+to\s+be|roleplay).*(admin|quản\s*trị|developer|kiểm\s*thử|audit|hacker|root|pentester)/i,
+  /\b(booking_escrow_payments|ai_training_logs|password_hash|vietqr_api_key|vietqr_client_id|auth_secret|field_encryption_key)\b/i,
+  /(xem|lấy|truy\s*cập|đọc)\s*(dữ\s*liệu|hồ\s*sơ|lịch|bệnh\s*án|giao\s*dịch)\s*(của\s*)?(người\s*khác|tài\s*khoản\s*khác|toàn\s*hệ\s*thống)/i,
 ];
+
+const OUTPUT_SECRET_PATTERNS = [
+  /AIza[0-9A-Za-z_-]{20,}/,
+  /\bsk-[A-Za-z0-9]{20,}\b/,
+  /\b(password_hash|token_version|refresh_token_hash|auth_sessions|ai_training_logs|booking_escrow_payments|ai_metrics_logs|vietqr_api_key|vietqr_client_id|AUTH_SECRET|FIELD_ENCRYPTION_KEY)\b/,
+  /\b(get_my_elderly_profiles|get_my_schedules|get_patient_care_logs|get_my_payments|search_caregivers|get_caregiver_detail|get_platform_info|search_knowledge_base|CAREMATCH_CHAT_TOOL_DECLARATIONS)\b/,
+  /\bsystemInstruction\b/i,
+];
+
+export function inspectOutputSafety(replyText) {
+  const text = String(replyText || '');
+  for (const rx of OUTPUT_SECRET_PATTERNS) {
+    if (rx.test(text)) {
+      return {
+        safe: false,
+        reason: 'output_leak_guard',
+        safeReply:
+          'CareMatchAI chỉ hỗ trợ tư vấn chăm sóc người cao tuổi và thông tin dịch vụ thuộc phạm vi cho phép trên CARE-MATCH. Vui lòng đặt câu hỏi về tìm chuyên viên, bảng giá hoặc chăm sóc sức khỏe.',
+      };
+    }
+  }
+  return { safe: true, reason: null, safeReply: text };
+}
 
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

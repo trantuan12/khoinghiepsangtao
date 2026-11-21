@@ -6,9 +6,27 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { pool, getPgPool, getDbSummary } from './db.js';
-import { callGemini, callGeminiWithTools, getGeminiConfig, logAiTrainingSample, parseDataUrlToGeminiPart } from './ai.js';
-import { CAREMATCH_CHAT_TOOL_DECLARATIONS, executeCareMatchTool, loadAiGroundingKnowledge } from './aiTools.js';
-import { inspectInputSafety, recordAiMetric, redactPii, evaluateMedicalEmergencyRules } from './aiGuardrails.js';
+import {
+  CAREMATCH_FINETUNE_SYSTEM_PROMPT,
+  callGemini,
+  callGeminiWithTools,
+  getGeminiConfig,
+  logAiTrainingSample,
+  parseDataUrlToGeminiPart,
+} from './ai.js';
+import {
+  CAREMATCH_CHAT_TOOL_DECLARATIONS,
+  executeCareMatchTool,
+  getAllowedToolDeclarations,
+  loadAiGroundingKnowledge,
+} from './aiTools.js';
+import {
+  inspectInputSafety,
+  inspectOutputSafety,
+  recordAiMetric,
+  redactPii,
+  evaluateMedicalEmergencyRules,
+} from './aiGuardrails.js';
 import { clearAiChatCache, getCachedChatResponse, setCachedChatResponse } from './aiCache.js';
 import { ensureVectorTable, syncCareMatchKnowledgeVectors } from './rag.js';
 import {
@@ -7774,11 +7792,12 @@ Quy tắc trả lời:
   ];
 
   try {
+    const allowedToolDecls = getAllowedToolDeclarations(userRole, authenticated);
     const aiRes = await withAiQuotaGuard(req, () =>
       callGeminiWithTools({
         systemInstruction,
         contents,
-        functionDeclarations: CAREMATCH_CHAT_TOOL_DECLARATIONS,
+        functionDeclarations: allowedToolDecls,
         executeTool: async (name, args) => {
           if (typeof onStatus === 'function') onStatus('CareMatchAI đang tra cứu dữ liệu hệ thống...');
           return executeCareMatchTool(
@@ -7793,8 +7812,20 @@ Quy tắc trả lời:
       })
     );
 
-    const reply = String(aiRes.parsed.reply);
-    const quickReplies = Array.isArray(aiRes.parsed.quick_replies) ? aiRes.parsed.quick_replies : [];
+    const rawReply = String(aiRes.parsed.reply);
+    const outputGuard = inspectOutputSafety(rawReply);
+    if (!outputGuard.safe) {
+      await writeAuditLog(pool, isMySqlConnected, req, {
+        actorUserId: userId,
+        actorRole: userRole,
+        action: 'security.ai_output_redacted',
+        resourceType: endpoint,
+        status: 'blocked',
+        metadata: { reason: outputGuard.reason },
+      });
+    }
+    const reply = outputGuard.safeReply;
+    const quickReplies = outputGuard.safe && Array.isArray(aiRes.parsed.quick_replies) ? aiRes.parsed.quick_replies : [];
     const latencyMs = Date.now() - reqStart;
     const toolsUsed = aiRes.toolsUsed || [];
 
@@ -7802,22 +7833,25 @@ Quy tắc trả lời:
       success: true,
       reply,
       quick_replies: quickReplies,
-      grounded: toolsUsed.length > 0,
+      grounded: outputGuard.safe && toolsUsed.length > 0,
       tools_used: toolsUsed,
+      ...(outputGuard.safe ? {} : { guardrail: outputGuard.reason }),
       cache_hit: false,
       latency_ms: latencyMs,
       usage: aiRes.usage || { promptTokens: 0, candidatesTokens: 0, totalTokens: 0 },
     };
 
-    setCachedChatResponse(userText, authContext, safeHistory.length, toolsUsed, payload);
+    if (outputGuard.safe) {
+      setCachedChatResponse(userText, authContext, safeHistory.length, toolsUsed, payload);
+    }
 
-    // Tách dữ liệu y tế khỏi dataset fine-tuning: không ghi log nếu phiên chat truy xuất hồ sơ bệnh nhân / sinh hiệu thật
+    // Tách dữ liệu y tế & câu trả lời bị chặn khỏi dataset fine-tuning; chỉ log câu hỏi chung sạch với prompt chuẩn hóa
     const touchedMedicalTools =
       toolsUsed.includes('get_patient_care_logs') || toolsUsed.includes('get_my_elderly_profiles');
-    if (!touchedMedicalTools) {
+    if (outputGuard.safe && !touchedMedicalTools) {
       await logAiTrainingSample(pool, isMySqlConnected, {
         taskType: 'chatbot',
-        systemInstruction,
+        systemInstruction: CAREMATCH_FINETUNE_SYSTEM_PROMPT,
         userInput: { role: userRole, message: userText, tools_used: toolsUsed },
         modelOutput: { reply, quick_replies: quickReplies },
         modelUsed: aiRes.model,
@@ -8154,18 +8188,34 @@ app.get('/api/ai/export-finetune-jsonl', requireAuth(['admin']), async (req, res
       "SELECT * FROM ai_training_logs WHERE is_approved = TRUE AND task_type NOT IN ('ekyc_document_check', 'care_log_summary', 'shift_report_draft') ORDER BY id ASC"
     );
 
-    const lines = rows.map((r) =>
-      JSON.stringify({
+    const lines = rows.map((r) => {
+      let cleanUser = r.user_input;
+      try {
+        const uObj = JSON.parse(cleanUser);
+        if (uObj && typeof uObj === 'object' && uObj.message) {
+          cleanUser = String(uObj.message);
+        }
+      } catch { }
+
+      let cleanModel = r.edited_output || r.model_output;
+      try {
+        const mObj = JSON.parse(cleanModel);
+        if (mObj && typeof mObj === 'object' && mObj.reply) {
+          cleanModel = String(mObj.reply);
+        }
+      } catch { }
+
+      return JSON.stringify({
         systemInstruction: {
           role: 'system',
-          parts: [{ text: redactPii(r.system_instruction) }],
+          parts: [{ text: CAREMATCH_FINETUNE_SYSTEM_PROMPT }],
         },
         contents: [
-          { role: 'user', parts: [{ text: redactPii(r.user_input) }] },
-          { role: 'model', parts: [{ text: redactPii(r.edited_output || r.model_output) }] },
+          { role: 'user', parts: [{ text: redactPii(cleanUser) }] },
+          { role: 'model', parts: [{ text: redactPii(cleanModel) }] },
         ],
-      })
-    );
+      });
+    });
 
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="carematch_finetune_dataset.jsonl"');
