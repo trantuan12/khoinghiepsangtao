@@ -23,6 +23,20 @@ function getStorageKey(userId?: number | null, userRole?: string) {
   return `carematchai_chat_${userRole || 'guest'}_${userId || 'anon'}`;
 }
 
+function renderFormattedMessage(text: string) {
+  const parts = String(text || '').split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return (
+        <strong key={idx} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+}
+
 function nowTime() {
   return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -383,7 +397,7 @@ export function CareMatchChatPanel({
                       : 'bg-white text-[#233524] border border-[#dce8d8] rounded-bl-[4px]'
                   }`}
                 >
-                  {m.content}
+                  {renderFormattedMessage(m.content)}
                 </div>
                 <span className="mt-1 px-1 text-[10px] text-gray-400 flex items-center gap-1.5">
                   <span>{m.time}</span>
